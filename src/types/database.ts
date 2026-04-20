@@ -215,6 +215,10 @@ export interface Database {
           registration_deadline?: string | null;
           auto_lock?: boolean;
           subject_start_number?: number;
+          reminder_day_before_enabled: boolean;
+          reminder_day_before_time: string;
+          reminder_day_of_enabled: boolean;
+          reminder_day_of_time: string;
           project_name?: string | null;
           created_by: string | null;
           created_at: string;
@@ -245,6 +249,10 @@ export interface Database {
           registration_deadline?: string | null;
           auto_lock?: boolean;
           subject_start_number?: number;
+          reminder_day_before_enabled?: boolean;
+          reminder_day_before_time?: string;
+          reminder_day_of_enabled?: boolean;
+          reminder_day_of_time?: string;
           project_name?: string | null;
           created_by?: string | null;
           created_at?: string;
@@ -275,6 +283,10 @@ export interface Database {
           registration_deadline?: string | null;
           auto_lock?: boolean;
           subject_start_number?: number;
+          reminder_day_before_enabled?: boolean;
+          reminder_day_before_time?: string;
+          reminder_day_of_enabled?: boolean;
+          reminder_day_of_time?: string;
           project_name?: string | null;
           created_by?: string | null;
         };

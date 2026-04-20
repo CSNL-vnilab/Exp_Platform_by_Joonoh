@@ -15,7 +15,7 @@ interface ReminderRow {
     slot_end: string;
     status: string;
     participants: { name: string; phone: string; email: string };
-    experiments: { title: string };
+    experiments: { title: string; created_by: string | null };
   };
 }
 
@@ -25,7 +25,7 @@ export async function processReminders(): Promise<number> {
   const { data: reminders } = await supabase
     .from("reminders")
     .select(
-      "id, reminder_type, channel, bookings(id, slot_start, slot_end, status, participants(name, phone, email), experiments(title))"
+      "id, reminder_type, channel, bookings(id, slot_start, slot_end, status, participants(name, phone, email), experiments(title, created_by))"
     )
     .eq("status", "pending")
     .lte("scheduled_at", new Date().toISOString())
@@ -34,6 +34,21 @@ export async function processReminders(): Promise<number> {
   if (!reminders || reminders.length === 0) return 0;
 
   let processed = 0;
+
+  // Resolve researcher contact once per created_by to avoid N+1 profile fetches
+  const creatorCache = new Map<string, { contact_email: string | null }>();
+  async function getCreatorContact(userId: string | null): Promise<string | null> {
+    if (!userId) return null;
+    if (!creatorCache.has(userId)) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("contact_email")
+        .eq("id", userId)
+        .maybeSingle();
+      creatorCache.set(userId, { contact_email: (data?.contact_email || "").trim() || null });
+    }
+    return creatorCache.get(userId)?.contact_email ?? null;
+  }
 
   for (const raw of reminders) {
     const reminder = raw as unknown as ReminderRow;
@@ -53,6 +68,8 @@ export async function processReminders(): Promise<number> {
 
     const safeName = escapeHtml(participant.name);
     const safeTitle = escapeHtml(experiment.title);
+    const researcherEmail = await getCreatorContact(experiment.created_by);
+    const contactLine = researcherEmail || BRAND_CONTACT_EMAIL;
 
     try {
       if (reminder.channel === "email" || reminder.channel === "both") {
@@ -67,16 +84,21 @@ export async function processReminders(): Promise<number> {
             <p><strong>실험명:</strong> ${safeTitle}</p>
             <p><strong>일시:</strong> ${formatDateKR(booking.slot_start)} ${formatTimeKR(booking.slot_start)} - ${formatTimeKR(booking.slot_end)}</p>
             <p>시간에 맞춰 방문 부탁드립니다.</p>
-            <p>문의: ${BRAND_CONTACT_EMAIL}</p>
+            <p>문의: ${contactLine}</p>
           </div>
         `;
 
-        await sendEmail(participant.email, subject, html);
+        await sendEmail({
+          to: participant.email,
+          cc: researcherEmail && researcherEmail !== participant.email ? researcherEmail : undefined,
+          subject,
+          html,
+        });
       }
 
       if (reminder.channel === "sms" || reminder.channel === "both") {
         const text = isEvening
-          ? `[${BRAND_NAME}] 내일 실험 안내\n${participant.name}님, 내일 ${formatTimeKR(booking.slot_start)}에 "${experiment.title}" 실험이 있습니다.\n문의: ${BRAND_CONTACT_EMAIL}`
+          ? `[${BRAND_NAME}] 내일 실험 안내\n${participant.name}님, 내일 ${formatTimeKR(booking.slot_start)}에 "${experiment.title}" 실험이 있습니다.\n문의: ${contactLine}`
           : `[${BRAND_NAME}] 오늘 실험 안내\n${participant.name}님, 오늘 ${formatTimeKR(booking.slot_start)}에 "${experiment.title}" 실험이 예정되어 있습니다.\n시간에 맞춰 방문 부탁드립니다.`;
 
         await sendSMS(participant.phone, text);

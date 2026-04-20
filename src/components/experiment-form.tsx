@@ -68,6 +68,20 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
   const [subjectStartNumber, setSubjectStartNumber] = useState<number>(experiment?.subject_start_number ?? 1);
   const [projectName, setProjectName] = useState<string>(experiment?.project_name ?? "");
 
+  // Reminder schedule (defaults: day-before 18:00 KST + day-of 09:00 KST)
+  const [reminderDayBeforeEnabled, setReminderDayBeforeEnabled] = useState<boolean>(
+    experiment?.reminder_day_before_enabled ?? true,
+  );
+  const [reminderDayBeforeTime, setReminderDayBeforeTime] = useState<string>(
+    (experiment?.reminder_day_before_time ?? "18:00").slice(0, 5),
+  );
+  const [reminderDayOfEnabled, setReminderDayOfEnabled] = useState<boolean>(
+    experiment?.reminder_day_of_enabled ?? true,
+  );
+  const [reminderDayOfTime, setReminderDayOfTime] = useState<string>(
+    (experiment?.reminder_day_of_time ?? "09:00").slice(0, 5),
+  );
+
   const [previewOpen, setPreviewOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [previewConfig, setPreviewConfig] = useState<Record<string, any> | null>(null);
@@ -165,6 +179,10 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
       auto_lock: autoLock,
       subject_start_number: subjectStartNumber,
       project_name: projectName || null,
+      reminder_day_before_enabled: reminderDayBeforeEnabled,
+      reminder_day_before_time: reminderDayBeforeTime,
+      reminder_day_of_enabled: reminderDayOfEnabled,
+      reminder_day_of_time: reminderDayOfTime,
     };
 
     const result = experimentSchema.safeParse(formData);
@@ -251,6 +269,10 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
       auto_lock: autoLock,
       subject_start_number: subjectStartNumber,
       project_name: projectName || null,
+      reminder_day_before_enabled: reminderDayBeforeEnabled,
+      reminder_day_before_time: reminderDayBeforeTime,
+      reminder_day_of_enabled: reminderDayOfEnabled,
+      reminder_day_of_time: reminderDayOfTime,
     };
 
     const result = experimentSchema.safeParse(formData);
@@ -790,6 +812,61 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
                   error={errors.subject_start_number}
                 />
                 <p className="mt-1 text-xs text-muted">첫 참여자에게 할당되는 Sbj 번호입니다. 이후는 자동 증가.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Reminder schedule */}
+        <Card className="lg:col-span-2">
+          <CardContent>
+            <h2 className="text-lg font-semibold text-foreground mb-4">리마인더 일정</h2>
+            <p className="mb-4 text-xs text-muted">
+              예약 확정 후 참여자에게 이메일·SMS 안내를 두 번 발송합니다. 발신 주소는{" "}
+              <code>GMAIL_USER</code>이며 실험자 이메일이 CC됩니다. 필요 시 각 채널을 끄거나 시각을 조정하세요.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={reminderDayBeforeEnabled}
+                    onChange={(e) => setReminderDayBeforeEnabled(e.target.checked)}
+                  />
+                  실험 전날 알림
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={reminderDayBeforeTime}
+                    onChange={(e) => setReminderDayBeforeTime(e.target.value)}
+                    disabled={!reminderDayBeforeEnabled}
+                    className="w-28 rounded-lg border border-border bg-white px-3 py-2 text-sm disabled:opacity-50"
+                  />
+                  <span className="text-xs text-muted">KST · 기본 18:00</span>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={reminderDayOfEnabled}
+                    onChange={(e) => setReminderDayOfEnabled(e.target.checked)}
+                  />
+                  실험 당일 알림
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={reminderDayOfTime}
+                    onChange={(e) => setReminderDayOfTime(e.target.value)}
+                    disabled={!reminderDayOfEnabled}
+                    className="w-28 rounded-lg border border-border bg-white px-3 py-2 text-sm disabled:opacity-50"
+                  />
+                  <span className="text-xs text-muted">KST · 기본 09:00 (슬롯 시작 전에만 발송)</span>
+                </div>
               </div>
             </div>
           </CardContent>

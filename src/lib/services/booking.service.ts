@@ -77,7 +77,7 @@ export async function runPostBookingPipeline(params: {
   const results = await Promise.allSettled([
     runGCal(supabase, rows, creator),
     runNotion(supabase, rows),
-    runEmail(supabase, rows),
+    runEmail(supabase, rows, creator),
     runSMS(supabase, rows),
   ]);
 
@@ -249,7 +249,15 @@ async function runNotion(supabase: Supabase, rows: BookingRow[]) {
   }
 }
 
-async function runEmail(supabase: Supabase, rows: BookingRow[]) {
+interface CreatorContact extends CreatorProfile {
+  contact_email?: string | null;
+}
+
+async function runEmail(
+  supabase: Supabase,
+  rows: BookingRow[],
+  creator: CreatorProfile | null,
+) {
   const participant = rows[0].participants;
   const experiment = rows[0].experiments;
 
@@ -262,6 +270,12 @@ async function runEmail(supabase: Supabase, rows: BookingRow[]) {
     )
     .join("");
 
+  // Researcher contact (used for both footer display and email CC)
+  const creatorContact = creator as CreatorContact | null;
+  const researcherEmail =
+    (creatorContact?.contact_email || creator?.email || "").trim() || null;
+  const contactLine = researcherEmail || BRAND_CONTACT_EMAIL;
+
   const html = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
       <h2>[${BRAND_NAME}] 실험 예약 확정</h2>
@@ -272,15 +286,19 @@ async function runEmail(supabase: Supabase, rows: BookingRow[]) {
       </table>
       <p><strong>예약 시간:</strong></p>
       <ul>${slotList}</ul>
-      <p>문의: ${BRAND_CONTACT_EMAIL}</p>
+      <p>문의: ${contactLine}</p>
     </div>
   `;
 
-  const result = await sendEmail(
-    participant.email,
-    `[${BRAND_NAME}] 실험 예약 확정 - ${experiment.title}`,
+  const ccList =
+    researcherEmail && researcherEmail !== participant.email ? [researcherEmail] : undefined;
+
+  const result = await sendEmail({
+    to: participant.email,
+    cc: ccList,
+    subject: `[${BRAND_NAME}] 실험 예약 확정 - ${experiment.title}`,
     html,
-  );
+  });
 
   for (const booking of rows) {
     if (result.success) {

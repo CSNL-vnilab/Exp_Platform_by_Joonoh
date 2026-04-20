@@ -49,6 +49,11 @@ export const experimentSchema = z.object({
   auto_lock: z.boolean().default(true),
   subject_start_number: z.number().int().min(1).default(1),
   project_name: z.string().max(100).nullable().optional(),
+  // HH:mm (reminder config). Optional inputs — defaults land via DB NOT NULL DEFAULT.
+  reminder_day_before_enabled: z.boolean().default(true),
+  reminder_day_before_time: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),
+  reminder_day_of_enabled: z.boolean().default(true),
+  reminder_day_of_time: z.string().regex(/^\d{2}:\d{2}$/).default("09:00"),
 });
 
 export const bookingRequestSchema = z.object({

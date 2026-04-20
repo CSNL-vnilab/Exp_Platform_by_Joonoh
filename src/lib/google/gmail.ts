@@ -10,17 +10,29 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+export interface SendEmailOptions {
+  to: string;
+  subject: string;
+  html: string;
+  cc?: string | string[];
+}
+
 export async function sendEmail(
-  to: string,
-  subject: string,
-  html: string
+  toOrOptions: string | SendEmailOptions,
+  subject?: string,
+  html?: string,
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const opts: SendEmailOptions =
+    typeof toOrOptions === "string"
+      ? { to: toOrOptions, subject: subject ?? "", html: html ?? "" }
+      : toOrOptions;
   try {
     const info = await transporter.sendMail({
       from: `"${process.env.NEXT_PUBLIC_LAB_NAME || "LAB"}" <${process.env.GMAIL_USER}>`,
-      to,
-      subject,
-      html,
+      to: opts.to,
+      cc: opts.cc,
+      subject: opts.subject,
+      html: opts.html,
     });
     return { success: true, messageId: info.messageId };
   } catch (err) {
