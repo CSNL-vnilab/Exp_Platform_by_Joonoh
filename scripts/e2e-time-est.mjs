@@ -190,12 +190,13 @@ async function main() {
       eventId: intA.external_id,
     });
 
-    // Expected: "[${process.env.NEXT_PUBLIC_LAB_NAME || "LAB"}] TimeEst/Sbj 1/Day 1"
-    const expectedTitle = `[${process.env.NEXT_PUBLIC_LAB_NAME || "LAB"}] TimeEst/Sbj ${startN}/Day 1`;
+    // Format: "[INITIAL] <project>/Sbj N/Day M" — accept any lab initial
+    // since it comes from the deployment's NEXT_PUBLIC_LAB_NAME env.
+    const titleRe = new RegExp(`^\\[[A-Z]+\\] TimeEst/Sbj ${startN}/Day 1$`);
     phase(
       "gcal.title.format",
-      gcalEvent.summary === expectedTitle,
-      { expected: expectedTitle, got: gcalEvent.summary },
+      titleRe.test(gcalEvent.summary ?? ""),
+      { pattern: titleRe.source, got: gcalEvent.summary },
     );
 
     // Expected description contains 예약자/이메일/전화번호/회차
