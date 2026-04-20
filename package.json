@@ -6,21 +6,47 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:cloudflare": "npx @opennextjs/cloudflare build",
+    "deploy": "npx wrangler deploy",
+    "bootstrap-admin": "node scripts/bootstrap-admin.mjs",
+    "install-service-account": "node scripts/install-service-account.mjs",
+    "push-secrets": "node scripts/push-secrets.mjs",
+    "push-vercel-env": "node scripts/push-vercel-env.mjs",
+    "e2e-booking": "node scripts/e2e-booking-test.mjs",
+    "e2e-time-est": "node scripts/e2e-time-est.mjs",
+    "reviewer-team": "node scripts/reviewer-team.mjs",
+    "review": "node scripts/review.mjs",
+    "review:deep": "node scripts/review.mjs --deep",
+    "review:fast": "node scripts/review.mjs --fast",
+    "ai:health": "curl -s http://127.0.0.1:11434/api/tags | node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);console.log(j.models.map(m=>m.name).sort().join('\\n'));})\""
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@notionhq/client": "^5.18.0",
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.103.0",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "googleapis": "^171.4.0",
     "next": "16.2.3",
+    "nodemailer": "^8.0.5",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-hook-form": "^7.72.1",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.19.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.82.2"
   }
 }

@@ -1,0 +1,29 @@
+-- Enable required extensions (must be enabled via Supabase Dashboard first)
+-- CREATE EXTENSION IF NOT EXISTS pg_cron;
+-- CREATE EXTENSION IF NOT EXISTS pg_net;
+
+-- NOTE: pg_cron and pg_net must be enabled from the Supabase Dashboard:
+-- Database > Extensions > Search for pg_cron and pg_net > Enable
+
+-- After enabling extensions, run this in the SQL Editor:
+-- (Block comments `/* */` cannot be used here because the cron expression
+-- `*/5 * * * *` contains `*/` which would terminate the comment early.)
+--
+-- SELECT cron.schedule(
+--   'process-reminders',
+--   '*/5 * * * *',
+--   $$
+--   SELECT net.http_post(
+--     url := current_setting('app.settings.app_url') || '/api/notifications/reminders',
+--     headers := jsonb_build_object(
+--       'Content-Type', 'application/json',
+--       'x-cron-secret', current_setting('app.settings.cron_secret')
+--     ),
+--     body := '{}'::jsonb
+--   );
+--   $$
+-- );
+--
+-- To set the app settings (run in SQL Editor after deployment):
+-- ALTER DATABASE postgres SET app.settings.app_url = 'https://your-app.workers.dev';
+-- ALTER DATABASE postgres SET app.settings.cron_secret = 'your-cron-secret-here';
