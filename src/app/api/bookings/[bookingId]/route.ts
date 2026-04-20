@@ -249,7 +249,7 @@ export async function PATCH(
   }
 
   // GCal busy check (best-effort, ignore the booking's own event)
-  const calendarId = exp.google_calendar_id || process.env.GOOGLE_CALENDAR_ID;
+  const calendarId = (exp.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || "").trim() || null;
   if (calendarId) {
     try {
       const busy = await getFreeBusy(calendarId, newStart, newEnd);

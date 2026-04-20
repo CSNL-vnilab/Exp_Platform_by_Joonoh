@@ -110,13 +110,19 @@ export async function GET(
   // Single freebusy call across the whole range (best-effort)
   let busyIntervals: BusyInterval[] = [];
   let calendarWarning: string | null = null;
-  const calendarId = experiment.google_calendar_id || process.env.GOOGLE_CALENDAR_ID;
+  // Always trim — pasted env values / DB rows often carry stray whitespace
+  // that Google's API silently rejects.
+  const calendarId = (
+    experiment.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
+  ).trim() || null;
+  const bypassCache = request.nextUrl.searchParams.get("fresh") === "1";
   if (calendarId) {
     try {
       busyIntervals = await getCachedFreeBusy(
         calendarId,
         new Date(rangeStartUTC),
         new Date(rangeEndUTC),
+        { force: bypassCache },
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "알 수 없는 오류";

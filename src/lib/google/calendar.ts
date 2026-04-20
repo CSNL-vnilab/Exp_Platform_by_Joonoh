@@ -84,7 +84,7 @@ export async function deleteEvent(calendarId: string, eventId: string): Promise<
     const auth = getGoogleAuth();
     const calendar = google.calendar({ version: "v3", auth });
     try {
-      await calendar.events.delete({ calendarId, eventId });
+      await calendar.events.delete({ calendarId: calendarId.trim(), eventId });
     } catch (err: unknown) {
       // 404/410 are fine — the event is already gone. Swallow to keep
       // reschedule flows idempotent.

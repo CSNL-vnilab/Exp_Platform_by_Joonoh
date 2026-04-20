@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 
   let busyIntervals: BusyInterval[] = [];
   let calendarWarning: string | null = null;
-  const calendarId = cfg.google_calendar_id || process.env.GOOGLE_CALENDAR_ID;
+  const calendarId = (cfg.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || "").trim() || null;
   if (calendarId) {
     try {
       // Preview is researcher-initiated; force a fresh fetch so they see

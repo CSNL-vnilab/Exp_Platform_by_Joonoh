@@ -178,8 +178,9 @@ async function runGCal(
   rows: BookingRow[],
   creator: CreatorProfile | null,
 ) {
-  const calendarId =
-    rows[0].experiments.google_calendar_id || process.env.GOOGLE_CALENDAR_ID;
+  const calendarId = (
+    rows[0].experiments.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
+  ).trim() || null;
   if (!calendarId) {
     for (const b of rows) await markIntegration(supabase, b.id, "gcal", { status: "skipped" });
     return;
@@ -360,8 +361,9 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
     creator = (data as CreatorProfile | null) ?? null;
   }
 
-  const calendarId =
-    row.experiments.google_calendar_id || process.env.GOOGLE_CALENDAR_ID;
+  const calendarId = (
+    row.experiments.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
+  ).trim() || null;
 
   // Delete old GCal event (if any)
   if (calendarId && params.oldEventId) {

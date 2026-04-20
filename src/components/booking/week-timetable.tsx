@@ -129,12 +129,13 @@ export function WeekTimetable({
     experiment.session_type === "multi" ? experiment.required_sessions : 1;
   const enforceUniqueDate = experiment.session_type === "multi";
 
-  const fetchRange = useCallback(async () => {
+  const fetchRange = useCallback(async (opts: { force?: boolean } = {}) => {
     setLoading(true);
     setError(null);
     try {
+      const qs = opts.force ? "&fresh=1" : "";
       const res = await fetch(
-        `/api/experiments/${experimentId}/slots/range?from=${experiment.start_date}&to=${experiment.end_date}`,
+        `/api/experiments/${experimentId}/slots/range?from=${experiment.start_date}&to=${experiment.end_date}${qs}`,
       );
       const data = await res.json();
       if (!res.ok) {
@@ -310,15 +311,29 @@ export function WeekTimetable({
           ⚠ {calendarWarning}
         </div>
       )}
-      {/* Legend + counter */}
+      {/* Legend + counter + refresh */}
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex flex-wrap items-center gap-3">
           <LegendSwatch className="bg-green-100 border-green-300" label="예약 가능" />
           <LegendSwatch className="bg-primary border-primary text-white" label="내가 선택" />
           <LegendSwatch className="bg-gray-100 border-gray-300 text-muted" label="마감/불가" />
         </div>
-        <div className="text-sm font-medium text-foreground">
-          {selectedSlots.length} / {requiredSessions} 선택됨
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => fetchRange({ force: true })}
+            disabled={loading}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-foreground hover:bg-card disabled:opacity-50"
+            title="Google Calendar에서 최신 일정을 다시 불러옵니다"
+          >
+            <svg className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114.9-2.5M20 15a8 8 0 01-14.9 2.5" />
+            </svg>
+            새로고침
+          </button>
+          <div className="text-sm font-medium text-foreground">
+            {selectedSlots.length} / {requiredSessions} 선택됨
+          </div>
         </div>
       </div>
 
