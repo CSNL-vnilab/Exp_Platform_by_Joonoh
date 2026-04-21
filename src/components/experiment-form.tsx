@@ -99,8 +99,11 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
       try {
         const res = await fetch("/api/locations");
         if (!cancelled && res.ok) {
-          const data: ExperimentLocation[] = await res.json();
-          setLocations(data);
+          const json = await res.json();
+          const list: ExperimentLocation[] = Array.isArray(json)
+            ? json
+            : (json.locations ?? []);
+          setLocations(list);
         }
       } catch {
         // non-fatal: select will just be empty
