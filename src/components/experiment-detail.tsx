@@ -251,9 +251,6 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
           <Button variant="secondary" size="sm" onClick={handleCopyLink}>
             예약 링크 복사
           </Button>
-          <Button variant="secondary" size="sm" disabled={updating} onClick={handleDuplicate}>
-            실험 복사
-          </Button>
           <Button variant="secondary" size="sm" onClick={openBlockModal}>
             수동 블록 관리
           </Button>
@@ -379,6 +376,18 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Secondary actions (bottom-left) */}
+      <div className="mt-6 flex justify-start">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={updating}
+          onClick={handleDuplicate}
+        >
+          실험 복사
+        </Button>
       </div>
 
       {/* 수동 블록 관리 Modal */}

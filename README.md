@@ -1,148 +1,144 @@
 # Exp_Platform by Joonoh
 
-**An open booking platform for research labs** — replaces the patchwork of
-Google Forms + Google Calendar + spreadsheets most experiments rely on.
+**연구실 공용 실험 스케쥴링 플랫폼**
 
-Every page carries a watermark linking back to this repo; fork it for your
-lab, keep the credit line.
-
----
-
-## 왜 Google Forms/Calendar 보다 안전하고 편리한가
-
-| | Google Forms + Calendar | **Exp_Platform** |
-|---|---|---|
-| **동시 예약 충돌** | ✗ 두 명이 같은 슬롯을 동시에 채울 수 있음 | ✓ Postgres advisory lock + `book_slot` RPC로 원자적 검증 |
-| **과거 시간 예약 차단** | ✗ 수동 확인 | ✓ DB 레벨 `PAST_SLOT` 거절 |
-| **캘린더 기존 일정과 겹침 방지** | ✗ 사람이 일일이 확인 | ✓ Google Calendar FreeBusy API 자동 반영 (5분 TTL 캐시) |
-| **다회차 실험 일정 배정** | ✗ 폼/캘린더로는 불가능에 가까움 | ✓ when2meet 스타일 주간 시간표, 회차는 날짜순 자동 번호 |
-| **PII 최소 노출** | 참가자 정보 폼·캘린더 평문 저장 | ✓ 캘린더 제목은 `[INIT] Proj/Sbj N/Day M`, 이름/연락처는 내부 설명 필드만 |
-| **권한 체계** | 시트/폴더 공유 권한 (거친 제어) | ✓ Supabase RLS — 연구원=소유 실험만, 관리자=전체 |
-| **동시성 안전 알림** | ✗ 수동 메일/문자 | ✓ outbox 패턴 (GCal + Notion + Gmail + SMS 상태 추적) |
-| **모집 마감/자동 잠금** | ✗ | ✓ 모든 슬롯 소진 시 자동 `completed` 전환 |
-| **수동 블록** | ✗ | ✓ 연구원이 특정 시간대 수동 차단 |
-| **예약 변경 (관리자)** | ✗ | ✓ 새 슬롯 선택 → 기존 캘린더 이벤트 삭제 + 재생성 + 알림 |
-| **데이터 소유권** | Google 계정에 귀속 | ✓ 본인의 Supabase DB (마이그레이션으로 복제 가능) |
-| **비용** | 무료 | ✓ **Supabase Free + Vercel Free + Gmail App Password — 월 0원** |
+한 연구실 안에서 여러 연구자가 동시에 서로 다른 실험을 돌릴 때,
+참여자 모집·예약·알림·캘린더 관리를 한 곳에서 처리합니다.
+구글 폼 + 구글 캘린더 + 엑셀을 오가며 일정 꼬이던 일을 줄이는 것이 목표입니다.
 
 ---
 
-## 어떻게 작동하는가
+## 한눈에 보기
 
-```
-        ┌─────────────────────────────────────────────────────────────┐
-        │                     참여자 (공개 URL)                        │
-        │                                                              │
-        │   /book/[experimentId]                                       │
-        │        │                                                     │
-        │        ▼                                                     │
-        │   GET /api/experiments/:id/slots/range                       │
-        │        │                                                     │
-        │        ▼                                                     │
-        │   WeekTimetable  (when2meet 스타일 그리드)                    │
-        └─────────────┬───────────────────────────────────────────────┘
-                      │ POST /api/bookings
-                      ▼
-        ┌─────────────────────────────────────────────────────────────┐
-        │   book_slot RPC  (Postgres)                                  │
-        │   ├─ 과거 슬롯 거절 (PAST_SLOT)                              │
-        │   ├─ 요일/기간/중복/용량 검증                                 │
-        │   ├─ advisory lock (동시성)                                   │
-        │   ├─ Sbj 번호 할당 (선착순, subject_start_number부터)          │
-        │   └─ confirmed 상태 insert                                    │
-        └─────────────┬───────────────────────────────────────────────┘
-                      │ await runPostBookingPipeline()
-                      ▼
-      ┌───────────┬──────────┬───────────┬──────────┐
-      │  GCal     │  Notion  │   Gmail   │  SOLAPI  │
-      │  이벤트   │  페이지   │  확정 메일 │  알림톡   │
-      │  생성     │  생성     │            │           │
-      └─────┬─────┴────┬─────┴─────┬──────┴────┬─────┘
-            ▼          ▼           ▼            ▼
-       ┌────────────────────────────────────────────┐
-       │  booking_integrations (outbox)              │
-       │  status = pending | completed | failed      │
-       │  재시도 가능, 감사 로그                       │
-       └────────────────────────────────────────────┘
-                      │
-                      ▼
-        ┌─────────────────────────────────────────────────────────────┐
-        │   확정 페이지 (/book/:id/confirm)                             │
-        │   ├─ 장소 + 네이버 지도 임베드                                 │
-        │   ├─ 담당자: 이름 (010-xxxx) + 이메일                          │
-        │   └─ 회차별 예약 시간 요약                                     │
-        └─────────────────────────────────────────────────────────────┘
-```
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" width="960" height="520" role="img" aria-label="Lab reservation platform architecture">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #9ca3af; stroke-width: 1.5; rx: 10; ry: 10; }
+      .accent { fill: #eff6ff; stroke: #60a5fa; }
+      .hub { fill: #fef3c7; stroke: #f59e0b; }
+      .out { fill: #ecfdf5; stroke: #34d399; }
+      .title { font: 600 15px -apple-system, 'Segoe UI', sans-serif; fill: #111827; }
+      .sub { font: 13px -apple-system, 'Segoe UI', sans-serif; fill: #374151; }
+      .note { font: italic 12px -apple-system, 'Segoe UI', sans-serif; fill: #6b7280; }
+      .edge { stroke: #6b7280; stroke-width: 1.6; fill: none; }
+    </style>
+  </defs>
+
+  <text x="480" y="34" text-anchor="middle" class="title" style="font-size:17px;">연구실 공용 실험 스케쥴링 플랫폼</text>
+
+  <!-- Admin -->
+  <rect class="box accent" x="40" y="80" width="200" height="90"/>
+  <text x="140" y="112" text-anchor="middle" class="title">연구자 (admin)</text>
+  <text x="140" y="136" text-anchor="middle" class="sub">실험 생성 · 슬롯 설정</text>
+  <text x="140" y="156" text-anchor="middle" class="sub">예약 관리</text>
+
+  <!-- Participant -->
+  <rect class="box accent" x="40" y="340" width="200" height="90"/>
+  <text x="140" y="372" text-anchor="middle" class="title">참여자 (browser)</text>
+  <text x="140" y="396" text-anchor="middle" class="sub">공개 예약 링크</text>
+  <text x="140" y="416" text-anchor="middle" class="sub">시간대 선택</text>
+
+  <!-- Vercel / Next.js -->
+  <rect class="box hub" x="380" y="210" width="200" height="100"/>
+  <text x="480" y="244" text-anchor="middle" class="title">Vercel</text>
+  <text x="480" y="266" text-anchor="middle" class="sub">Next.js 16 앱</text>
+  <text x="480" y="288" text-anchor="middle" class="sub">예약 · 검증 · 오케스트레이션</text>
+
+  <!-- Supabase -->
+  <rect class="box out" x="720" y="90" width="200" height="80"/>
+  <text x="820" y="122" text-anchor="middle" class="title">Supabase</text>
+  <text x="820" y="146" text-anchor="middle" class="sub">Postgres · Auth · RLS</text>
+
+  <!-- Google Calendar -->
+  <rect class="box out" x="720" y="220" width="200" height="80"/>
+  <text x="820" y="252" text-anchor="middle" class="title">Google Calendar</text>
+  <text x="820" y="276" text-anchor="middle" class="sub">일정 자동 생성</text>
+
+  <!-- Gmail -->
+  <rect class="box out" x="720" y="350" width="200" height="80"/>
+  <text x="820" y="382" text-anchor="middle" class="title">Gmail (SMTP)</text>
+  <text x="820" y="406" text-anchor="middle" class="sub">확정 · 변경 알림</text>
+
+  <!-- Edges from actors to hub -->
+  <path class="edge" d="M240,125 C310,125 320,230 380,240" marker-end="url(#arr)"/>
+  <path class="edge" d="M240,385 C310,385 320,290 380,280" marker-end="url(#arr)"/>
+
+  <!-- Edges hub to services -->
+  <path class="edge" d="M580,235 C640,230 660,140 720,130" marker-end="url(#arr)"/>
+  <path class="edge" d="M580,260 L720,260" marker-end="url(#arr)"/>
+  <path class="edge" d="M580,285 C640,290 660,380 720,390" marker-end="url(#arr)"/>
+
+  <!-- Bottom flow caption -->
+  <text x="480" y="480" text-anchor="middle" class="note">연구자가 실험 생성 → 참여자가 예약 → DB 저장 + 캘린더 등록 + 메일 알림</text>
+</svg>
 
 ---
 
-## 실험자 UI
+## 뭐가 되나요
 
-### 실험 생성 폼 (`/experiments/new`)
+- 연구자가 실험을 만들고 요일/시간/장소/회차/모집 마감을 지정합니다.
+- 참여자는 공개 링크로 접속해 when2meet 스타일의 주간 그리드에서 시간대를 고릅니다.
+- 동시에 두 명이 같은 슬롯을 누르면 DB 레벨에서 한 쪽만 통과합니다 (Postgres advisory lock).
+- 확정되면 Google Calendar에 일정이 올라가고, 참여자에게 Gmail로 확정 메일이 나갑니다.
+- 관리자는 예약 변경/취소를 할 수 있고, 캘린더 이벤트와 메일도 같이 갱신됩니다.
+- 모든 슬롯이 차면 실험이 자동으로 모집 완료 상태가 됩니다.
 
-- 제목 · 설명 · 기간 · 일일 운영시간
-- **요일 체크박스** (월~일)
-- **연구 카테고리 복수선택**: 오프라인 행동실험 / MRI / 뇌자극 / 안구추적 / 온라인 행동 실험
-- **장소** — 관리자가 `/locations`에서 관리하는 목록에서 선택
-- 세션 유형: 단일 / 다중(N회차)
-- **Sbj 시작 번호** (예: 10부터)
-- **프로젝트 약칭** (캘린더 제목에 사용)
-- **모집 마감일** + **자동 잠금**
-- **예방 수칙 체크리스트** (IRB용 사전 확인)
-- **미리보기**: 실제 캘린더 조회 후 참여자가 볼 슬롯 즉시 확인
+## Google Form + Calendar 대비 좋은 점
+
+- 두 명이 같은 시간을 잡는 사고가 구조적으로 막힙니다.
+- 지나간 시간을 고르는 것을 DB가 거절합니다.
+- 기존 캘린더 일정과 겹치는 시간은 FreeBusy API로 자동 제외됩니다.
+- 다회차 실험 (N회차)의 회차 번호가 날짜순으로 자동 부여됩니다.
+- 참여자 이름/연락처는 캘린더 제목이 아니라 내부 설명 필드에만 저장됩니다.
+- 연구자 권한은 Supabase RLS로 분리됩니다. 각자 자기 실험만 건드립니다.
+- 한 달에 0원으로 돌릴 수 있습니다 (Supabase Free + Vercel Free + Gmail 앱 비밀번호).
+
+---
+
+## 연구자가 쓰는 화면
+
+### 실험 만들기 (`/experiments/new`)
+- 제목, 설명, 기간, 하루 운영시간
+- 요일 체크박스 (월~일)
+- 카테고리: 오프라인 행동실험 / MRI / 뇌자극 / 안구추적 / 온라인
+- 장소는 관리자가 `/locations`에서 미리 만들어둔 목록에서 선택
+- 단일 세션 / 다회차 (N회차) 선택
+- Sbj 시작 번호, 프로젝트 약칭 (캘린더 제목 포맷에 들어감)
+- 모집 마감일 + 자동 잠금
+- IRB용 예방 수칙 체크리스트
+- 만들기 전 미리보기로 실제 슬롯을 확인
 
 ### 실험 상세 (`/experiments/:id`)
-- 수정 · 실험 복사 · 예약 링크 복사 · **수동 블록 관리** · **완전 삭제**
+- 수정, 복사, 예약 링크 복사, 특정 시간대 수동 차단, 완전 삭제
 
 ### 예약 관리 (`/experiments/:id/bookings`)
-- 예약 목록 (Sbj/회차/시간/참가자)
-- 각 행에 **[예약 변경]** [예약 취소] 버튼
-- 예약 변경: 관리자 전용, 새 슬롯 선택 → GCal 이벤트 자동 이동 + 알림 발송
+- 예약 목록 (Sbj 번호, 회차, 시간, 참가자)
+- 예약 변경: 새 슬롯 선택 시 캘린더 이벤트 이동 + 알림 자동 재발송
+- 예약 취소
 
-### 사용자 관리 (`/users`, 관리자 전용)
-- 연구원 ID 발급 · 역할 변경 · 활성/비활성
-- 연구원 본인 가입 시 승인 대기 큐
-
-### 장소 관리 (`/locations`, 관리자 전용)
-- 실험실 이름 · 주소 (여러 줄) · 네이버 지도 링크
-- 연구원 폼의 장소 드롭다운이 여기를 참조
+### 사용자/장소 관리 (관리자 전용)
+- 연구원 승인, 역할 변경, 활성화
+- 실험실 이름, 주소, 네이버 지도 링크 관리
 
 ---
 
-## 실험 DB 스키마 (Notion 확장 가능)
+## 참여자가 쓰는 화면
 
-핵심 테이블:
-- `experiments` — 실험 파라미터 전체
-- `bookings` — 참여자 예약 (Sbj 번호, 회차, GCal/Notion 외부 ID 포함)
-- `participants` — 참여자 마스터 (전화+이메일 유니크)
-- `experiment_locations` — 관리자 관리 장소
-- `experiment_manual_blocks` — 연구원 수동 차단
-- `booking_integrations` — 외부 연동 상태 (outbox)
-- `profiles` — 로그인 + 연락처
-- `registration_requests` — 승인 대기 연구원
+공개 링크 (`/book/:experimentId`) 3단계:
+1. 이름 · 전화 · 이메일 · 성별 · 생년월일
+2. 주간 시간표에서 시간대 고르기 (다회차는 `N/M 선택됨` 카운터)
+3. 참여비·일정 확인 후 확정
 
-Notion 연동(`NOTION_*` env 설정 시 자동):
-- 예약 확정 → Notion DB 페이지 생성 (참가자/일시/상태/회차)
-- 향후 확장: 실험 진행 상태, 연구 메모, 파일 저장 경로, 간트 차트 Timeline view
-
----
-
-## 참여자 UI
-
-공개 예약 링크 (`/book/:experimentId`) → 3단계 마법사:
-1. **참여자 정보** — 이름/전화/이메일/성별/생년월일(YYMMDD 6자리)
-2. **시간대 선택** — when2meet 스타일 주간 시간표. 다회차는 `N/M 선택됨` 카운터. 회차 번호는 **날짜순 자동 배정**.
-3. **예약 확인** — 참여비·일정 요약 후 확정
-
-확정 후 안내 페이지:
-- 장소 + 네이버 지도 버튼
-- 📞 문의: 담당자 이름 (010-xxxx) · 이메일
+확정 페이지에서 장소, 네이버 지도, 담당자 연락처를 볼 수 있습니다.
 
 ---
 
 ## 알림 예시
 
-### 예약 확정 이메일 (`GMAIL_USER`에서 발송)
+**예약 확정 메일**
 ```
 Subject: [LAB] 실험 예약 확정 - 시간추정실험 1
 
@@ -157,7 +153,7 @@ Subject: [LAB] 실험 예약 확정 - 시간추정실험 1
 문의: contact@example.edu
 ```
 
-### 예약 변경 이메일
+**예약 변경 메일**
 ```
 Subject: [LAB] 실험 예약 변경 - 시간추정실험 1
 
@@ -165,51 +161,26 @@ Subject: [LAB] 실험 예약 변경 - 시간추정실험 1
 
 이전 일정:  (취소선) 4월 25일 13:00-14:00
 변경된 일정: 4월 28일 15:00-16:00
-
-문의: contact@example.edu
-```
-
-### SMS (SOLAPI 설정 시)
-```
-[LAB] 예약확정
-홍길동님, "시간추정실험 1" 실험이 예약되었습니다.
-일시: 2026년 4월 25일 13:00
-문의: contact@example.edu
 ```
 
 ---
 
-## 구축에 필요한 것
+## 선택: Notion 연동
 
-**모두 무료 tier로 운영 가능:**
+실험 날짜 · 실험자 · 파라미터 · 데이터 경로 같은 메타데이터를 Notion DB와 연동해
+랩 노트처럼 같이 관리하는 것도 가능합니다 (선택/확장 옵션).
 
-| 서비스 | 용도 | 비용 |
-|---|---|---|
-| [Supabase](https://supabase.com) | DB + Auth + Realtime | Free (500MB + 50k MAU) |
-| [Vercel](https://vercel.com) | 호스팅 | Free (100GB bandwidth) |
-| [Google Cloud Console](https://console.cloud.google.com) | Calendar API (서비스 계정) | Free |
-| [Gmail App Password](https://myaccount.google.com/apppasswords) | 이메일 발송 | Free |
-| (선택) [Notion](https://notion.so) | 실험 프로젝트 트래킹 | Free |
-| (선택) [SOLAPI](https://solapi.com) | 한국 SMS | 1건 11원 수준 |
-| (선택) [Ollama](https://ollama.ai) + Gemma/Qwen | 로컬 코드 리뷰 에이전트 | Free |
+---
 
-### 로컬 서버 사양 (개발 중)
-- **최소**: macOS/Linux, Node 22+, Docker (로컬 Supabase용)
-- **권장**: 8GB RAM (로컬 Ollama 리뷰 루프 사용 시 16GB+ 권장)
-- **프로덕션**: Vercel serverless이라 별도 서버 불필요
+## 기술 스택
 
-### 필요한 토큰
-`.env.example` 참조. 핵심 네 개:
-1. **Supabase**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-2. **Google Calendar**: service account JSON (Keys 탭에서 발급) — `npm run install-service-account <json> <calendar-id>`로 자동 주입
-3. **Gmail**: `GMAIL_USER` + `GMAIL_APP_PASSWORD` (16자 앱 비밀번호)
-4. **내부**: `CRON_SECRET` — `openssl rand -hex 32`
+- **Next.js 16** (App Router) + React 19
+- **Supabase** (Postgres + Auth + RLS)
+- **Vercel** (호스팅)
+- **Google Calendar API** (서비스 계정)
+- **Gmail SMTP** (앱 비밀번호)
 
-### 다른 AI/알림 모델로 교체 가능
-- SMS: SOLAPI 대신 Twilio/NCP SENS → `src/lib/solapi/client.ts` 교체
-- 이메일: Gmail 대신 Resend/Postmark → `src/lib/google/gmail.ts` 교체
-- 캘린더: Google Calendar 대신 Outlook/CalDAV → `src/lib/google/calendar.ts` 교체
-- 리뷰 에이전트: gemma4 대신 qwen3/llama3 등 → `src/lib/ollama/models.ts` 조정
+전부 무료 tier로 운영 가능합니다.
 
 ---
 
@@ -219,33 +190,36 @@ Subject: [LAB] 실험 예약 변경 - 시간추정실험 1
 git clone https://github.com/CSNL-vnilab/Exp_Platform_by_Joonoh.git
 cd Exp_Platform_by_Joonoh
 npm install
-cp .env.example .env.local  # 채우기
+cp .env.example .env.local   # 값 채우기
 
-# Supabase Cloud 프로젝트 생성 후
 supabase login
 supabase link --project-ref <your-ref>
-supabase db push              # 19개 마이그레이션 자동 적용
+supabase db push             # 마이그레이션 적용
 
-npm run bootstrap-admin       # 관리자 계정 생성 (csnl/slab1234 기본)
-npm run dev                   # http://localhost:3000
+npm run bootstrap-admin      # 관리자 계정 생성
+npm run dev                  # http://localhost:3000
 ```
 
-Vercel 배포:
+필요한 키 (핵심 네 개):
+1. Supabase: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+2. Google Calendar: 서비스 계정 JSON → `npm run install-service-account <json> <calendar-id>`
+3. Gmail: `GMAIL_USER` + `GMAIL_APP_PASSWORD`
+4. 내부: `CRON_SECRET` (`openssl rand -hex 32`)
+
+## Vercel 배포
+
 ```bash
 npx vercel link
-npm run push-vercel-env       # .env.local → Vercel env
+npm run push-vercel-env      # .env.local → Vercel
 npx vercel deploy --prod
 ```
-
----
 
 ## 테스트
 
 ```bash
-npm run e2e-booking         # 단일 세션 풀 싸이클
-npm run e2e-time-est        # 다회차 + Sbj 할당 + 캘린더 제목 포맷
-npm run e2e-multi-sbj10     # 여러 참여자 연속 예약
-npm run reviewer-team       # 로컬 Ollama 3개 모델 병렬 코드 리뷰
+npm run e2e-booking          # 단일 세션 풀 싸이클
+npm run e2e-time-est         # 다회차 + Sbj 할당
+npm run e2e-multi-sbj10      # 여러 참여자 연속 예약
 ```
 
 ---
@@ -254,4 +228,4 @@ npm run reviewer-team       # 로컬 Ollama 3개 모델 병렬 코드 리뷰
 
 Built by **Joonoh** · [github.com/CSNL-vnilab/Exp_Platform_by_Joonoh](https://github.com/CSNL-vnilab/Exp_Platform_by_Joonoh)
 
-MIT License — 자유롭게 포크/개조하시되 모든 페이지 하단의 크레딧 워터마크는 유지해주세요.
+MIT License — 자유롭게 포크/개조하시되 페이지 하단의 크레딧은 남겨주세요.

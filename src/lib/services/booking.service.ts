@@ -373,7 +373,7 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   if (row.experiments.created_by) {
     const { data } = await supabase
       .from("profiles")
-      .select("email, display_name, phone")
+      .select("email, display_name, phone, contact_email")
       .eq("id", row.experiments.created_by)
       .maybeSingle();
     creator = (data as CreatorProfile | null) ?? null;
@@ -428,6 +428,11 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   const oldLine = `${formatDateKR(params.oldSlotStart)} ${formatTimeKR(params.oldSlotStart)} - ${formatTimeKR(params.oldSlotEnd)}`;
   const newLine = `${formatDateKR(row.slot_start)} ${formatTimeKR(row.slot_start)} - ${formatTimeKR(row.slot_end)}`;
 
+  const creatorContact = creator as CreatorContact | null;
+  const researcherEmail =
+    (creatorContact?.contact_email || creator?.email || "").trim() || null;
+  const contactLine = researcherEmail || BRAND_CONTACT_EMAIL;
+
   const html = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
       <h2>[${BRAND_NAME}] 실험 예약 변경 안내</h2>
@@ -438,14 +443,17 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
         <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">이전 일정</td><td style="padding: 8px; border: 1px solid #ddd; color:#888; text-decoration:line-through">${escapeHtml(oldLine)}</td></tr>
         <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background:#fef3c7;">변경된 일정</td><td style="padding: 8px; border: 1px solid #ddd; background:#fef3c7;"><b>${escapeHtml(newLine)}</b></td></tr>
       </table>
-      <p>문의: ${BRAND_CONTACT_EMAIL}</p>
+      <p>문의: ${contactLine}</p>
     </div>
   `;
-  const emailResult = await sendEmail(
-    participant.email,
-    `[${BRAND_NAME}] 실험 예약 변경 - ${experiment.title}`,
+  const ccList =
+    researcherEmail && researcherEmail !== participant.email ? [researcherEmail] : undefined;
+  const emailResult = await sendEmail({
+    to: participant.email,
+    cc: ccList,
+    subject: `[${BRAND_NAME}] 실험 예약 변경 - ${experiment.title}`,
     html,
-  );
+  });
   await markIntegration(supabase, row.id, "email", {
     status: emailResult.success ? "completed" : "failed",
     external_id: emailResult.messageId,
