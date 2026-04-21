@@ -41,17 +41,18 @@ export async function getFreeBusy(
   timeMin: Date,
   timeMax: Date,
 ): Promise<Array<{ start: Date; end: Date }>> {
-  return withRetry(`freebusy(${calendarId})`, async () => {
+  const trimmedId = calendarId.trim();
+  return withRetry(`freebusy(${trimmedId})`, async () => {
     const auth = getGoogleAuth();
     const calendar = google.calendar({ version: "v3", auth });
     const response = await calendar.freebusy.query({
       requestBody: {
         timeMin: timeMin.toISOString(),
         timeMax: timeMax.toISOString(),
-        items: [{ id: calendarId }],
+        items: [{ id: trimmedId }],
       },
     });
-    const busy = response.data.calendars?.[calendarId]?.busy || [];
+    const busy = response.data.calendars?.[trimmedId]?.busy || [];
     return busy.map((b) => ({
       start: new Date(b.start!),
       end: new Date(b.end!),
@@ -67,7 +68,7 @@ export async function createEvent(
     const auth = getGoogleAuth();
     const calendar = google.calendar({ version: "v3", auth });
     const response = await calendar.events.insert({
-      calendarId,
+      calendarId: calendarId.trim(),
       requestBody: {
         summary: event.summary,
         description: event.description,

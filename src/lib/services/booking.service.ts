@@ -225,13 +225,18 @@ async function runNotion(supabase: Supabase, rows: BookingRow[]) {
     try {
       const pageId = await createBookingPage({
         experimentTitle: booking.experiments.title,
+        projectName: booking.experiments.project_name ?? null,
+        subjectNumber: booking.subject_number ?? null,
+        sessionNumber: booking.session_number ?? 1,
+        sessionDateIso: booking.slot_start,
+        slotStartIso: booking.slot_start,
+        slotEndIso: booking.slot_end,
         participantName: booking.participants.name,
         phone: booking.participants.phone,
         email: booking.participants.email,
-        sessionDate: booking.slot_start,
-        sessionTime: `${formatTimeKR(booking.slot_start)} - ${formatTimeKR(booking.slot_end)}`,
         status: "확정",
         fee: booking.experiments.participation_fee,
+        researcherName: null,
       });
       await supabase.from("bookings").update({ notion_page_id: pageId }).eq("id", booking.id);
       await markIntegration(supabase, booking.id, "notion", {

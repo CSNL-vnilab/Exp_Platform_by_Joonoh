@@ -155,7 +155,8 @@ export default async function ConfirmPage({ params, searchParams }: PageProps) {
               <span className="text-foreground">
                 {researcher.contact_email ||
                   fromInternalEmail(researcher.email) ||
-                  researcher.email}
+                  researcher.email ||
+                  "(이메일 정보 없음)"}
               </span>
             </div>
           </div>

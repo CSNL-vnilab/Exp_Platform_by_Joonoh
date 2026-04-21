@@ -341,7 +341,12 @@ export function WeekTimetable({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border bg-white">
+      <div className="relative overflow-x-auto rounded-lg border border-border bg-white">
+        {/* Right-edge gradient hints horizontal scroll on narrow screens */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 z-[5] w-6 bg-gradient-to-l from-white to-transparent sm:hidden"
+        />
         <div className="flex min-w-fit">
           {/* Sticky time column */}
           <div className="sticky left-0 z-10 flex w-28 flex-col border-r border-border bg-white">

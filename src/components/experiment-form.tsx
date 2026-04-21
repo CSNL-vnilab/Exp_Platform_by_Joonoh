@@ -898,7 +898,19 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
               : "실험 생성"}
         </Button>
         {onCancel && (
-          <Button type="button" variant="secondary" onClick={onCancel}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              const changed =
+                (experiment?.title ?? "") !== title ||
+                (experiment?.description ?? "") !== description ||
+                (experiment?.start_date ?? "") !== startDate ||
+                (experiment?.end_date ?? "") !== endDate;
+              if (changed && !window.confirm("변경 사항이 저장되지 않았습니다. 취소하시겠습니까?")) return;
+              onCancel();
+            }}
+          >
             취소
           </Button>
         )}

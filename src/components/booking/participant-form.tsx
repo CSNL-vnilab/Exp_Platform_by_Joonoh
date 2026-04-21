@@ -62,6 +62,16 @@ export function ParticipantForm({ onSubmit, initialData }: ParticipantFormProps)
   // Register birthdate as a controlled value synced from yymmdd.
   register("birthdate");
 
+  // Auto-focus first error field on validation failure.
+  useEffect(() => {
+    const first = Object.keys(errors)[0];
+    if (!first) return;
+    const el = document.getElementById(first);
+    if (el instanceof HTMLElement) {
+      el.focus({ preventScroll: false });
+    }
+  }, [errors]);
+
   useEffect(() => {
     if (yymmdd.length === 0) {
       setValue("birthdate", "");
