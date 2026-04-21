@@ -198,15 +198,17 @@ export function WeekTimetable({
   }, [experimentId, fetchRange]);
 
   // Build week blocks
-  const { weeks, timeRows } = useMemo(() => {
+  const { weeks, timeRows, timeEndByStart } = useMemo(() => {
     const byWeek = new Map<string, Map<string, DayColumn>>();
     const times = new Set<string>();
+    const endByStart = new Map<string, string>();
 
     for (const s of slots) {
       const dk = kstDateKey(s.slot_start);
       const wk = weekStartKey(dk);
       const tk = kstTimeKey(s.slot_start);
       times.add(tk);
+      if (!endByStart.has(tk)) endByStart.set(tk, kstTimeKey(s.slot_end));
 
       if (!byWeek.has(wk)) byWeek.set(wk, new Map());
       const dayMap = byWeek.get(wk)!;
@@ -230,7 +232,7 @@ export function WeekTimetable({
       return { weekKey: wk, label: weekLabel, days };
     });
 
-    return { weeks, timeRows: sortedTimes };
+    return { weeks, timeRows: sortedTimes, timeEndByStart: endByStart };
   }, [slots]);
 
   const selectedByStart = useMemo(() => {
@@ -331,26 +333,31 @@ export function WeekTimetable({
             </svg>
             새로고침
           </button>
-          <div className="text-sm font-medium text-foreground">
-            {selectedSlots.length} / {requiredSessions} 선택됨
-          </div>
+          {experiment.session_type === "multi" && (
+            <div className="text-sm font-medium text-foreground">
+              {selectedSlots.length} / {requiredSessions} 선택됨
+            </div>
+          )}
         </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border bg-white">
         <div className="flex min-w-fit">
           {/* Sticky time column */}
-          <div className="sticky left-0 z-10 flex flex-col border-r border-border bg-white">
+          <div className="sticky left-0 z-10 flex w-28 flex-col border-r border-border bg-white">
             <div className="h-8 border-b border-border bg-card" />
             <div className="h-6 border-b border-border bg-card" />
-            {timeRows.map((t) => (
-              <div
-                key={t}
-                className="flex h-10 items-center justify-center border-b border-border px-2 text-xs text-muted"
-              >
-                {t}
-              </div>
-            ))}
+            {timeRows.map((t) => {
+              const end = timeEndByStart.get(t);
+              return (
+                <div
+                  key={t}
+                  className="flex h-10 items-center justify-center border-b border-border px-2 text-[11px] tabular-nums text-muted"
+                >
+                  {end ? `${t}~${end}` : t}
+                </div>
+              );
+            })}
           </div>
 
           {/* Week blocks */}
