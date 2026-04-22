@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" width="960" height="520" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="480" y="34" text-anchor="middle" font-size="18" font-weight="700" fill="#111827">
+    연구실 공용 실험 스케쥴링 플랫폼
+  </text>
+
+  <!-- Admin (researcher) -->
+  <rect x="40" y="80" width="200" height="90" rx="10" ry="10" fill="#eff6ff" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="140" y="112" text-anchor="middle" font-size="15" font-weight="600" fill="#111827">연구자 (admin)</text>
+  <text x="140" y="134" text-anchor="middle" font-size="12" fill="#374151">실험 생성 · 슬롯 설정</text>
+  <text x="140" y="152" text-anchor="middle" font-size="12" fill="#374151">예약·리마인더 관리</text>
+
+  <!-- Participant -->
+  <rect x="40" y="340" width="200" height="90" rx="10" ry="10" fill="#eff6ff" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="140" y="372" text-anchor="middle" font-size="15" font-weight="600" fill="#111827">참여자 (browser)</text>
+  <text x="140" y="394" text-anchor="middle" font-size="12" fill="#374151">공개 예약 링크</text>
+  <text x="140" y="412" text-anchor="middle" font-size="12" fill="#374151">주간 그리드에서 선택</text>
+
+  <!-- Vercel hub -->
+  <rect x="380" y="210" width="200" height="100" rx="10" ry="10" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="480" y="244" text-anchor="middle" font-size="15" font-weight="600" fill="#111827">Vercel</text>
+  <text x="480" y="266" text-anchor="middle" font-size="12" fill="#374151">Next.js 16 앱</text>
+  <text x="480" y="286" text-anchor="middle" font-size="12" fill="#374151">예약 · 검증 · 오케스트레이션</text>
+
+  <!-- Supabase -->
+  <rect x="720" y="90" width="200" height="80" rx="10" ry="10" fill="#ecfdf5" stroke="#34d399" stroke-width="1.5"/>
+  <text x="820" y="122" text-anchor="middle" font-size="15" font-weight="600" fill="#111827">Supabase</text>
+  <text x="820" y="144" text-anchor="middle" font-size="12" fill="#374151">Postgres · Auth · RLS</text>
+
+  <!-- Google Calendar -->
+  <rect x="720" y="220" width="200" height="80" rx="10" ry="10" fill="#ecfdf5" stroke="#34d399" stroke-width="1.5"/>
+  <text x="820" y="252" text-anchor="middle" font-size="15" font-weight="600" fill="#111827">Google Calendar</text>
+  <text x="820" y="274" text-anchor="middle" font-size="12" fill="#374151">이벤트 자동 생성·삭제</text>
+
+  <!-- Gmail -->
+  <rect x="720" y="350" width="200" height="80" rx="10" ry="10" fill="#ecfdf5" stroke="#34d399" stroke-width="1.5"/>
+  <text x="820" y="382" text-anchor="middle" font-size="15" font-weight="600" fill="#111827">Gmail (SMTP)</text>
+  <text x="820" y="404" text-anchor="middle" font-size="12" fill="#374151">확정·변경·리마인더</text>
+
+  <!-- Edges actors → hub -->
+  <path d="M240,125 C310,125 320,230 380,240" stroke="#6b7280" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <path d="M240,385 C310,385 320,290 380,280" stroke="#6b7280" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Edges hub → services -->
+  <path d="M580,235 C640,230 660,140 720,130" stroke="#6b7280" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <path d="M580,260 L720,260" stroke="#6b7280" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <path d="M580,285 C640,290 660,380 720,390" stroke="#6b7280" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Bottom caption -->
+  <text x="480" y="478" text-anchor="middle" font-size="12" font-style="italic" fill="#6b7280">
+    실험 생성 → 참여자 예약 → DB 저장 + 캘린더 등록 + 메일 안내
+  </text>
+</svg>
