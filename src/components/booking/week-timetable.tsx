@@ -309,7 +309,7 @@ export function WeekTimetable({
   return (
     <div className="space-y-4">
       {calendarWarning && (
-        <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-xs text-yellow-900">
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
           ⚠ {calendarWarning}
         </div>
       )}
@@ -436,9 +436,9 @@ export function WeekTimetable({
                     } else if (slot.status === "available" && !otherDateSelected) {
                       cls = "bg-green-100 text-green-800 hover:bg-green-200";
                     } else if (otherDateSelected) {
-                      cls = "bg-yellow-50 text-yellow-700 cursor-not-allowed";
+                      cls = "bg-amber-50 text-amber-800 cursor-not-allowed";
                     } else {
-                      cls = "bg-gray-100 text-muted cursor-not-allowed";
+                      cls = "bg-gray-200 text-gray-600 cursor-not-allowed";
                     }
 
                     const title = isSelected

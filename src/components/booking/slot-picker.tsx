@@ -196,8 +196,9 @@ function SessionSelector({
       </div>
 
       {isDateTakenByOtherSession && (
-        <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3">
-          <p className="text-sm text-yellow-800">
+        <div className="flex items-start gap-2 rounded-lg border border-orange-300 bg-orange-50 p-3">
+          <span aria-hidden className="select-none text-orange-600">⚠</span>
+          <p className="text-sm text-orange-900">
             이 날짜는 다른 회차에서 이미 선택되었습니다. 서로 다른 날짜를 선택해주세요.
           </p>
         </div>

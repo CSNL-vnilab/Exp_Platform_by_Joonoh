@@ -191,16 +191,53 @@ export function BookingFlow({ experiment, location }: BookingFlowProps) {
     }
   };
 
+  const feeLabel =
+    experiment.participation_fee > 0
+      ? `참여비 ${experiment.participation_fee.toLocaleString()}원`
+      : "참여비 없음";
+  const durationLabel = `세션 ${experiment.session_duration_minutes}분${
+    experiment.session_type === "multi" ? ` · ${experiment.required_sessions}회차` : ""
+  }`;
+  const locationLabel = (() => {
+    if (location) return `${location.name} — ${location.address_lines[0]}`;
+    if (experiment.location) {
+      const legacy = locationInfo(experiment.location);
+      if (legacy) return `${legacy.shortName} — ${legacy.addressLines[0]}`;
+    }
+    return null;
+  })();
+
   return (
     <div>
-      <div className="mb-6 text-center">
-        <h1 className="text-2xl font-bold text-foreground">{experiment.title}</h1>
+      <div className="mb-6 rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6">
+        <h1 className="text-center text-2xl font-bold leading-snug text-foreground">
+          {experiment.title}
+        </h1>
         {experiment.description && (
-          <p className="mt-2 text-sm text-muted">{experiment.description}</p>
+          <p className="mx-auto mt-3 max-w-xl text-center text-sm leading-relaxed text-muted">
+            {experiment.description}
+          </p>
         )}
-        {experiment.categories && experiment.categories.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
-            {experiment.categories.map((c) => (
+        {/* Key info row — fee / duration / location */}
+        <div className="mt-5 grid gap-2 sm:grid-cols-3">
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+            <span aria-hidden>💸</span>
+            <span>{feeLabel}</span>
+          </div>
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground">
+            <span aria-hidden>⏱</span>
+            <span>{durationLabel}</span>
+          </div>
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground">
+            <span aria-hidden>📍</span>
+            <span className="truncate">{locationLabel ?? "장소 미정"}</span>
+          </div>
+        </div>
+        {/* Categories + IRB */}
+        {((experiment.categories && experiment.categories.length > 0) ||
+          experiment.irb_document_url) && (
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {(experiment.categories ?? []).map((c) => (
               <span
                 key={c}
                 className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
@@ -208,40 +245,30 @@ export function BookingFlow({ experiment, location }: BookingFlowProps) {
                 #{categoryLabel(c)}
               </span>
             ))}
+            {experiment.irb_document_url && (
+              <a
+                href={experiment.irb_document_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
+              >
+                <svg
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+                IRB 승인 문서
+              </a>
+            )}
           </div>
-        )}
-        {(() => {
-          if (location) {
-            return (
-              <p className="mt-2 text-xs text-muted">
-                📍 {location.name} — {location.address_lines[0]}
-              </p>
-            );
-          }
-          if (experiment.location) {
-            const legacy = locationInfo(experiment.location);
-            if (legacy) {
-              return (
-                <p className="mt-2 text-xs text-muted">
-                  📍 {legacy.shortName} — {legacy.addressLines[0]}
-                </p>
-              );
-            }
-          }
-          return null;
-        })()}
-        {experiment.irb_document_url && (
-          <a
-            href={experiment.irb_document_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            IRB 승인 문서 보기
-          </a>
         )}
       </div>
 

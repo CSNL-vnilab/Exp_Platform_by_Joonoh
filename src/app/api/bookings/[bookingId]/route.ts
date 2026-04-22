@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod/v4";
 import { isValidUUID, normalizeToISO } from "@/lib/utils/validation";
-import { getFreeBusy } from "@/lib/google/calendar";
+import { getFreeBusy, deleteEvent } from "@/lib/google/calendar";
+import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { intervalsOverlap } from "@/lib/utils/date";
 import { runReschedulePipeline } from "@/lib/services/booking.service";
 
@@ -81,10 +82,13 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Fetch booking with experiment to verify admin ownership
+    // Fetch booking with experiment to verify admin ownership. Also pull
+    // google_event_id + calendar id so a cancellation can clean up GCal.
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
-      .select("id, status, experiments(created_by)")
+      .select(
+        "id, status, google_event_id, experiments(created_by, google_calendar_id)",
+      )
       .eq("id", bookingId)
       .single();
 
@@ -92,7 +96,9 @@ export async function PUT(
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
     }
 
-    const experiment = booking.experiments as { created_by: string | null } | null;
+    const experiment = booking.experiments as
+      | { created_by: string | null; google_calendar_id: string | null }
+      | null;
     if (!experiment || experiment.created_by !== user.id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -129,8 +135,34 @@ export async function PUT(
       return NextResponse.json({ error: "상태 업데이트 중 오류가 발생했습니다" }, { status: 500 });
     }
 
+    // When a booking is cancelled, delete the Google Calendar event (if any)
+    // so participants don't see a stale invite; also invalidate freebusy cache.
+    if (status === "cancelled" && booking.google_event_id) {
+      const calId = (
+        experiment.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
+      ).trim();
+      if (calId) {
+        try {
+          await deleteEvent(calId, booking.google_event_id);
+          await supabase
+            .from("bookings")
+            .update({ google_event_id: null })
+            .eq("id", bookingId);
+          await invalidateCalendarCache(calId).catch(() => {});
+        } catch (err) {
+          console.error(
+            "[CancelBooking] deleteEvent failed:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+    }
+
+    // Pending reminders are already guarded at send time: reminder.service skips
+    // bookings with status='cancelled' and marks them 'sent', so no update needed.
+
     return NextResponse.json({ booking: updated });
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
