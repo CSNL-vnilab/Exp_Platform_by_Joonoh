@@ -6,13 +6,16 @@
 // and so other streams' additions don't collide with this checklist
 // logic.
 //
-// Binds to the SAME source of truth as docs/experiment-field-requirements.md
-// + src/lib/utils/validation.ts → experimentSchema. The `passesSchema`
-// helper defers to zod for field-level validation so a schema change
-// (e.g. bumping min() on a number field) automatically updates the
-// sidebar without a second edit here.
+// Three sources of truth must stay in sync:
+//   1. docs/experiment-field-requirements.md   (authoritative doc)
+//   2. src/lib/utils/validation.ts             (server-enforced schema)
+//   3. this file                               (UI affordance)
+//
+// When adding a numeric field with `.min(N)` to (2), the classify()
+// entry MUST include `{ minNumber: N }` in its hasValue() call or the
+// sidebar will green-tick a value that submit rejects (D5-2 bug
+// shape). Grep for `minNumber:` in this file as the canonical list.
 
-import { experimentSchema } from "@/lib/utils/validation";
 import type { Experiment, ExperimentMode } from "@/types/database";
 
 // Accepts a partial draft (form-in-progress) rather than a full Experiment,
