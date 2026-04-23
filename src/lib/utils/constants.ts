@@ -7,6 +7,10 @@ export const BOOKING_ERRORS = {
   SLOT_CONTENTION_RETRY: "다른 참여자가 동시에 예약 중입니다. 잠시 후 다시 시도해주세요.",
   WRONG_SESSION_COUNT: "필수 회차를 모두 선택해주세요.",
   PAST_SLOT: "이미 지난 시간대는 예약할 수 없습니다.",
+  // Participant whose current class for the experiment's lab is 'blacklist'.
+  // Deliberately vague — we do not reveal the blacklist label to participants.
+  PARTICIPANT_BLACKLISTED:
+    "현재 예약을 받을 수 없는 상태입니다. 담당 연구원에게 문의해 주세요.",
 } as const;
 
 export const BOOKING_RETRY = {

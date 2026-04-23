@@ -8,6 +8,10 @@ import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
 import { fromInternalEmail } from "@/lib/auth/username";
 import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { issueRunToken } from "@/lib/experiments/run-token";
+import { issuePaymentToken } from "@/lib/payments/token";
+import { backfillIdentityForBooking } from "@/lib/services/participant-identity.service";
+import type { ExperimentMode, OnlineRuntimeConfig } from "@/types/database";
 
 type IntegrationType = "gcal" | "notion" | "email" | "sms";
 
@@ -32,7 +36,17 @@ interface BookingRow {
     created_by: string | null;
     precautions: Array<{ question: string; required_answer: boolean }> | null;
     location_id: string | null;
+    experiment_mode: ExperimentMode;
+    online_runtime_config: OnlineRuntimeConfig | null;
   };
+}
+
+// Used by the confirmation email to include a per-booking run link when
+// the experiment has an online component.
+interface RunLink {
+  bookingId: string;
+  token: string;
+  url: string;
 }
 
 interface CreatorProfile {
@@ -55,7 +69,7 @@ export async function runPostBookingPipeline(params: {
   const { data: bookings } = await supabase
     .from("bookings")
     .select(
-      "id, slot_start, slot_end, session_number, subject_number, google_event_id, notion_page_id, participants(name, phone, email), experiments(title, project_name, participation_fee, google_calendar_id, created_by, precautions, location_id)",
+      "id, slot_start, slot_end, session_number, subject_number, google_event_id, notion_page_id, participants(name, phone, email), experiments(title, project_name, participation_fee, google_calendar_id, created_by, precautions, location_id, experiment_mode, online_runtime_config)",
     )
     .in("id", params.bookingIds);
 
@@ -75,12 +89,35 @@ export async function runPostBookingPipeline(params: {
     creator = (data as CreatorProfile | null) ?? null;
   }
 
+  // Ensure per-(participant, lab) public_code exists before downstream
+  // integrations (Stream C's Notion survey mirror reads it). Non-blocking:
+  // log and continue on failure so GCal/email/SMS still fire.
+  try {
+    await backfillIdentityForBooking(rows[0].id);
+  } catch (err) {
+    console.error(
+      "[PostBooking] participant identity backfill failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   await seedIntegrationRows(supabase, rows);
+
+  // For online/hybrid experiments issue a run token per booking and seed
+  // the experiment_run_progress row. The confirmation email then includes
+  // a /run link. Offline experiments skip this entirely.
+  const runLinks = await seedRunTokens(supabase, rows);
+
+  // Seed participant_payment_info (one row per booking group). The token
+  // goes in the confirmation email so the participant can come back
+  // post-experiment to fill in RRN / bank / signature without needing to
+  // log in. See src/lib/payments/token.ts for the scheme.
+  const paymentLink = await seedPaymentInfo(supabase, rows, params);
 
   const results = await Promise.allSettled([
     runGCal(supabase, rows, creator),
     runNotion(supabase, rows),
-    runEmail(supabase, rows, creator),
+    runEmail(supabase, rows, creator, runLinks, paymentLink),
     runSMS(supabase, rows),
   ]);
 
@@ -90,6 +127,120 @@ export async function runPostBookingPipeline(params: {
       console.error(`[PostBooking] ${names[index]} pipeline crashed:`, result.reason);
     }
   });
+}
+
+async function seedRunTokens(supabase: Supabase, rows: BookingRow[]): Promise<RunLink[]> {
+  const mode = rows[0]?.experiments.experiment_mode ?? "offline";
+  if (mode === "offline") return [];
+  // Absolute origin for the email link. Prefer explicit NEXT_PUBLIC_APP_URL;
+  // fall back to Vercel's deploy URL. Relative ("/run/...") would still work
+  // in-app but email clients require absolute URLs.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  const vercelUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "")
+    : "";
+  const origin = appUrl || vercelUrl || "";
+
+  const links: RunLink[] = [];
+  for (const row of rows) {
+    try {
+      const issued = issueRunToken(row.id);
+      const { error } = await supabase
+        .from("experiment_run_progress")
+        .upsert(
+          {
+            booking_id: row.id,
+            token_hash: issued.hash,
+            token_issued_at: new Date(issued.issuedAt).toISOString(),
+          },
+          { onConflict: "booking_id" },
+        );
+      if (error) {
+        console.error(`[PostBooking] run progress seed failed for ${row.id}:`, error.message);
+        continue;
+      }
+      const url = origin
+        ? `${origin}/run/${row.id}?t=${encodeURIComponent(issued.token)}`
+        : `/run/${row.id}?t=${encodeURIComponent(issued.token)}`;
+      links.push({ bookingId: row.id, token: issued.token, url });
+    } catch (err) {
+      console.error(
+        `[PostBooking] issueRunToken failed for ${row.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return links;
+}
+
+interface PaymentLink {
+  url: string;
+  earliestFillableAt: string; // ISO; MAX(slot_end) across the group
+}
+
+async function seedPaymentInfo(
+  supabase: Supabase,
+  rows: BookingRow[],
+  params: { bookingGroupId: string; participantId: string; experimentId: string },
+): Promise<PaymentLink | null> {
+  // Only seed if the experiment actually pays participants. participation_fee
+  // is on every row (same experiment), so read the first one.
+  const fee = rows[0]?.experiments.participation_fee ?? 0;
+  if (fee <= 0) return null;
+
+  try {
+    const issued = issuePaymentToken(params.bookingGroupId);
+
+    const starts = rows.map((r) => new Date(r.slot_start));
+    const ends = rows.map((r) => new Date(r.slot_end));
+    const periodStart = new Date(Math.min(...starts.map((d) => d.getTime())));
+    const periodEnd = new Date(Math.max(...ends.map((d) => d.getTime())));
+    // Format in Asia/Seoul — sessions ending before 09:00 KST would
+    // otherwise record the prior UTC date. en-CA locale gives YYYY-MM-DD.
+    const kstDate = (d: Date): string =>
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+    const amountKrw = fee * rows.length;
+
+    const { error } = await supabase.from("participant_payment_info").upsert(
+      {
+        participant_id: params.participantId,
+        experiment_id: params.experimentId,
+        booking_group_id: params.bookingGroupId,
+        token_hash: issued.hash,
+        token_issued_at: new Date(issued.issuedAt).toISOString(),
+        token_expires_at: new Date(issued.expiresAt).toISOString(),
+        period_start: kstDate(periodStart),
+        period_end: kstDate(periodEnd),
+        amount_krw: amountKrw,
+        status: "pending_participant",
+      },
+      { onConflict: "booking_group_id" },
+    );
+    if (error) {
+      console.error("[PostBooking] payment info seed failed:", error.message);
+      return null;
+    }
+
+    const origin =
+      process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "") : "");
+    const path = `/payment-info/${encodeURIComponent(issued.token)}`;
+    return {
+      url: origin ? `${origin}${path}` : path,
+      earliestFillableAt: periodEnd.toISOString(),
+    };
+  } catch (err) {
+    console.error(
+      "[PostBooking] seedPaymentInfo crashed:",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
 }
 
 async function seedIntegrationRows(supabase: Supabase, rows: BookingRow[]) {
@@ -224,6 +375,35 @@ async function runNotion(supabase: Supabase, rows: BookingRow[]) {
     return;
   }
 
+  // Look up the participant's lab-scoped public code once per pipeline
+  // invocation. All rows here share the same participant + experiment (and
+  // therefore the same lab), so we key off the first row. If Stream B's
+  // ensureParticipantLabIdentity hasn't run for this (participant, lab)
+  // yet, publicCode stays null and the Notion 공개 ID column is written
+  // blank — researchers can re-sync via the retry path without blocking
+  // the booking.
+  let publicCode: string | null = null;
+  const firstBookingId = rows[0]?.id;
+  if (firstBookingId) {
+    const { data: bookingMeta } = await supabase
+      .from("bookings")
+      .select("participant_id, experiments(lab_id)")
+      .eq("id", firstBookingId)
+      .maybeSingle();
+    const meta = bookingMeta as unknown as
+      | { participant_id: string; experiments: { lab_id: string } | null }
+      | null;
+    if (meta?.participant_id && meta.experiments?.lab_id) {
+      const { data: identity } = await supabase
+        .from("participant_lab_identity")
+        .select("public_code")
+        .eq("participant_id", meta.participant_id)
+        .eq("lab_id", meta.experiments.lab_id)
+        .maybeSingle();
+      publicCode = identity?.public_code ?? null;
+    }
+  }
+
   for (const booking of rows) {
     try {
       const pageId = await createBookingPage({
@@ -240,6 +420,7 @@ async function runNotion(supabase: Supabase, rows: BookingRow[]) {
         status: "확정",
         fee: booking.experiments.participation_fee,
         researcherName: null,
+        publicCode,
       });
       await supabase.from("bookings").update({ notion_page_id: pageId }).eq("id", booking.id);
       await markIntegration(supabase, booking.id, "notion", {
@@ -264,6 +445,8 @@ async function runEmail(
   supabase: Supabase,
   rows: BookingRow[],
   creator: CreatorProfile | null,
+  runLinks: RunLink[] = [],
+  paymentLink: PaymentLink | null = null,
 ) {
   const participant = rows[0].participants;
   const experiment = rows[0].experiments;
@@ -322,7 +505,39 @@ async function runEmail(
       </div>`
       : "";
 
-  const locationBlock = location
+  const isOnline = experiment.experiment_mode === "online";
+  const runLinkByBooking = new Map(runLinks.map((l) => [l.bookingId, l.url]));
+
+  const onlineBlock =
+    runLinks.length > 0
+      ? `
+      <div style="margin:20px 0;padding:14px 16px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;">
+        <p style="margin:0 0 8px 0;font-weight:600;color:#1d4ed8;">${
+          isOnline ? "온라인 실험 참여 링크" : "사전 온라인 세션 링크"
+        }</p>
+        <p style="margin:0 0 10px 0;font-size:13px;color:#1e3a8a;">
+          아래 링크를 예약 시간에 열어주세요. 링크는 본인에게만 발급된 것이므로 타인과 공유하지 마세요.
+        </p>
+        <ul style="margin:0;padding-left:18px;color:#1e40af;">
+          ${rows
+            .map((b) => {
+              const url = runLinkByBooking.get(b.id);
+              if (!url) return "";
+              const label =
+                rows.length > 1
+                  ? `${b.session_number}회차 — ${formatDateKR(b.slot_start)}`
+                  : `${formatDateKR(b.slot_start)} ${formatTimeKR(b.slot_start)}`;
+              return `<li style="margin:3px 0;"><a href="${url}" style="color:#1d4ed8;word-break:break-all;">${escapeHtml(label)}</a></li>`;
+            })
+            .join("")}
+        </ul>
+      </div>`
+      : "";
+
+  const locationBlock =
+    isOnline
+      ? ""
+      : location
     ? `
       <p style="margin:18px 0 6px 0;font-weight:600;">찾아오시는 길</p>
       <p style="margin:0;line-height:1.55;">
@@ -338,8 +553,23 @@ async function runEmail(
 
   const feeLine =
     experiment.participation_fee > 0
-      ? `<tr><td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;width:110px;">참여비</td><td style="padding:10px 12px;border:1px solid #e5e7eb;">${experiment.participation_fee.toLocaleString()}원 (실험 당일 지급)</td></tr>`
+      ? `<tr><td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;width:110px;">참여비</td><td style="padding:10px 12px;border:1px solid #e5e7eb;">${experiment.participation_fee.toLocaleString()}원 (실험 종료 후 지급)</td></tr>`
       : "";
+
+  // Payment-info block — 실험 종료 후 정산 정보 입력 링크. Rendered only if
+  // the experiment pays participants and the seed succeeded.
+  const paymentBlock = paymentLink
+    ? `
+      <div style="margin:20px 0;padding:14px 16px;background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px;">
+        <p style="margin:0 0 8px 0;font-weight:600;color:#5b21b6;">📝 실험 종료 후 정산 정보 입력</p>
+        <p style="margin:0 0 10px 0;font-size:13px;color:#4c1d95;">
+          참여비 지급을 위해 모든 실험 세션이 종료된 후 아래 링크에서 주민등록번호·계좌정보·서명을 입력해 주세요. 링크는 본인에게만 발급되며, 실험 종료 후 60일간 유효합니다.
+        </p>
+        <p style="margin:0;">
+          <a href="${paymentLink.url}" style="display:inline-block;padding:8px 14px;background:#6d28d9;color:#ffffff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">정산 정보 입력하기 →</a>
+        </p>
+      </div>`
+    : "";
 
   const contactBlock = `
       <p style="margin:20px 0 6px 0;font-weight:600;">담당 연구원 · 문의</p>
@@ -369,8 +599,10 @@ async function runEmail(
       <p style="margin:18px 0 6px 0;font-weight:600;">예약하신 시간</p>
       <ul style="margin:0;padding-left:20px;">${slotList}</ul>
 
+      ${onlineBlock}
       ${locationBlock}
       ${precautionsBlock}
+      ${paymentBlock}
       ${contactBlock}
 
       <p style="margin:22px 0 6px 0;font-size:13px;color:#6b7280;">
@@ -452,7 +684,7 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   const { data: fresh } = await supabase
     .from("bookings")
     .select(
-      "id, slot_start, slot_end, session_number, subject_number, google_event_id, notion_page_id, participants(name, phone, email), experiments(title, project_name, participation_fee, google_calendar_id, created_by, precautions, location_id)",
+      "id, slot_start, slot_end, session_number, subject_number, google_event_id, notion_page_id, participants(name, phone, email), experiments(title, project_name, participation_fee, google_calendar_id, created_by, precautions, location_id, experiment_mode, online_runtime_config)",
     )
     .eq("id", params.bookingId)
     .single();

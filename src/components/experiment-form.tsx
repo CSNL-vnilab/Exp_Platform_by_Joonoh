@@ -13,7 +13,14 @@ import { SESSION_DURATIONS } from "@/lib/utils/constants";
 import { experimentSchema } from "@/lib/utils/validation";
 import { EXPERIMENT_CATEGORIES } from "@/lib/experiments/categories";
 import { WeekTimetablePreview } from "@/components/booking/week-timetable-preview";
-import type { Experiment, ExperimentInsert, ExperimentLocation } from "@/types/database";
+import type {
+  Experiment,
+  ExperimentChecklistItem,
+  ExperimentInsert,
+  ExperimentLocation,
+  ExperimentParameterSpec,
+  ExperimentParameterType,
+} from "@/types/database";
 
 const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"] as const;
 
@@ -80,6 +87,39 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
   );
   const [reminderDayOfTime, setReminderDayOfTime] = useState<string>(
     (experiment?.reminder_day_of_time ?? "09:00").slice(0, 5),
+  );
+
+  // Research metadata (migration 00022) — required for status → active.
+  const [codeRepoUrl, setCodeRepoUrl] = useState<string>(experiment?.code_repo_url ?? "");
+  const [dataPath, setDataPath] = useState<string>(experiment?.data_path ?? "");
+  const [parameterSchema, setParameterSchema] = useState<ExperimentParameterSpec[]>(
+    experiment?.parameter_schema ?? [],
+  );
+  const [checklist, setChecklist] = useState<ExperimentChecklistItem[]>(
+    experiment?.pre_experiment_checklist ?? [],
+  );
+
+  // Online runtime (migration 00023).
+  const [experimentMode, setExperimentMode] = useState<"offline" | "online" | "hybrid">(
+    experiment?.experiment_mode ?? "offline",
+  );
+  const [onlineEntryUrl, setOnlineEntryUrl] = useState<string>(
+    experiment?.online_runtime_config?.entry_url ?? "",
+  );
+  const [onlineBlockCount, setOnlineBlockCount] = useState<number | "">(
+    experiment?.online_runtime_config?.block_count ?? "",
+  );
+  const [onlineTrialCount, setOnlineTrialCount] = useState<number | "">(
+    experiment?.online_runtime_config?.trial_count ?? "",
+  );
+  const [onlineEstimatedMinutes, setOnlineEstimatedMinutes] = useState<number | "">(
+    experiment?.online_runtime_config?.estimated_minutes ?? "",
+  );
+  const [completionTokenFormat, setCompletionTokenFormat] = useState<string>(
+    experiment?.online_runtime_config?.completion_token_format ?? "uuid",
+  );
+  const [dataConsentRequired, setDataConsentRequired] = useState<boolean>(
+    experiment?.data_consent_required ?? false,
   );
 
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -149,6 +189,25 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function buildOnlineConfig() {
+    if (experimentMode === "offline") return null;
+    const cfg: {
+      entry_url: string;
+      trial_count?: number;
+      block_count?: number;
+      estimated_minutes?: number;
+      completion_token_format?: string;
+    } = { entry_url: onlineEntryUrl.trim() };
+    if (typeof onlineTrialCount === "number") cfg.trial_count = onlineTrialCount;
+    if (typeof onlineBlockCount === "number") cfg.block_count = onlineBlockCount;
+    if (typeof onlineEstimatedMinutes === "number")
+      cfg.estimated_minutes = onlineEstimatedMinutes;
+    if (completionTokenFormat) {
+      cfg.completion_token_format = completionTokenFormat;
+    }
+    return cfg;
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setErrors({});
@@ -186,6 +245,13 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
       reminder_day_before_time: reminderDayBeforeTime,
       reminder_day_of_enabled: reminderDayOfEnabled,
       reminder_day_of_time: reminderDayOfTime,
+      code_repo_url: codeRepoUrl.trim() || null,
+      data_path: dataPath.trim() || null,
+      parameter_schema: parameterSchema,
+      pre_experiment_checklist: checklist,
+      experiment_mode: experimentMode,
+      online_runtime_config: buildOnlineConfig(),
+      data_consent_required: dataConsentRequired,
     };
 
     const result = experimentSchema.safeParse(formData);
@@ -201,15 +267,46 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
       return;
     }
 
+    // If editing an already-active experiment, code_repo_url and data_path
+    // must remain present (DB trigger would reject otherwise, but inline is
+    // a better researcher experience).
+    if (isEditing && experiment?.status === "active") {
+      const metaErrors: Record<string, string> = {};
+      if (!codeRepoUrl.trim()) {
+        metaErrors.code_repo_url = "활성 실험에서는 코드 저장소를 비울 수 없습니다";
+      }
+      if (!dataPath.trim()) {
+        metaErrors.data_path = "활성 실험에서는 데이터 경로를 비울 수 없습니다";
+      }
+      if (Object.keys(metaErrors).length > 0) {
+        setErrors(metaErrors);
+        return;
+      }
+    }
+
     setSubmitting(true);
 
     try {
       const supabase = createClient();
 
       if (isEditing) {
+        // If the checklist shape changed (items added/removed/renamed or
+        // required flags shifted), drop the prior "completed" timestamp so
+        // the booking gate recomputes from scratch.
+        const prevChecklist = experiment?.pre_experiment_checklist ?? [];
+        const checklistShapeChanged =
+          prevChecklist.length !== checklist.length ||
+          prevChecklist.some(
+            (p, i) =>
+              p.item !== checklist[i]?.item || p.required !== checklist[i]?.required,
+          );
+        const patch = checklistShapeChanged
+          ? { ...formData, checklist_completed_at: null }
+          : formData;
+
         const { error } = await supabase
           .from("experiments")
-          .update(formData)
+          .update(patch)
           .eq("id", experiment.id);
 
         if (error) throw error;
@@ -276,6 +373,13 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
       reminder_day_before_time: reminderDayBeforeTime,
       reminder_day_of_enabled: reminderDayOfEnabled,
       reminder_day_of_time: reminderDayOfTime,
+      code_repo_url: codeRepoUrl.trim() || null,
+      data_path: dataPath.trim() || null,
+      parameter_schema: parameterSchema,
+      pre_experiment_checklist: checklist,
+      experiment_mode: experimentMode,
+      online_runtime_config: buildOnlineConfig(),
+      data_consent_required: dataConsentRequired,
     };
 
     const result = experimentSchema.safeParse(formData);
@@ -482,6 +586,134 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
                 />
               )}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Experiment mode — offline / online / hybrid */}
+        <Card className="lg:col-span-2">
+          <CardContent>
+            <h2 className="text-lg font-semibold text-foreground mb-2">실행 방식</h2>
+            <p className="mb-4 text-xs text-muted">
+              오프라인 실험은 기존과 동일하게 실험실에서 진행됩니다. 온라인 실험은 참여자가
+              이메일 링크를 통해 /run 페이지에 접속하여 브라우저에서 수행합니다. 하이브리드는
+              온라인 선행 과제 후 실험실 세션이 이어집니다.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {(
+                [
+                  ["offline", "오프라인", "실험실에서 진행"],
+                  ["online", "온라인", "원격 브라우저"],
+                  ["hybrid", "하이브리드", "온라인 + 실험실"],
+                ] as const
+              ).map(([val, label, desc]) => (
+                <label
+                  key={val}
+                  className={`flex cursor-pointer flex-col gap-1 rounded-lg border p-3 text-sm transition-colors ${
+                    experimentMode === val
+                      ? "border-primary bg-primary/5"
+                      : "border-border bg-white hover:border-primary/40"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="experiment_mode"
+                      value={val}
+                      checked={experimentMode === val}
+                      onChange={() => setExperimentMode(val)}
+                      className="h-4 w-4 accent-primary"
+                    />
+                    <span className="font-medium text-foreground">{label}</span>
+                  </span>
+                  <span className="ml-6 text-xs text-muted">{desc}</span>
+                </label>
+              ))}
+            </div>
+
+            {experimentMode !== "offline" && (
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Input
+                    id="online_entry_url"
+                    label="실험 JS 진입 URL *"
+                    value={onlineEntryUrl}
+                    onChange={(e) => setOnlineEntryUrl(e.target.value)}
+                    placeholder="https://cdn.example.com/my-exp.js"
+                    error={errors["online_runtime_config.entry_url"]}
+                  />
+                  <p className="mt-1 text-xs text-muted">
+                    참여자 브라우저가 /run 페이지의 샌드박스에서 로드합니다. HTTPS CDN 경로를
+                    권장합니다.
+                  </p>
+                </div>
+                <Input
+                  id="online_block_count"
+                  label="블록 수"
+                  type="number"
+                  min={1}
+                  value={onlineBlockCount === "" ? "" : String(onlineBlockCount)}
+                  onChange={(e) =>
+                    setOnlineBlockCount(e.target.value === "" ? "" : Number(e.target.value))
+                  }
+                  placeholder="예: 3"
+                />
+                <Input
+                  id="online_trial_count"
+                  label="트라이얼 수 (선택)"
+                  type="number"
+                  min={1}
+                  value={onlineTrialCount === "" ? "" : String(onlineTrialCount)}
+                  onChange={(e) =>
+                    setOnlineTrialCount(e.target.value === "" ? "" : Number(e.target.value))
+                  }
+                  placeholder="예: 120"
+                />
+                <Input
+                  id="online_estimated_minutes"
+                  label="예상 소요 시간 (분)"
+                  type="number"
+                  min={1}
+                  max={600}
+                  value={
+                    onlineEstimatedMinutes === "" ? "" : String(onlineEstimatedMinutes)
+                  }
+                  onChange={(e) =>
+                    setOnlineEstimatedMinutes(
+                      e.target.value === "" ? "" : Number(e.target.value),
+                    )
+                  }
+                  placeholder="예: 25"
+                />
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-foreground">
+                    완료 코드 형식
+                  </label>
+                  <select
+                    value={completionTokenFormat}
+                    onChange={(e) => setCompletionTokenFormat(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="uuid">UUID (권장)</option>
+                    <option value="alphanumeric:8">영숫자 8자리</option>
+                    <option value="alphanumeric:12">영숫자 12자리</option>
+                    <option value="alphanumeric:16">영숫자 16자리</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-white p-3">
+              <input
+                type="checkbox"
+                checked={dataConsentRequired}
+                onChange={(e) => setDataConsentRequired(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-primary"
+              />
+              <span className="text-sm leading-relaxed text-foreground">
+                데이터 수집 동의 체크박스를 예약 페이지에 표시합니다. (온라인/하이브리드
+                실험은 자동으로 동의 절차가 포함됩니다.)
+              </span>
+            </label>
           </CardContent>
         </Card>
 
@@ -816,6 +1048,219 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
                 />
                 <p className="mt-1 text-xs text-muted">첫 참여자에게 할당되는 Sbj 번호입니다. 이후는 자동 증가.</p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Research metadata — required for activation (migration 00022) */}
+        <Card className="lg:col-span-2">
+          <CardContent>
+            <h2 className="text-lg font-semibold text-foreground mb-2">연구 메타데이터</h2>
+            <p className="mb-4 text-xs text-muted">
+              실험을 활성화(active)하기 전에 분석 코드 저장소와 원본 데이터 경로를 반드시 지정해야 합니다.
+              draft → active 전환 시 Notion DB에도 자동으로 페이지가 생성됩니다.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Input
+                  id="code_repo_url"
+                  label="분석 코드 저장소 *"
+                  value={codeRepoUrl}
+                  onChange={(e) => setCodeRepoUrl(e.target.value)}
+                  placeholder="https://github.com/org/repo 또는 /srv/lab/project"
+                  error={errors.code_repo_url}
+                />
+                <p className="mt-1 text-xs text-muted">GitHub URL 또는 서버 내 절대 경로.</p>
+              </div>
+              <div>
+                <Input
+                  id="data_path"
+                  label="원본 데이터 경로 *"
+                  value={dataPath}
+                  onChange={(e) => setDataPath(e.target.value)}
+                  placeholder="예: /data/lab/exp42/raw"
+                  error={errors.data_path}
+                />
+                <p className="mt-1 text-xs text-muted">raw 데이터가 저장되는 위치.</p>
+              </div>
+            </div>
+
+            {/* Parameter schema */}
+            <div className="mt-6">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground">실험 파라미터 스키마</label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setParameterSchema([
+                      ...parameterSchema,
+                      { key: "", type: "string" },
+                    ])
+                  }
+                  className="text-xs font-medium text-primary hover:text-primary-hover"
+                >
+                  + 파라미터 추가
+                </button>
+              </div>
+              <p className="mb-3 text-xs text-muted">
+                각 세션에서 기록할 파라미터 이름과 타입을 선언해 두세요.
+                enum 타입인 경우 선택지를 쉼표로 구분해 입력하세요.
+              </p>
+              {parameterSchema.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border py-4 text-center text-xs text-muted">
+                  등록된 파라미터가 없습니다
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {parameterSchema.map((param, index) => (
+                    <div key={index} className="flex flex-wrap items-start gap-2">
+                      <input
+                        value={param.key}
+                        onChange={(e) => {
+                          const next = [...parameterSchema];
+                          next[index] = { ...next[index], key: e.target.value };
+                          setParameterSchema(next);
+                        }}
+                        placeholder="key (예: stim_contrast)"
+                        className="min-w-[12rem] flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                      <select
+                        value={param.type}
+                        onChange={(e) => {
+                          const next = [...parameterSchema];
+                          const newType = e.target.value as ExperimentParameterType;
+                          // Reset type-specific fields so stale options/default
+                          // from a previous type don't silently persist.
+                          next[index] = {
+                            key: next[index].key,
+                            type: newType,
+                            ...(newType === "enum" ? { options: [] } : {}),
+                          };
+                          setParameterSchema(next);
+                        }}
+                        className="rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        <option value="string">string</option>
+                        <option value="number">number</option>
+                        <option value="enum">enum</option>
+                      </select>
+                      {param.type === "enum" ? (
+                        <input
+                          value={(param.options ?? []).join(", ")}
+                          onChange={(e) => {
+                            const next = [...parameterSchema];
+                            next[index] = {
+                              ...next[index],
+                              options: e.target.value
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            };
+                            setParameterSchema(next);
+                          }}
+                          placeholder="옵션1, 옵션2, 옵션3"
+                          className="min-w-[12rem] flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      ) : (
+                        <input
+                          value={param.default == null ? "" : String(param.default)}
+                          onChange={(e) => {
+                            const next = [...parameterSchema];
+                            const raw = e.target.value;
+                            next[index] = {
+                              ...next[index],
+                              default:
+                                raw === ""
+                                  ? null
+                                  : param.type === "number"
+                                    ? Number(raw)
+                                    : raw,
+                            };
+                            setParameterSchema(next);
+                          }}
+                          placeholder="default (선택)"
+                          className="min-w-[10rem] flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setParameterSchema(parameterSchema.filter((_, i) => i !== index))
+                        }
+                        className="mt-2 text-muted hover:text-danger"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Pre-experiment checklist */}
+            <div className="mt-6">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground">사전 체크리스트</label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setChecklist([...checklist, { item: "", required: true, checked: false }])
+                  }
+                  className="text-xs font-medium text-primary hover:text-primary-hover"
+                >
+                  + 항목 추가
+                </button>
+              </div>
+              <p className="mb-3 text-xs text-muted">
+                첫 참여자 예약 전 연구자가 완료해야 하는 점검 항목입니다. 필수 항목이
+                하나라도 남아 있으면 공개 예약 페이지가 비활성화됩니다.
+              </p>
+              {checklist.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border py-4 text-center text-xs text-muted">
+                  등록된 체크리스트 항목이 없습니다
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {checklist.map((item, index) => (
+                    <div key={index} className="flex items-start gap-2">
+                      <input
+                        value={item.item}
+                        onChange={(e) => {
+                          const next = [...checklist];
+                          next[index] = { ...next[index], item: e.target.value };
+                          setChecklist(next);
+                        }}
+                        placeholder={`체크 항목 ${index + 1} (예: 장비 캘리브레이션 확인)`}
+                        className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                      <label className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-2 py-2 text-xs">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-primary"
+                          checked={item.required}
+                          onChange={(e) => {
+                            const next = [...checklist];
+                            next[index] = { ...next[index], required: e.target.checked };
+                            setChecklist(next);
+                          }}
+                        />
+                        필수
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setChecklist(checklist.filter((_, i) => i !== index))}
+                        className="mt-2 text-muted hover:text-danger"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

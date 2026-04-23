@@ -24,6 +24,7 @@ interface SerializedSlot {
 // Mock experiment data for demo
 const DEMO_EXPERIMENT: Experiment = {
   id: "demo-experiment-001",
+  lab_id: "00000000-0000-0000-0000-000000000000",
   title: "시각 인지 실험 (fMRI)",
   description:
     "fMRI를 이용한 시각 자극 인지 반응 시간 측정 실험입니다. 총 2회차, 각 60분 소요되며 참여비 60,000원이 지급됩니다.",
@@ -58,6 +59,16 @@ const DEMO_EXPERIMENT: Experiment = {
   reminder_day_before_time: "18:00",
   reminder_day_of_enabled: true,
   reminder_day_of_time: "09:00",
+  code_repo_url: "https://github.com/example/demo-exp",
+  data_path: "/data/demo/exp001",
+  parameter_schema: [],
+  pre_experiment_checklist: [],
+  checklist_completed_at: new Date().toISOString(),
+  notion_experiment_page_id: null,
+  notion_experiment_sync_attempted_at: null,
+  experiment_mode: "offline",
+  online_runtime_config: null,
+  data_consent_required: false,
   created_by: "demo",
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),

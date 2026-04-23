@@ -9,6 +9,43 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
+export type ExperimentParameterType = "number" | "string" | "enum";
+
+export interface ExperimentParameterSpec {
+  key: string;
+  type: ExperimentParameterType;
+  default?: string | number | null;
+  options?: string[];
+}
+
+export interface ExperimentChecklistItem {
+  item: string;
+  required: boolean;
+  checked?: boolean;
+  checked_at?: string | null;
+}
+
+export type ExperimentMode = "offline" | "online" | "hybrid";
+
+export interface OnlineRuntimeConfig {
+  // Researcher-provided URL to the experiment JavaScript file(s). Loaded
+  // as a <script> inside the /run shell's sandbox iframe.
+  entry_url: string;
+  // Optional shape hints for the /run shell's progress UI.
+  trial_count?: number;
+  block_count?: number;
+  estimated_minutes?: number;
+  // Format of the completion code shown to the participant:
+  //   'uuid'            — default, crypto-random UUID
+  //   'alphanumeric:N'  — N-character random [A-Z0-9], e.g. 'alphanumeric:8'
+  // Kept as `string` here so zod's regex-narrowed literal still type-checks;
+  // the ingestion route validates the shape at runtime.
+  completion_token_format?: string;
+}
+
+// participant_class enum — matches 00025 migration.
+export type ParticipantClass = "newbie" | "royal" | "blacklist" | "vip";
+
 export interface Database {
   public: {
     Tables: {
@@ -55,7 +92,13 @@ export interface Database {
         Row: {
           id: string;
           booking_id: string;
-          integration_type: "gcal" | "notion" | "email" | "sms";
+          integration_type:
+            | "gcal"
+            | "notion"
+            | "email"
+            | "sms"
+            | "notion_experiment"
+            | "notion_survey";
           status: "pending" | "completed" | "failed" | "skipped";
           attempts: number;
           last_error: string | null;
@@ -66,7 +109,13 @@ export interface Database {
         Insert: {
           id?: string;
           booking_id: string;
-          integration_type: "gcal" | "notion" | "email" | "sms";
+          integration_type:
+            | "gcal"
+            | "notion"
+            | "email"
+            | "sms"
+            | "notion_experiment"
+            | "notion_survey";
           status?: "pending" | "completed" | "failed" | "skipped";
           attempts?: number;
           last_error?: string | null;
@@ -192,6 +241,7 @@ export interface Database {
       experiments: {
         Row: {
           id: string;
+          lab_id: string;
           title: string;
           description: string | null;
           start_date: string;
@@ -220,12 +270,23 @@ export interface Database {
           reminder_day_of_enabled: boolean;
           reminder_day_of_time: string;
           project_name?: string | null;
+          code_repo_url: string | null;
+          data_path: string | null;
+          parameter_schema: ExperimentParameterSpec[];
+          pre_experiment_checklist: ExperimentChecklistItem[];
+          checklist_completed_at: string | null;
+          notion_experiment_page_id: string | null;
+          notion_experiment_sync_attempted_at: string | null;
+          experiment_mode: ExperimentMode;
+          online_runtime_config: OnlineRuntimeConfig | null;
+          data_consent_required: boolean;
           created_by: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
+          lab_id?: string;
           title: string;
           description?: string | null;
           start_date: string;
@@ -254,12 +315,23 @@ export interface Database {
           reminder_day_of_enabled?: boolean;
           reminder_day_of_time?: string;
           project_name?: string | null;
+          code_repo_url?: string | null;
+          data_path?: string | null;
+          parameter_schema?: ExperimentParameterSpec[];
+          pre_experiment_checklist?: ExperimentChecklistItem[];
+          checklist_completed_at?: string | null;
+          notion_experiment_page_id?: string | null;
+          notion_experiment_sync_attempted_at?: string | null;
+          experiment_mode?: ExperimentMode;
+          online_runtime_config?: OnlineRuntimeConfig | null;
+          data_consent_required?: boolean;
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
+          lab_id?: string;
           title?: string;
           description?: string | null;
           start_date?: string;
@@ -288,6 +360,16 @@ export interface Database {
           reminder_day_of_enabled?: boolean;
           reminder_day_of_time?: string;
           project_name?: string | null;
+          code_repo_url?: string | null;
+          data_path?: string | null;
+          parameter_schema?: ExperimentParameterSpec[];
+          pre_experiment_checklist?: ExperimentChecklistItem[];
+          checklist_completed_at?: string | null;
+          notion_experiment_page_id?: string | null;
+          notion_experiment_sync_attempted_at?: string | null;
+          experiment_mode?: ExperimentMode;
+          online_runtime_config?: OnlineRuntimeConfig | null;
+          data_consent_required?: boolean;
           created_by?: string | null;
         };
         Relationships: [];
@@ -330,9 +412,10 @@ export interface Database {
           session_number: number;
           subject_number: number | null;
           booking_group_id: string | null;
-          status: "confirmed" | "cancelled" | "completed" | "no_show";
+          status: "confirmed" | "cancelled" | "completed" | "no_show" | "running";
           google_event_id: string | null;
           notion_page_id: string | null;
+          auto_completed_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -345,18 +428,20 @@ export interface Database {
           session_number?: number;
           subject_number?: number | null;
           booking_group_id?: string | null;
-          status?: "confirmed" | "cancelled" | "completed" | "no_show";
+          status?: "confirmed" | "cancelled" | "completed" | "no_show" | "running";
           google_event_id?: string | null;
           notion_page_id?: string | null;
+          auto_completed_at?: string | null;
         };
         Update: {
           slot_start?: string;
           slot_end?: string;
           session_number?: number;
           subject_number?: number | null;
-          status?: "confirmed" | "cancelled" | "completed" | "no_show";
+          status?: "confirmed" | "cancelled" | "completed" | "no_show" | "running";
           google_event_id?: string | null;
           notion_page_id?: string | null;
+          auto_completed_at?: string | null;
         };
         Relationships: [
           {
@@ -408,6 +493,65 @@ export interface Database {
           },
         ];
       };
+      experiment_run_progress: {
+        Row: {
+          id: string;
+          booking_id: string;
+          token_hash: string;
+          token_issued_at: string;
+          token_revoked_at: string | null;
+          blocks_submitted: number;
+          last_block_at: string | null;
+          completion_code: string | null;
+          completion_code_issued_at: string | null;
+          verified_at: string | null;
+          verified_by: string | null;
+          burst_window_start: string;
+          burst_count: number;
+          minute_window_start: string;
+          minute_count: number;
+          verify_attempts: number;
+          verify_locked_until: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          booking_id: string;
+          token_hash: string;
+          token_issued_at?: string;
+          token_revoked_at?: string | null;
+          blocks_submitted?: number;
+          last_block_at?: string | null;
+          completion_code?: string | null;
+          completion_code_issued_at?: string | null;
+          verified_at?: string | null;
+          verified_by?: string | null;
+          verify_attempts?: number;
+          verify_locked_until?: string | null;
+        };
+        Update: {
+          token_hash?: string;
+          token_revoked_at?: string | null;
+          blocks_submitted?: number;
+          last_block_at?: string | null;
+          completion_code?: string | null;
+          completion_code_issued_at?: string | null;
+          verified_at?: string | null;
+          verified_by?: string | null;
+          verify_attempts?: number;
+          verify_locked_until?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "experiment_run_progress_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: true;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       calendar_freebusy_cache: {
         Row: {
           calendar_id: string;
@@ -428,6 +572,323 @@ export interface Database {
           fetched_at?: string;
         };
         Relationships: [];
+      };
+      participant_payment_info: {
+        Row: {
+          id: string;
+          participant_id: string;
+          experiment_id: string;
+          booking_group_id: string;
+          rrn_cipher: string | null;
+          rrn_iv: string | null;
+          rrn_tag: string | null;
+          rrn_key_version: number;
+          bank_name: string | null;
+          account_number: string | null;
+          account_holder: string | null;
+          institution: string | null;
+          signature_path: string | null;
+          signed_at: string | null;
+          bankbook_path: string | null;
+          bankbook_mime_type: string | null;
+          period_start: string | null;
+          period_end: string | null;
+          amount_krw: number;
+          amount_overridden: boolean;
+          token_hash: string;
+          token_issued_at: string;
+          token_expires_at: string;
+          token_revoked_at: string | null;
+          status: "pending_participant" | "submitted_to_admin" | "claimed" | "paid";
+          submitted_at: string | null;
+          claimed_at: string | null;
+          claimed_by: string | null;
+          claimed_in: string | null;
+          paid_at: string | null;
+          paid_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          participant_id: string;
+          experiment_id: string;
+          booking_group_id: string;
+          rrn_cipher?: string | null;
+          rrn_iv?: string | null;
+          rrn_tag?: string | null;
+          rrn_key_version?: number;
+          bank_name?: string | null;
+          account_number?: string | null;
+          account_holder?: string | null;
+          institution?: string | null;
+          signature_path?: string | null;
+          signed_at?: string | null;
+          bankbook_path?: string | null;
+          bankbook_mime_type?: string | null;
+          period_start?: string | null;
+          period_end?: string | null;
+          amount_krw?: number;
+          amount_overridden?: boolean;
+          token_hash: string;
+          token_issued_at?: string;
+          token_expires_at: string;
+          token_revoked_at?: string | null;
+          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid";
+          submitted_at?: string | null;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          claimed_in?: string | null;
+          paid_at?: string | null;
+          paid_by?: string | null;
+        };
+        Update: {
+          rrn_cipher?: string | null;
+          rrn_iv?: string | null;
+          rrn_tag?: string | null;
+          rrn_key_version?: number;
+          bank_name?: string | null;
+          account_number?: string | null;
+          account_holder?: string | null;
+          institution?: string | null;
+          signature_path?: string | null;
+          signed_at?: string | null;
+          bankbook_path?: string | null;
+          bankbook_mime_type?: string | null;
+          period_start?: string | null;
+          period_end?: string | null;
+          amount_krw?: number;
+          amount_overridden?: boolean;
+          token_hash?: string;
+          token_issued_at?: string;
+          token_expires_at?: string;
+          token_revoked_at?: string | null;
+          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid";
+          submitted_at?: string | null;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          claimed_in?: string | null;
+          paid_at?: string | null;
+          paid_by?: string | null;
+        };
+        Relationships: [];
+      };
+      payment_claims: {
+        Row: {
+          id: string;
+          experiment_id: string;
+          claimed_by: string | null;
+          claimed_at: string;
+          booking_group_ids: string[];
+          participant_count: number;
+          total_krw: number;
+          file_name: string | null;
+          notes: string | null;
+        };
+        Insert: {
+          id?: string;
+          experiment_id: string;
+          claimed_by?: string | null;
+          claimed_at?: string;
+          booking_group_ids?: string[];
+          participant_count?: number;
+          total_krw?: number;
+          file_name?: string | null;
+          notes?: string | null;
+        };
+        // Claim rows are back-filled with final counts + file name after the
+        // ZIP is built, so we need a narrow Update shape.
+        Update: {
+          booking_group_ids?: string[];
+          participant_count?: number;
+          total_krw?: number;
+          file_name?: string | null;
+          notes?: string | null;
+        };
+        Relationships: [];
+      };
+      payment_exports: {
+        Row: {
+          id: string;
+          experiment_id: string;
+          exported_by: string | null;
+          export_kind: "individual_form" | "upload_form" | "both" | "claim_bundle";
+          participant_count: number;
+          participant_ids: string[];
+          file_name: string | null;
+          exported_at: string;
+        };
+        Insert: {
+          id?: string;
+          experiment_id: string;
+          exported_by?: string | null;
+          export_kind: "individual_form" | "upload_form" | "both" | "claim_bundle";
+          participant_count?: number;
+          participant_ids?: string[];
+          file_name?: string | null;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      labs: {
+        Row: {
+          id: string;
+          code: string;
+          name: string;
+          // `participant_id_salt` is bytea — surfaced as a hex / base64 string
+          // by PostgREST; treat as opaque from the TS side.
+          participant_id_salt: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          code: string;
+          name: string;
+          participant_id_salt?: string;
+          created_at?: string;
+        };
+        Update: {
+          code?: string;
+          name?: string;
+          participant_id_salt?: string;
+        };
+        Relationships: [];
+      };
+      participant_lab_identity: {
+        Row: {
+          participant_id: string;
+          lab_id: string;
+          public_code: string;
+          identity_hmac: string;
+          created_at: string;
+        };
+        Insert: {
+          participant_id: string;
+          lab_id: string;
+          public_code: string;
+          identity_hmac: string;
+          created_at?: string;
+        };
+        Update: {
+          public_code?: string;
+          identity_hmac?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "participant_lab_identity_participant_id_fkey";
+            columns: ["participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "participant_lab_identity_lab_id_fkey";
+            columns: ["lab_id"];
+            isOneToOne: false;
+            referencedRelation: "labs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      participant_classes: {
+        Row: {
+          id: string;
+          participant_id: string;
+          lab_id: string;
+          class: ParticipantClass;
+          reason: string | null;
+          assigned_by: string | null;
+          assigned_kind: "auto" | "manual";
+          completed_count: number;
+          valid_from: string;
+          valid_until: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          participant_id: string;
+          lab_id: string;
+          class: ParticipantClass;
+          reason?: string | null;
+          assigned_by?: string | null;
+          assigned_kind?: "auto" | "manual";
+          completed_count?: number;
+          valid_from?: string;
+          valid_until?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          class?: ParticipantClass;
+          reason?: string | null;
+          assigned_by?: string | null;
+          assigned_kind?: "auto" | "manual";
+          completed_count?: number;
+          valid_from?: string;
+          valid_until?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "participant_classes_participant_id_fkey";
+            columns: ["participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "participant_classes_lab_id_fkey";
+            columns: ["lab_id"];
+            isOneToOne: false;
+            referencedRelation: "labs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      booking_observations: {
+        Row: {
+          booking_id: string;
+          pre_survey_done: boolean;
+          pre_survey_info: string | null;
+          post_survey_done: boolean;
+          post_survey_info: string | null;
+          notable_observations: string | null;
+          researcher_id: string | null;
+          entered_at: string;
+          updated_at: string | null;
+          notion_page_id: string | null;
+          notion_synced_at: string | null;
+        };
+        Insert: {
+          booking_id: string;
+          pre_survey_done?: boolean;
+          pre_survey_info?: string | null;
+          post_survey_done?: boolean;
+          post_survey_info?: string | null;
+          notable_observations?: string | null;
+          researcher_id?: string | null;
+          entered_at?: string;
+          updated_at?: string | null;
+          notion_page_id?: string | null;
+          notion_synced_at?: string | null;
+        };
+        Update: {
+          pre_survey_done?: boolean;
+          pre_survey_info?: string | null;
+          post_survey_done?: boolean;
+          post_survey_info?: string | null;
+          notable_observations?: string | null;
+          researcher_id?: string | null;
+          notion_page_id?: string | null;
+          notion_synced_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "booking_observations_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: true;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       notification_log: {
         Row: {
@@ -468,7 +929,37 @@ export interface Database {
       };
     };
     Views: {
-      [_ in never]: never;
+      participant_class_current: {
+        Row: {
+          id: string;
+          participant_id: string;
+          lab_id: string;
+          class: ParticipantClass;
+          reason: string | null;
+          assigned_by: string | null;
+          assigned_kind: "auto" | "manual";
+          completed_count: number;
+          valid_from: string;
+          valid_until: string | null;
+          created_at: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "participant_classes_participant_id_fkey";
+            columns: ["participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "participant_classes_lab_id_fkey";
+            columns: ["lab_id"];
+            isOneToOne: false;
+            referencedRelation: "labs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Functions: {
       book_slot: {
@@ -482,6 +973,58 @@ export interface Database {
           p_slots: Json;
         };
         Returns: Json;
+      };
+      rpc_ingest_block: {
+        Args: {
+          p_booking_id: string;
+          p_block_index: number;
+        };
+        Returns: Json;
+      };
+      rpc_rollback_block: {
+        Args: {
+          p_booking_id: string;
+          p_expected_blocks: number;
+        };
+        Returns: Json;
+      };
+      rpc_mint_completion_code: {
+        Args: {
+          p_booking_id: string;
+          p_code: string;
+        };
+        Returns: Json;
+      };
+      recompute_participant_class: {
+        Args: {
+          p_participant_id: string;
+          p_lab_id: string;
+        };
+        Returns: ParticipantClass;
+      };
+      submit_booking_observation: {
+        Args: {
+          p_booking_id: string;
+          p_observation: Json;
+        };
+        Returns: Json;
+      };
+      auto_complete_stale_bookings: {
+        Args: {
+          p_grace_days?: number;
+        };
+        Returns: number;
+      };
+      assign_participant_class_manual: {
+        Args: {
+          p_participant_id: string;
+          p_lab_id: string;
+          p_class: ParticipantClass;
+          p_reason: string | null;
+          p_valid_until: string | null;
+          p_assigned_by: string | null;
+        };
+        Returns: ParticipantClassRow;
       };
     };
     Enums: {
@@ -503,4 +1046,14 @@ export type Participant = Database["public"]["Tables"]["participants"]["Row"];
 export type Booking = Database["public"]["Tables"]["bookings"]["Row"];
 export type Reminder = Database["public"]["Tables"]["reminders"]["Row"];
 export type ExperimentLocation = Database["public"]["Tables"]["experiment_locations"]["Row"];
+export type ParticipantPaymentInfo = Database["public"]["Tables"]["participant_payment_info"]["Row"];
+export type PaymentStatus = ParticipantPaymentInfo["status"];
+export type PaymentExport = Database["public"]["Tables"]["payment_exports"]["Row"];
+export type PaymentClaim = Database["public"]["Tables"]["payment_claims"]["Row"];
 export type ExperimentManualBlock = Database["public"]["Tables"]["experiment_manual_blocks"]["Row"];
+export type Labs = Database["public"]["Tables"]["labs"]["Row"];
+export type Lab = Labs;
+export type ParticipantLabIdentity = Database["public"]["Tables"]["participant_lab_identity"]["Row"];
+export type ParticipantClasses = Database["public"]["Tables"]["participant_classes"]["Row"];
+export type ParticipantClassRow = ParticipantClasses;
+export type BookingObservation = Database["public"]["Tables"]["booking_observations"]["Row"];

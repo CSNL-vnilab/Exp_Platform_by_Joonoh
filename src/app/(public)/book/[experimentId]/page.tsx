@@ -43,6 +43,40 @@ export default async function BookPage({ params }: BookPageProps) {
     );
   }
 
+  // Checklist gate (migration 00022): researcher must tick off every required
+  // pre-experiment checklist item before the public booking page unlocks.
+  const checklist = experiment.pre_experiment_checklist ?? [];
+  const requiredOpen = checklist.filter(
+    (item) => item.required && !item.checked,
+  );
+  if (experiment.status === "active" && requiredOpen.length > 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-yellow-100">
+          <svg
+            className="h-8 w-8 text-yellow-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+            />
+          </svg>
+        </div>
+        <h1 className="text-xl font-semibold text-foreground">
+          아직 예약을 받을 준비가 완료되지 않았습니다
+        </h1>
+        <p className="mt-2 max-w-md text-sm text-muted">
+          연구진이 사전 점검을 마친 뒤 예약 페이지가 열립니다. 잠시 후 다시 시도해 주세요.
+        </p>
+      </div>
+    );
+  }
+
   if (experiment.status !== "active") {
     const statusMessages: Record<string, string> = {
       draft: "아직 공개되지 않은 실험입니다.",

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { ExperimentForm } from "@/components/experiment-form";
-import type { Experiment } from "@/types/database";
+import type { Experiment, ExperimentChecklistItem } from "@/types/database";
 import { format } from "date-fns";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 
@@ -56,6 +56,21 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
   const [editing, setEditing] = useState(false);
   const [updating, setUpdating] = useState(false);
 
+  // Checklist state mirrors DB; we PATCH on each toggle.
+  const [checklist, setChecklist] = useState<ExperimentChecklistItem[]>(
+    experiment.pre_experiment_checklist ?? [],
+  );
+  const [checklistSaving, setChecklistSaving] = useState(false);
+
+  const hasCodeRepo = Boolean(experiment.code_repo_url?.trim());
+  const hasDataPath = Boolean(experiment.data_path?.trim());
+  const activationReady = hasCodeRepo && hasDataPath;
+
+  const requiredOpenCount = checklist.filter((i) => i.required && !i.checked).length;
+  const checklistComplete =
+    checklist.length === 0 ||
+    checklist.filter((i) => i.required).every((i) => i.checked);
+
   // --- 완전 삭제 ---
   const [deleting, setDeleting] = useState(false);
 
@@ -72,20 +87,83 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
   const bookingUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/book/${experiment.id}`;
 
   async function handleStatusChange(newStatus: "active" | "completed") {
-    setUpdating(true);
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("experiments")
-      .update({ status: newStatus })
-      .eq("id", experiment.id);
+    if (newStatus === "active" && !activationReady) {
+      toast(
+        "코드 저장소와 데이터 경로를 모두 입력해야 실험을 활성화할 수 있습니다.",
+        "error",
+      );
+      return;
+    }
 
-    if (error) {
-      toast("상태 변경 중 오류가 발생했습니다.", "error");
+    setUpdating(true);
+    const res = await fetch(`/api/experiments/${experiment.id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus }),
+    });
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast(j.error ?? "상태 변경 중 오류가 발생했습니다.", "error");
     } else {
-      toast("상태가 변경되었습니다.", "success");
+      const j = await res.json().catch(() => ({}));
+      if (j.notion_synced) {
+        toast("상태가 변경되었고 Notion에 기록되었습니다.", "success");
+      } else if (newStatus === "active" && j.notion_error) {
+        toast("상태는 변경되었으나 Notion 동기화에 실패했습니다.", "error");
+      } else {
+        toast("상태가 변경되었습니다.", "success");
+      }
       router.refresh();
     }
     setUpdating(false);
+  }
+
+  async function toggleChecklistItem(index: number, nextChecked: boolean) {
+    // Guard against concurrent toggles: if a save is already in flight, drop
+    // the extra click. The checkbox's `disabled={checklistSaving}` handles the
+    // normal case; this is defence-in-depth against React batching quirks.
+    if (checklistSaving) return;
+
+    // Capture the pre-optimistic snapshot BEFORE calling setChecklist, so
+    // rollback on error restores exactly the state the user saw, not the
+    // closure-captured `checklist` (which may already include later toggles).
+    let snapshot: ExperimentChecklistItem[] = [];
+    let nextState: ExperimentChecklistItem[] = [];
+
+    setChecklist((prev) => {
+      snapshot = prev;
+      nextState = prev.map((it, i) =>
+        i === index
+          ? {
+              ...it,
+              checked: nextChecked,
+              checked_at: nextChecked ? new Date().toISOString() : null,
+            }
+          : it,
+      );
+      return nextState;
+    });
+
+    setChecklistSaving(true);
+    const supabase = createClient();
+    const allRequiredChecked = nextState
+      .filter((i) => i.required)
+      .every((i) => i.checked);
+    const { error } = await supabase
+      .from("experiments")
+      .update({
+        pre_experiment_checklist: nextState,
+        checklist_completed_at: allRequiredChecked ? new Date().toISOString() : null,
+      })
+      .eq("id", experiment.id);
+    setChecklistSaving(false);
+    if (error) {
+      toast("체크리스트 저장 중 오류가 발생했습니다.", "error");
+      setChecklist(snapshot);
+    } else {
+      router.refresh();
+    }
   }
 
   function handleCopyLink() {
@@ -257,7 +335,12 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
           {experiment.status === "draft" && (
             <Button
               size="sm"
-              disabled={updating}
+              disabled={updating || !activationReady}
+              title={
+                activationReady
+                  ? undefined
+                  : "코드 저장소와 데이터 경로를 입력해야 활성화할 수 있습니다."
+              }
               onClick={() => handleStatusChange("active")}
             >
               활성화
@@ -358,6 +441,144 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
                 </dd>
               </div>
             </dl>
+          </CardContent>
+        </Card>
+
+        {/* Research metadata summary (migration 00022) */}
+        <Card className="lg:col-span-2">
+          <CardContent>
+            <h2 className="text-lg font-semibold text-foreground mb-4">연구 메타데이터</h2>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-muted">분석 코드 저장소</dt>
+                <dd className="mt-0.5 break-all text-foreground">
+                  {experiment.code_repo_url ? (
+                    /^https?:\/\//.test(experiment.code_repo_url) ? (
+                      <a
+                        href={experiment.code_repo_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        {experiment.code_repo_url}
+                      </a>
+                    ) : (
+                      <code className="rounded bg-card px-1.5 py-0.5 text-xs">
+                        {experiment.code_repo_url}
+                      </code>
+                    )
+                  ) : (
+                    <span className="text-danger">미지정 — 활성화 불가</span>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted">원본 데이터 경로</dt>
+                <dd className="mt-0.5 break-all text-foreground">
+                  {experiment.data_path ? (
+                    <code className="rounded bg-card px-1.5 py-0.5 text-xs">
+                      {experiment.data_path}
+                    </code>
+                  ) : (
+                    <span className="text-danger">미지정 — 활성화 불가</span>
+                  )}
+                </dd>
+              </div>
+              {experiment.parameter_schema && experiment.parameter_schema.length > 0 && (
+                <div className="sm:col-span-2">
+                  <dt className="text-muted">파라미터 스키마</dt>
+                  <dd className="mt-1 flex flex-wrap gap-1.5">
+                    {experiment.parameter_schema.map((p, i) => (
+                      <span
+                        key={i}
+                        className="rounded-full border border-border bg-white px-2 py-0.5 text-xs text-foreground"
+                      >
+                        {p.key}
+                        <span className="ml-1 text-muted">({p.type})</span>
+                      </span>
+                    ))}
+                  </dd>
+                </div>
+              )}
+              {experiment.notion_experiment_page_id && (
+                <div className="sm:col-span-2">
+                  <dt className="text-muted">Notion 페이지</dt>
+                  <dd className="mt-0.5 text-xs text-muted">
+                    <code>{experiment.notion_experiment_page_id}</code>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </CardContent>
+        </Card>
+
+        {/* Pre-experiment checklist — booking gate */}
+        <Card className="lg:col-span-2">
+          <CardContent>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">사전 체크리스트</h2>
+                <p className="mt-1 text-sm text-muted">
+                  {checklist.length === 0
+                    ? "등록된 점검 항목이 없습니다. 양식에서 추가할 수 있습니다."
+                    : checklistComplete
+                      ? "모든 필수 항목이 완료되었습니다. 참여자가 예약 페이지에 접근할 수 있습니다."
+                      : `참여자 예약 차단 중 — 필수 항목 ${requiredOpenCount}개 남음.`}
+                </p>
+              </div>
+              <Badge
+                variant={
+                  checklist.length === 0
+                    ? "default"
+                    : checklistComplete
+                      ? "success"
+                      : "danger"
+                }
+              >
+                {checklist.length === 0
+                  ? "해당 없음"
+                  : checklistComplete
+                    ? "완료"
+                    : "미완료"}
+              </Badge>
+            </div>
+            {checklist.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {checklist.map((item, index) => (
+                  <li
+                    key={index}
+                    className="flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-primary"
+                      checked={!!item.checked}
+                      disabled={checklistSaving}
+                      onChange={(e) => toggleChecklistItem(index, e.target.checked)}
+                    />
+                    <div className="flex-1">
+                      <span
+                        className={`text-foreground ${
+                          item.checked ? "line-through text-muted" : ""
+                        }`}
+                      >
+                        {item.item}
+                      </span>
+                      {item.required && (
+                        <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">
+                          필수
+                        </span>
+                      )}
+                      {item.checked_at && (
+                        <span className="ml-2 text-xs text-muted">
+                          · {formatDateKR(item.checked_at)} {formatTimeKR(item.checked_at)}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </CardContent>
         </Card>
 

@@ -1,0 +1,33 @@
+name: Auto-complete stale bookings
+on:
+  schedule:
+    # Daily at 17:15 UTC (02:15 KST next day).
+    - cron: "15 17 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-auto-complete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger auto-complete endpoint
+        env:
+          AUTO_COMPLETE_URL: https://lab-reservation-seven.vercel.app/api/cron/auto-complete-bookings
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is missing — add it at Settings → Secrets → Actions"
+            exit 1
+          fi
+          echo "secret_length=${#CRON_SECRET}"
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" \
+            -X POST "$AUTO_COMPLETE_URL" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $status"
+          echo "--- response body ---"
+          cat /tmp/resp || true
+          echo
+          echo "--- /end ---"
+          if [ "$status" != "200" ]; then
+            echo "::error::auto-complete endpoint returned HTTP $status"
+            exit 1
+          fi

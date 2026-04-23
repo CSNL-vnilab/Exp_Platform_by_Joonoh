@@ -96,6 +96,8 @@ export async function POST(request: NextRequest) {
       const status =
         result.error === "EXPERIMENT_NOT_FOUND"
           ? 404
+          : result.error === "PARTICIPANT_BLACKLISTED"
+          ? 403
           : result.error === "DUPLICATE_PARTICIPATION" ||
             result.error === "SLOT_ALREADY_TAKEN" ||
             result.error === "WRONG_SESSION_COUNT"

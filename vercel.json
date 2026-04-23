@@ -4,6 +4,10 @@
     {
       "path": "/api/notifications/reminders",
       "schedule": "30 0 * * *"
+    },
+    {
+      "path": "/api/cron/auto-complete-bookings",
+      "schedule": "15 17 * * *"
     }
   ]
 }
