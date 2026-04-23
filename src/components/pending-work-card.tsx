@@ -21,6 +21,14 @@ interface PendingWork {
   obs_missing: number;
   notion_stuck: number;
   notion_dead_letter: number;
+  // Migration 00046 additions — absent on pre-migration rollback, so
+  // the render defaults to 0. Safe additive extension.
+  gcal_stuck?: number;
+  gcal_dead_letter?: number;
+  email_stuck?: number;
+  email_dead_letter?: number;
+  sms_stuck?: number;
+  sms_dead_letter?: number;
   royal_queue: number;
   auto_completed_7d: number;
   class_changes_7d: ClassChangeRow[];
@@ -48,11 +56,27 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
     class_changes_7d: [],
   }) as unknown as PendingWork;
 
+  // D6 follow-up — aggregate gcal/email/sms across "actively retrying"
+  // vs "dead letter". Keeping one tile per retryable kind would burst
+  // the grid from 5 to 11 tiles; instead we sum them into "기타 외부
+  // 연동 재시도" and expose the per-type breakdown via title tooltip.
+  const gcalStuck = work.gcal_stuck ?? 0;
+  const emailStuck = work.email_stuck ?? 0;
+  const smsStuck = work.sms_stuck ?? 0;
+  const gcalDead = work.gcal_dead_letter ?? 0;
+  const emailDead = work.email_dead_letter ?? 0;
+  const smsDead = work.sms_dead_letter ?? 0;
+  const otherStuck = gcalStuck + emailStuck + smsStuck;
+  const otherDead = gcalDead + emailDead + smsDead;
+  const otherStuckTooltip = `gcal ${gcalStuck} · email ${emailStuck} · sms ${smsStuck}`;
+  const otherDeadTooltip = `gcal ${gcalDead} · email ${emailDead} · sms ${smsDead}`;
+
   const tiles: Array<{
     label: string;
     value: number;
     tone: "default" | "danger" | "info" | "success" | "warning";
     href?: string;
+    title?: string;
   }> = [
     {
       label: "관찰 미입력",
@@ -68,6 +92,18 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
       label: "Notion 재시도 한계",
       value: work.notion_dead_letter,
       tone: work.notion_dead_letter > 0 ? "danger" : "success",
+    },
+    {
+      label: "외부 연동 재시도",
+      value: otherStuck,
+      tone: otherStuck > 0 ? "warning" : "success",
+      title: otherStuckTooltip,
+    },
+    {
+      label: "외부 연동 한계",
+      value: otherDead,
+      tone: otherDead > 0 ? "danger" : "success",
+      title: otherDeadTooltip,
     },
     {
       label: "Royal 승급 대기",
@@ -92,11 +128,12 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
             실시간 · RPC get_researcher_pending_work
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
           {tiles.map((t) => (
             <div
               key={t.label}
               className={`rounded-lg border p-3 ${toneBg(t.tone)}`}
+              title={t.title}
             >
               <div className="text-xs text-muted">{t.label}</div>
               <div className={`mt-0.5 text-2xl font-bold ${toneText(t.tone)}`}>

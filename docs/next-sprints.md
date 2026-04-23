@@ -50,15 +50,19 @@ email) have symmetric retry semantics under `/api/cron/outbox-retry`.
 
 **Still TODO (not blocking):**
 - Dashboard pending-work RPC gains `gcal_stuck`, `email_stuck`,
-  `sms_stuck` counters so PendingWorkCard covers all retries, not just
-  Notion. Small migration.
+  `sms_stuck` counters — ✅ landed as migration 00046 +
+  PendingWorkCard updates (summed into "외부 연동 재시도 / 한계"
+  tiles with per-type tooltip so the grid doesn't burst from 5 to 11).
 - Replace Vercel cron entry `notion-retry` → `outbox-retry` once the
   cutover is confirmed safe. Both routes share auth contract + pacing;
-  the dashboard shows the more-recent sweep already.
+  the dashboard shows the more-recent sweep already. GH Actions
+  workflow ready at `.github/workflows/outbox-retry-cron.yml` with
+  `schedule:` commented out; uncomment after migration 00044 + 00046
+  apply.
 - `notion-retry` route kept for backward compat; delete once cron
   flipped.
 
-**Exit:** done except for the cron-config cutover.
+**Exit:** done except for the cron-config cutover + migration apply.
 
 ## D7 — Multi-lab plumbing preparation
 

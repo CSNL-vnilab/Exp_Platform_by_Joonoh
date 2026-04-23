@@ -1,0 +1,37 @@
+name: Outbox retry sweep (unified)
+# D6 unified retry cron covering notion / notion_survey / gcal / sms /
+# email integration types. Replaces notion-retry-cron.yml once the
+# cutover is verified — see docs/ops-playbook.md "Cron cutover checklist".
+#
+# Disabled by default (workflow_dispatch only) until operator has
+# verified the deploy + applied migration 00044
+# (notion_health_check_type enum extension). To enable the schedule,
+# uncomment the `schedule:` block below.
+on:
+  # schedule:
+  #   - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-outbox-retry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger outbox-retry endpoint
+        env:
+          URL: https://lab-reservation-seven.vercel.app/api/cron/outbox-retry
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is missing"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $status"
+          cat /tmp/resp || true
+          echo
+          if [ "$status" != "200" ]; then
+            echo "::error::outbox-retry returned HTTP $status"
+            exit 1
+          fi
