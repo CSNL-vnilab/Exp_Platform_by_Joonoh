@@ -45,11 +45,12 @@ export async function runEmailRetry(
   const base = { booking_id: claim.booking_id, attempts: claim.attempts };
 
   // Fetch the full booking context. Use the same shape runEmail needs
-  // minus run/payment tokens.
+  // minus run/payment tokens. Include status so we can skip cancelled /
+  // rescheduled bookings without re-sending a stale "예약 확정" email.
   const { data: booking } = await supabase
     .from("bookings")
     .select(
-      "id, slot_start, slot_end, session_number, booking_group_id, participants(name, email), experiments(title, participation_fee, experiment_mode, precautions, location_id, created_by)",
+      "id, slot_start, slot_end, session_number, booking_group_id, status, participants(name, email), experiments(title, participation_fee, experiment_mode, precautions, location_id, created_by)",
     )
     .eq("id", claim.booking_id)
     .maybeSingle();
@@ -65,6 +66,7 @@ export async function runEmailRetry(
     slot_end: string;
     session_number: number;
     booking_group_id: string | null;
+    status: string;
     participants: { name: string; email: string } | null;
     experiments: {
       title: string;
@@ -79,6 +81,55 @@ export async function runEmailRetry(
   if (!row.participants || !row.experiments) {
     await finalize(supabase, claim.id, "failed", null, "join_missing");
     return { ...base, ok: false, error: "join_missing" };
+  }
+
+  // P1 — don't resend a "예약 확정" email for a booking that's already
+  // moved on. Reschedules run their own email flow via
+  // runReschedulePipeline; cancellations don't want a confirmation.
+  if (row.status !== "confirmed" && row.status !== "completed") {
+    await finalize(
+      supabase,
+      claim.id,
+      "skipped",
+      null,
+      `booking status is ${row.status}`,
+    );
+    return { ...base, ok: false, skipped_reason: `booking_${row.status}` };
+  }
+
+  // P0 — multi-session dedup. Every session in a group has its own
+  // email row in booking_integrations. First-attempt runEmail sends
+  // ONE email per group and marks all N rows together; if the send
+  // failed, all N rows are now in failed state. Without dedup the
+  // cron would fan out to N identical emails (one per sibling row).
+  // Short-circuit if any sibling row for this group already reached a
+  // terminal state ahead of us.
+  if (row.booking_group_id) {
+    const { data: siblingIntegrations } = await supabase
+      .from("booking_integrations")
+      .select("id, booking_id, status, created_at, bookings!inner(booking_group_id)")
+      .eq("integration_type", "email")
+      .eq("bookings.booking_group_id", row.booking_group_id);
+    const recentCompletedSibling = (siblingIntegrations ?? [])
+      .filter((r) => r.booking_id !== claim.booking_id)
+      .some((r) =>
+        (r as unknown as { status: string }).status === "completed" ||
+        (r as unknown as { status: string }).status === "skipped",
+      );
+    if (recentCompletedSibling) {
+      await finalize(
+        supabase,
+        claim.id,
+        "skipped",
+        null,
+        "sibling email already delivered for this booking group",
+      );
+      return {
+        ...base,
+        ok: false,
+        skipped_reason: "sibling_delivered",
+      };
+    }
   }
 
   // If this booking is part of a multi-session group, fetch the siblings
@@ -154,7 +205,9 @@ export async function runEmailRetry(
     creator,
     location,
     // runLinks / paymentLink intentionally omitted — see file header.
-    preface: "이전에 발송한 예약 확인 메일이 전달되지 않아 다시 보내드립니다. 실험 참여 링크나 정산 정보 입력 링크가 필요하시면 담당 연구원에게 문의해 주세요.",
+    // Softened wording covers both the "didn't arrive" case and the
+    // rare "arrived but our delivery sensor fired a false failure" case.
+    preface: "이전에 발송한 예약 확인 메일이 전달되지 않았을 수 있어 다시 보내드립니다. 실험 참여 링크나 정산 정보 입력 링크가 필요하시면 담당 연구원에게 문의해 주세요.",
   });
 
   try {

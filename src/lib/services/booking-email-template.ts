@@ -229,8 +229,10 @@ export function buildConfirmationEmail(
     </div>
   `;
 
+  // Case-insensitive compare: Foo@x vs foo@x are the same inbox.
   const cc =
-    researcherEmail && researcherEmail !== participant.email
+    researcherEmail &&
+    researcherEmail.toLowerCase() !== participant.email.toLowerCase()
       ? [researcherEmail]
       : undefined;
 
