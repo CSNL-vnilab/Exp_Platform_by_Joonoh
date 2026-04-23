@@ -6,9 +6,13 @@
 // and so other streams' additions don't collide with this checklist
 // logic.
 //
-// Binds to the SAME source of truth as docs/experiment-field-requirements.md.
-// If you add a new classified field there, add it here too.
+// Binds to the SAME source of truth as docs/experiment-field-requirements.md
+// + src/lib/utils/validation.ts → experimentSchema. The `passesSchema`
+// helper defers to zod for field-level validation so a schema change
+// (e.g. bumping min() on a number field) automatically updates the
+// sidebar without a second edit here.
 
+import { experimentSchema } from "@/lib/utils/validation";
 import type { Experiment, ExperimentMode } from "@/types/database";
 
 // Accepts a partial draft (form-in-progress) rather than a full Experiment,

@@ -685,11 +685,18 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
                   </Button>
                 </Link>
                 {experiment.experiment_mode !== "offline" && (
-                  <Link href={`/experiments/${experiment.id}/live`}>
-                    <Button variant="secondary" size="sm">
-                      실시간 세션
-                    </Button>
-                  </Link>
+                  <>
+                    <Link href={`/experiments/${experiment.id}/live`}>
+                      <Button variant="secondary" size="sm">
+                        실시간 세션
+                      </Button>
+                    </Link>
+                    <Link href={`/experiments/${experiment.id}/preview-run`}>
+                      <Button variant="secondary" size="sm">
+                        프리뷰
+                      </Button>
+                    </Link>
+                  </>
                 )}
               </div>
             </div>
