@@ -61,6 +61,8 @@ Legend:
 | data_path | 🟡 필수 (활성화) | — | 원본 데이터 저장 경로. DB 트리거가 활성화를 차단합니다. |
 | parameter_schema | 🟢 권장 | [] | 실험 파라미터 선언. 비어 있으면 Notion 실험 마스터 행에 "(없음)"으로 기록됨. |
 | pre_experiment_checklist | 🟢 권장 | [] | 사전 점검. 필수 항목이 하나라도 미완이면 공개 예약이 차단됩니다. 완전히 비우면 게이트가 즉시 통과됩니다. |
+| protocol_version | 🟢 권장 | null | 자유 형식 문자열 (예: `v1.0`, `2026-03-rev2`). 64자 이내. 저장 이후 생성되는 모든 예약의 Notion SLab 행 `버전넘버` 컬럼에 복사됩니다. (migration 00042) |
+| notion_project_page_id | 🟢 권장 | null | Notion Projects & Chores DB의 프로젝트 페이지 UUID. 설정 시 모든 SLab 행의 `프로젝트 (관련)` Relation이 이 페이지로 연결됩니다. 실험 상세의 "Notion Projects & Chores 연결" 입력으로 편집 가능 (URL 또는 32자 hex 붙여넣기 지원). (migration 00043) |
 
 ## 온라인 실험 (experiment_mode !== "offline")
 

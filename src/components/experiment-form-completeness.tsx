@@ -150,6 +150,22 @@ function classify(draft: Draft): FieldStatus[] {
         Array.isArray(draft.parameter_schema) &&
         draft.parameter_schema.length > 0,
     },
+    {
+      // migration 00042. Free-form string copied to Notion SLab row's
+      // 버전넘버 at booking-creation time.
+      name: "프로토콜 버전",
+      level: "recommended",
+      filled: hasValue(draft.protocol_version),
+      hint: "예: v1.0 — Notion 버전넘버 컬럼에 복사됨",
+    },
+    {
+      // migration 00043. Optional link from experiment to the Notion
+      // Projects & Chores page — drives 프로젝트 (관련) Relation.
+      name: "Notion 프로젝트 연결",
+      level: "recommended",
+      filled: hasValue(draft.notion_project_page_id),
+      hint: "실험 상세의 Notion 입력에서 URL / hex 붙여넣기",
+    },
   ];
 
   if (isOnline) {
