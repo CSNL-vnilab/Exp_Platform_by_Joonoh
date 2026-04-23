@@ -68,14 +68,16 @@ To verify prod matches local after a deploy:
 for p in /api/notifications/reminders \
          /api/cron/auto-complete-bookings \
          /api/cron/notion-retry \
-         /api/cron/notion-health; do
+         /api/cron/notion-health \
+         /api/cron/outbox-retry \
+         /api/cron/promotion-notifications; do
   curl -sS -o /dev/null -w "%{http_code} $p\n" -X POST \
     "https://lab-reservation-seven.vercel.app$p" \
     -H "x-cron-secret: $CRON_SECRET"
 done
 ```
 
-All four must be `200` or `401` — a `404` means the deploy missed that
+All six must be `200` or `401` — a `404` means the deploy missed that
 route.
 
 ## Cron inventory
@@ -85,12 +87,13 @@ route.
 | Daily 00:30 UTC (09:30 KST) | `/api/notifications/reminders` | `.github/workflows/reminders-cron.yml` every 15 min |
 | Daily 17:15 UTC (02:15 KST+1d) | `/api/cron/auto-complete-bookings` | `.github/workflows/auto-complete-cron.yml` daily |
 | Daily 16:00 UTC | `/api/cron/notion-health` | `.github/workflows/notion-health-cron.yml` daily |
-| Every 30 min | `/api/cron/notion-retry` | `.github/workflows/notion-retry-cron.yml` every 30 min |
+| Every 30 min | `/api/cron/notion-retry` | `.github/workflows/notion-retry-cron.yml` every 30 min — **will be replaced by outbox-retry once the cutover lands** |
+| Every 30 min | `/api/cron/outbox-retry` | GH Actions workflow pending — new unified retry cron covering notion/gcal/sms/email (D6, commits 47e6312..05b6c7b) |
 | Every 30 min | `/api/cron/promotion-notifications` | `.github/workflows/promotion-notifications-cron.yml` every 30 min — sends Royal-promotion emails to experiment owners (D8, migration 00038) |
 
 Only the first two are declared in `vercel.json` (Vercel Hobby caps at
-2 crons per project). Notion crons run exclusively via GitHub Actions;
-same `CRON_SECRET` auth.
+2 crons per project). Notion / outbox / promotion crons run exclusively
+via GitHub Actions; same `CRON_SECRET` auth.
 
 All endpoints use `timingSafeEqual` on CRON_SECRET with `MIN_SECRET_LENGTH=32`.
 
@@ -103,10 +106,21 @@ All endpoints use `timingSafeEqual` on CRON_SECRET with `MIN_SECRET_LENGTH=32`.
   the atomic `claim_next_notion_retry()` RPC (SELECT … FOR UPDATE SKIP
   LOCKED). Backoff: 5m / 30m / 120m / 480m per attempt count. After
   `attempts=5` rows stop retrying and surface as "Notion 재시도 한계"
-  on the researcher dashboard (migration 00036).
-- gcal / email / sms retries are NOT wired yet. Migration 00037
-  introduced the generic `claim_next_outbox_retry()` RPC; services will
-  follow.
+  on the researcher dashboard (migration 00036). **Kept for backward
+  compatibility until outbox-retry cutover.**
+- `/api/cron/outbox-retry` (D6) handles **all four** integration types
+  (notion / notion_survey / gcal / sms / email) via the generic
+  `claim_next_outbox_retry(p_types[])` RPC (migration 00037) + service
+  layer (`src/lib/services/{gcal,sms,email}-retry.service.ts`). Same
+  400ms pacing, same auth, same 5-attempt cap. Dedup guards per type:
+  notion via `notion_page_id IS NULL`, gcal via `google_event_id IS
+  NULL`, email via sibling `booking_integrations` rows for the same
+  `booking_group_id`. Sweep summary lands in
+  `notion_health_state.check_type='outbox_retry_sweep'` (migration
+  00044 extends the enum).
+- Email-retry drops runLinks / paymentLink from the resent email —
+  those carry HMAC tokens that would be invalidated by re-issue. A
+  preface explains the context to the participant.
 
 ## Rate limits in play
 
@@ -168,9 +182,36 @@ edit flow; sidebar shows "활성화 전 필수" tiles until they're set.
 
 ## Migration log (current prod state)
 
-Last applied: `00041_promotion_notify_scope.sql` on 2026-04-23.
+Last applied to prod: `00043_notion_member_project_links.sql` on
+2026-04-23.
+
+On disk but NOT applied (staged for next deploy):
+- `00044_notion_health_check_type_outbox.sql` — adds
+  `outbox_retry_sweep` to `notion_health_check_type` enum. Required
+  before `/api/cron/outbox-retry` can log its sweep summary (INSERT
+  would fail on enum mismatch otherwise).
+- `00045_book_slot_exclude_experiments.sql` — D9 cross-study exclusion
+  enforcement inside `book_slot`. Full CREATE OR REPLACE of the
+  function body; app-layer pre-check still active as a fast path.
 
 Full list: `ls supabase/migrations/`.
 
 Stream 2's `00024_participant_payment_info.sql` is still on disk but
 NOT applied to prod. Stream 2 owner runs their own migration.
+
+## Cron cutover checklist (notion-retry → outbox-retry)
+
+After migrations 00044 is applied and the outbox-retry route is
+deployed:
+
+1. Verify outbox-retry serves 401 on the deployed URL.
+2. Manually fire once with the real secret and inspect
+   `notion_health_state.check_type='outbox_retry_sweep'` for the
+   expected shape.
+3. Add a GH Actions workflow mirror of `notion-retry-cron.yml`
+   pointing at `/api/cron/outbox-retry`.
+4. Disable the notion-retry GH Actions workflow (keep the file for
+   rollback; comment out the `schedule:`).
+5. After 24h of clean outbox sweeps, delete
+   `src/app/api/cron/notion-retry/route.ts`. The service file
+   (`notion-retry.service.ts`) stays — outbox-retry imports from it.
