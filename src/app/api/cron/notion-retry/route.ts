@@ -23,9 +23,18 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Per-cron-invocation cap so one slow Notion session doesn't blow past
 // Vercel's per-request budget.
-const MAX_ROWS_PER_SWEEP = 50;
+const MAX_ROWS_PER_SWEEP = 30;
+// Notion API official limit: avg 3 requests/second per integration; single
+// spikes over ~3 rps get 429'd. A booking-page retry makes 1-2 Notion
+// requests; an observation PATCH makes 1. 400ms between claims stays
+// safely under the threshold even when we burst.
+const MIN_DELAY_MS = 400;
 // Conservative lower bound on CRON_SECRET entropy. 32 chars ≈ 128 bits.
 const MIN_SECRET_LENGTH = 32;
 
@@ -62,7 +71,9 @@ async function handle(request: NextRequest) {
     let stillFailed = 0;
     let skipped = 0;
 
+    let rateLimitedAt: string | null = null;
     for (let i = 0; i < MAX_ROWS_PER_SWEEP; i += 1) {
+      if (i > 0) await sleep(MIN_DELAY_MS);
       const claim = await claimNextRetry(admin);
       if (!claim) break; // queue empty or all remaining rows in backoff
 
@@ -77,6 +88,17 @@ async function handle(request: NextRequest) {
         else recovered += 1;
       } else {
         stillFailed += 1;
+        // Short-circuit on Notion's global rate-limit so we don't burn
+        // all remaining attempts against a locked-out integration.
+        // Notion returns 429 with a Retry-After header; the service
+        // layer normalises error messages, so detect by message content.
+        if (
+          typeof outcome.error === "string" &&
+          /rate_limited|429|too many|ThrottlerException/i.test(outcome.error)
+        ) {
+          rateLimitedAt = new Date().toISOString();
+          break;
+        }
       }
     }
 
@@ -85,6 +107,7 @@ async function handle(request: NextRequest) {
       recovered,
       still_failed: stillFailed,
       skipped,
+      rate_limited_at: rateLimitedAt,
       rows: processed,
     };
 

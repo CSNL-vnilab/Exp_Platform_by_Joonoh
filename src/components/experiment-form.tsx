@@ -13,6 +13,7 @@ import { SESSION_DURATIONS } from "@/lib/utils/constants";
 import { experimentSchema } from "@/lib/utils/validation";
 import { EXPERIMENT_CATEGORIES } from "@/lib/experiments/categories";
 import { WeekTimetablePreview } from "@/components/booking/week-timetable-preview";
+import { OnlineScreenerEditor } from "@/components/online-screener-editor";
 import type {
   Experiment,
   ExperimentChecklistItem,
@@ -33,9 +34,19 @@ interface CalendarOption {
 interface ExperimentFormProps {
   experiment?: Experiment;
   onCancel?: () => void;
+  // Optional callback that fires on every form-state change with a
+  // partial Experiment-shaped snapshot. Used by page wrappers to render
+  // a live completeness sidebar (see ExperimentFormCompleteness).
+  // Kept intentionally minimal so downstream stream edits to the form
+  // can ignore it.
+  onDraftChange?: (draft: Partial<Experiment>) => void;
 }
 
-export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
+export function ExperimentForm({
+  experiment,
+  onCancel,
+  onDraftChange,
+}: ExperimentFormProps) {
   const router = useRouter();
   const { toast } = useToast();
   const isEditing = !!experiment;
@@ -122,6 +133,38 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
     experiment?.data_consent_required ?? false,
   );
 
+  // Phase 2 (migration 00032): preflight + counterbalance + SRI + attention checks.
+  // These all live inside online_runtime_config; we render separate form
+  // sections but serialize to the same JSON blob in buildOnlineConfig().
+  const [entryUrlSri, setEntryUrlSri] = useState<string>(
+    experiment?.online_runtime_config?.entry_url_sri ?? "",
+  );
+  const [preflightMinWidth, setPreflightMinWidth] = useState<number | "">(
+    experiment?.online_runtime_config?.preflight?.min_width ?? "",
+  );
+  const [preflightMinHeight, setPreflightMinHeight] = useState<number | "">(
+    experiment?.online_runtime_config?.preflight?.min_height ?? "",
+  );
+  const [preflightRequireKeyboard, setPreflightRequireKeyboard] = useState<boolean>(
+    experiment?.online_runtime_config?.preflight?.require_keyboard ?? false,
+  );
+  const [preflightRequireAudio, setPreflightRequireAudio] = useState<boolean>(
+    experiment?.online_runtime_config?.preflight?.require_audio ?? false,
+  );
+  const [preflightInstructions, setPreflightInstructions] = useState<string>(
+    experiment?.online_runtime_config?.preflight?.instructions ?? "",
+  );
+  const [counterbalanceKind, setCounterbalanceKind] = useState<
+    "" | "latin_square" | "block_rotation" | "random"
+  >(experiment?.online_runtime_config?.counterbalance_spec?.kind ?? "");
+  const [counterbalanceConditions, setCounterbalanceConditions] = useState<string>(
+    (experiment?.online_runtime_config?.counterbalance_spec?.conditions ?? []).join(","),
+  );
+  const [counterbalanceBlockSize, setCounterbalanceBlockSize] = useState<number | "">(
+    (experiment?.online_runtime_config?.counterbalance_spec as { block_size?: number } | undefined)
+      ?.block_size ?? "",
+  );
+
   const [previewOpen, setPreviewOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [previewConfig, setPreviewConfig] = useState<Record<string, any> | null>(null);
@@ -132,6 +175,69 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
   const [calendarsLoading, setCalendarsLoading] = useState(true);
   const [calendarsError, setCalendarsError] = useState<string | null>(null);
   const [serviceAccountEmail, setServiceAccountEmail] = useState<string | null>(null);
+
+  // Emit a partial Experiment-shaped snapshot whenever the researcher-
+  // facing fields change. Consumers (page wrappers) render the live
+  // completeness sidebar from this. Intentionally narrow: we only emit
+  // the fields the sidebar / activation gate cares about so this effect
+  // doesn't need to re-run on every keystroke of the less-critical
+  // online/counterbalance state.
+  useEffect(() => {
+    if (!onDraftChange) return;
+    onDraftChange({
+      title,
+      description: description || null,
+      start_date: startDate,
+      end_date: endDate,
+      daily_start_time: dailyStartTime,
+      daily_end_time: dailyEndTime,
+      session_duration_minutes: sessionDuration,
+      weekdays,
+      code_repo_url: codeRepoUrl || null,
+      data_path: dataPath || null,
+      parameter_schema: parameterSchema,
+      pre_experiment_checklist: checklist,
+      project_name: projectName || null,
+      location_id: locationId || null,
+      google_calendar_id: googleCalendarId || null,
+      irb_document_url: irbDocumentUrl || null,
+      precautions,
+      reminder_day_before_enabled: reminderDayBeforeEnabled,
+      reminder_day_of_enabled: reminderDayOfEnabled,
+      experiment_mode: experimentMode,
+      online_runtime_config:
+        experimentMode === "offline"
+          ? null
+          : {
+              entry_url: onlineEntryUrl,
+              entry_url_sri: entryUrlSri || null,
+            },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    title,
+    description,
+    startDate,
+    endDate,
+    dailyStartTime,
+    dailyEndTime,
+    sessionDuration,
+    weekdays,
+    codeRepoUrl,
+    dataPath,
+    parameterSchema,
+    checklist,
+    projectName,
+    locationId,
+    googleCalendarId,
+    irbDocumentUrl,
+    precautions,
+    reminderDayBeforeEnabled,
+    reminderDayOfEnabled,
+    experimentMode,
+    onlineEntryUrl,
+    entryUrlSri,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -193,17 +299,58 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
     if (experimentMode === "offline") return null;
     const cfg: {
       entry_url: string;
+      entry_url_sri?: string | null;
       trial_count?: number;
       block_count?: number;
       estimated_minutes?: number;
       completion_token_format?: string;
+      preflight?: {
+        min_width?: number;
+        min_height?: number;
+        require_keyboard?: boolean;
+        require_audio?: boolean;
+        instructions?: string;
+      };
+      counterbalance_spec?:
+        | { kind: "latin_square"; conditions: string[] }
+        | { kind: "block_rotation"; conditions: string[]; block_size?: number }
+        | { kind: "random"; conditions: string[]; seed?: string };
     } = { entry_url: onlineEntryUrl.trim() };
     if (typeof onlineTrialCount === "number") cfg.trial_count = onlineTrialCount;
     if (typeof onlineBlockCount === "number") cfg.block_count = onlineBlockCount;
     if (typeof onlineEstimatedMinutes === "number")
       cfg.estimated_minutes = onlineEstimatedMinutes;
-    if (completionTokenFormat) {
-      cfg.completion_token_format = completionTokenFormat;
+    if (completionTokenFormat) cfg.completion_token_format = completionTokenFormat;
+    if (entryUrlSri.trim()) cfg.entry_url_sri = entryUrlSri.trim();
+
+    const preflight: NonNullable<typeof cfg.preflight> = {};
+    if (typeof preflightMinWidth === "number") preflight.min_width = preflightMinWidth;
+    if (typeof preflightMinHeight === "number")
+      preflight.min_height = preflightMinHeight;
+    if (preflightRequireKeyboard) preflight.require_keyboard = true;
+    if (preflightRequireAudio) preflight.require_audio = true;
+    if (preflightInstructions.trim()) preflight.instructions = preflightInstructions.trim();
+    if (Object.keys(preflight).length > 0) cfg.preflight = preflight;
+
+    if (counterbalanceKind) {
+      const conds = counterbalanceConditions
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      if (conds.length > 0) {
+        if (counterbalanceKind === "block_rotation") {
+          cfg.counterbalance_spec = {
+            kind: "block_rotation",
+            conditions: conds,
+            block_size:
+              typeof counterbalanceBlockSize === "number" ? counterbalanceBlockSize : 1,
+          };
+        } else if (counterbalanceKind === "random") {
+          cfg.counterbalance_spec = { kind: "random", conditions: conds };
+        } else {
+          cfg.counterbalance_spec = { kind: "latin_square", conditions: conds };
+        }
+      }
     }
     return cfg;
   }
@@ -708,6 +855,144 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
                     <option value="alphanumeric:16">영숫자 16자리</option>
                   </select>
                 </div>
+                {/* SRI hash — optional, protects against CDN payload swap */}
+                <div className="sm:col-span-2">
+                  <Input
+                    id="entry_url_sri"
+                    label="SRI 무결성 해시 (선택)"
+                    value={entryUrlSri}
+                    onChange={(e) => setEntryUrlSri(e.target.value)}
+                    placeholder="sha384-abc...xyz"
+                  />
+                  <p className="mt-1 text-xs text-muted">
+                    CDN 파일이 변조되면 자동 차단합니다. <code>openssl dgst -sha384 -binary your.js | openssl base64 -A</code>
+                    로 계산하고 <code>sha384-</code> 접두어를 붙여 입력하세요.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Preflight requirements */}
+            {experimentMode !== "offline" && (
+              <div className="mt-6 rounded-xl border border-border bg-card p-4">
+                <h3 className="text-sm font-semibold text-foreground">사전 점검 (Preflight)</h3>
+                <p className="mt-0.5 text-xs text-muted">
+                  참여자가 실험 코드를 로드하기 전에 환경을 확인합니다.
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <Input
+                    id="preflight_min_width"
+                    label="최소 화면 가로 (px)"
+                    type="number"
+                    min={0}
+                    value={preflightMinWidth === "" ? "" : String(preflightMinWidth)}
+                    onChange={(e) =>
+                      setPreflightMinWidth(e.target.value === "" ? "" : Number(e.target.value))
+                    }
+                    placeholder="예: 1024"
+                  />
+                  <Input
+                    id="preflight_min_height"
+                    label="최소 화면 세로 (px)"
+                    type="number"
+                    min={0}
+                    value={preflightMinHeight === "" ? "" : String(preflightMinHeight)}
+                    onChange={(e) =>
+                      setPreflightMinHeight(e.target.value === "" ? "" : Number(e.target.value))
+                    }
+                    placeholder="예: 768"
+                  />
+                </div>
+                <div className="mt-3 space-y-2">
+                  <label className="flex items-center gap-2 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={preflightRequireKeyboard}
+                      onChange={(e) => setPreflightRequireKeyboard(e.target.checked)}
+                      className="h-4 w-4 accent-primary"
+                    />
+                    물리 키보드 필요
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={preflightRequireAudio}
+                      onChange={(e) => setPreflightRequireAudio(e.target.checked)}
+                      className="h-4 w-4 accent-primary"
+                    />
+                    오디오 출력 필요 (테스트 비프 재생)
+                  </label>
+                </div>
+                <label className="mt-3 block text-sm">
+                  <span className="text-foreground">추가 지시사항 (선택)</span>
+                  <textarea
+                    value={preflightInstructions}
+                    onChange={(e) => setPreflightInstructions(e.target.value)}
+                    rows={2}
+                    placeholder="예: 조용한 방에서 진행해주세요."
+                    className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                </label>
+              </div>
+            )}
+
+            {/* Counterbalancing */}
+            {experimentMode !== "offline" && (
+              <div className="mt-4 rounded-xl border border-border bg-card p-4">
+                <h3 className="text-sm font-semibold text-foreground">카운터밸런싱 (조건 배정)</h3>
+                <p className="mt-0.5 text-xs text-muted">
+                  Sbj 번호를 기반으로 서버에서 조건을 결정합니다. 참여자 JS 는{" "}
+                  <code>window.expPlatform.condition</code> 으로 읽습니다.
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-foreground">방식</label>
+                    <select
+                      value={counterbalanceKind}
+                      onChange={(e) =>
+                        setCounterbalanceKind(
+                          e.target.value as
+                            | ""
+                            | "latin_square"
+                            | "block_rotation"
+                            | "random",
+                        )
+                      }
+                      className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">미사용</option>
+                      <option value="latin_square">Latin square (순환)</option>
+                      <option value="block_rotation">블록 회전</option>
+                      <option value="random">결정적 무작위</option>
+                    </select>
+                  </div>
+                  {counterbalanceKind && (
+                    <Input
+                      id="counterbalance_conditions"
+                      label="조건 (쉼표 구분)"
+                      value={counterbalanceConditions}
+                      onChange={(e) => setCounterbalanceConditions(e.target.value)}
+                      placeholder="A,B,C,D"
+                    />
+                  )}
+                  {counterbalanceKind === "block_rotation" && (
+                    <Input
+                      id="counterbalance_block_size"
+                      label="블록 크기 (연속 Sbj 수)"
+                      type="number"
+                      min={1}
+                      value={
+                        counterbalanceBlockSize === "" ? "" : String(counterbalanceBlockSize)
+                      }
+                      onChange={(e) =>
+                        setCounterbalanceBlockSize(
+                          e.target.value === "" ? "" : Number(e.target.value),
+                        )
+                      }
+                      placeholder="예: 2"
+                    />
+                  )}
+                </div>
               </div>
             )}
 
@@ -723,6 +1008,20 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
                 실험은 자동으로 동의 절차가 포함됩니다.)
               </span>
             </label>
+
+            {/* Online screener editor — separate API, lives on the experiment id */}
+            {isEditing && experimentMode !== "offline" && experiment?.id && (
+              <div className="mt-6 rounded-xl border border-border bg-card p-4">
+                <h3 className="text-sm font-semibold text-foreground">온라인 스크리너</h3>
+                <p className="mt-0.5 text-xs text-muted">
+                  참여자가 실험을 시작하기 전에 응답하는 질문들. 통과하지 못하면 실험이
+                  열리지 않습니다. 기존 예/아니오 체크리스트와 독립적입니다.
+                </p>
+                <div className="mt-3">
+                  <OnlineScreenerEditor experimentId={experiment.id} />
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
