@@ -97,23 +97,29 @@ check the dashboard. High-priority transitions should push.
 **Exit:** researchers don't need to check dashboard to know about
 state changes.
 
-## D9 — Cross-study exclusion enforcement
+## D9 — Cross-study exclusion enforcement (shipped pending migration apply)
 
-**Problem:** Stream 3 added `OnlineRuntimeConfig.exclude_experiment_ids`
-to the TypeScript type, but the booking pipeline doesn't enforce it.
-Participants who did study A can still book study B even when A
-excludes B.
+**Status:** code landed. Migration 00045 ready but not yet applied.
 
-**Plan:**
-- Patch `book_slot` RPC to SELECT from `experiments` the
-  `exclude_experiment_ids` of the target experiment's
-  `online_runtime_config`, then check `EXISTS (SELECT 1 FROM bookings
-   b WHERE b.participant_id = v_participant_id AND b.experiment_id =
-   ANY(exclude_ids) AND b.status IN ('confirmed','completed','running'))`.
-- New error code `EXPERIMENT_EXCLUDED`.
-- Surface on public /book/:id page via the existing error banner.
+**What landed:**
+- `supabase/migrations/00045_book_slot_exclude_experiments.sql` — DB-
+  level enforcement inside `book_slot`. Reads
+  `experiments.online_runtime_config->'exclude_experiment_ids'`, looks
+  up the participant's confirmed/running/completed bookings on those
+  experiments, returns `{error:'EXPERIMENT_EXCLUDED'}` when any match.
+  Runs AFTER participant upsert (needs `v_participant_id`) and BEFORE
+  blacklist check.
+- `BOOKING_ERRORS.EXPERIMENT_EXCLUDED` in constants.ts with Korean
+  participant-facing copy.
+- `/api/bookings/route.ts` maps the new error code to HTTP 409; the
+  existing app-layer pre-check now emits the same unified message
+  (still there as a fast path ahead of the RPC).
 
-**Exit:** researcher-declared exclusion actually binds.
+**Still TODO:**
+- Apply migration 00045 to prod Supabase.
+
+**Exit:** researcher-declared exclusion actually binds, even for
+callers that bypass the API route (direct SQL / admin tooling).
 
 ## D10 — Consent + withdrawal (IRB deferred from original plan)
 

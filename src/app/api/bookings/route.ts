@@ -54,11 +54,11 @@ export async function POST(request: NextRequest) {
           .eq("participants.email", participant.email)
           .limit(1);
         if (prior && prior.length > 0) {
+          // Unified with the DB-layer EXPERIMENT_EXCLUDED message (D9,
+          // migration 00045). App-layer check stays as a fast-path /
+          // defense-in-depth ahead of the RPC.
           return NextResponse.json(
-            {
-              error:
-                "이 실험은 사전 지정된 다른 연구에 이미 참여하신 분께는 열려있지 않습니다.",
-            },
+            { error: BOOKING_ERRORS.EXPERIMENT_EXCLUDED },
             { status: 409 },
           );
         }
@@ -137,6 +137,8 @@ export async function POST(request: NextRequest) {
           ? 404
           : result.error === "PARTICIPANT_BLACKLISTED"
           ? 403
+          : result.error === "EXPERIMENT_EXCLUDED"
+          ? 409
           : result.error === "DUPLICATE_PARTICIPATION" ||
             result.error === "SLOT_ALREADY_TAKEN" ||
             result.error === "WRONG_SESSION_COUNT"

@@ -11,6 +11,11 @@ export const BOOKING_ERRORS = {
   // Deliberately vague — we do not reveal the blacklist label to participants.
   PARTICIPANT_BLACKLISTED:
     "현재 예약을 받을 수 없는 상태입니다. 담당 연구원에게 문의해 주세요.",
+  // Researcher declared an exclusion list on this experiment's online
+  // runtime config — participant has prior booking on one of those
+  // experiments (cross-study exclusion). D9, migration 00045.
+  EXPERIMENT_EXCLUDED:
+    "이 실험은 연구자가 지정한 다른 연구에 이미 참여하신 분께는 열려 있지 않습니다.",
 } as const;
 
 export const BOOKING_RETRY = {
