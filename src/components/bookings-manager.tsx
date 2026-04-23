@@ -34,6 +34,7 @@ export interface BookingRowView {
     is_pilot?: boolean | null;
     condition_assignment?: string | null;
     attention_fail_count?: number | null;
+    screener_stats?: { total: number; passed: number } | null;
   } | null;
   // Joined by the bookings page from participant_class_current (see migration
   // 00025). Null when the participant has no class row yet.
@@ -631,6 +632,18 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
           title="주의 체크 실패"
         >
           ⚠ {p.attention_fail_count}
+        </span>
+      )}
+      {p.screener_stats && p.screener_stats.total > 0 && (
+        <span
+          className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+            p.screener_stats.passed < p.screener_stats.total
+              ? "bg-rose-100 text-rose-700"
+              : "bg-emerald-100 text-emerald-700"
+          }`}
+          title="스크리너 통과/전체"
+        >
+          스크리너 {p.screener_stats.passed}/{p.screener_stats.total}
         </span>
       )}
     </div>

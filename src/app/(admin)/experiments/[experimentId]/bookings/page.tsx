@@ -101,6 +101,18 @@ export default async function BookingsPage({
     const byBooking = new Map(
       (progressRows ?? []).map((p) => [p.booking_id, p]),
     );
+    // Screener pass/fail counts — one query, aggregate client-side.
+    const { data: screenerResp } = await supabase
+      .from("experiment_online_screener_responses")
+      .select("booking_id, passed")
+      .in("booking_id", ids);
+    const screenerAgg = new Map<string, { total: number; passed: number }>();
+    for (const r of screenerResp ?? []) {
+      const a = screenerAgg.get(r.booking_id) ?? { total: 0, passed: 0 };
+      a.total += 1;
+      if (r.passed) a.passed += 1;
+      screenerAgg.set(r.booking_id, a);
+    }
     rows = rows.map((r) => ({
       ...r,
       run_progress: byBooking.get(r.id)
@@ -113,6 +125,7 @@ export default async function BookingsPage({
             is_pilot: byBooking.get(r.id)!.is_pilot ?? false,
             condition_assignment: byBooking.get(r.id)!.condition_assignment ?? null,
             attention_fail_count: byBooking.get(r.id)!.attention_fail_count ?? 0,
+            screener_stats: screenerAgg.get(r.id) ?? null,
           }
         : null,
     }));
