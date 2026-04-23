@@ -17,17 +17,14 @@
 -- Any cron/worker that depends on these hooks will break.
 
 -- ---------------------------------------------------------------------------
--- ALTER TYPE ... ADD VALUE must run outside a transaction block in some
--- migration runners. Supabase's migration runner (psql) applies each file in
--- a transaction; the COMMIT/BEGIN brackets below drop out of it just for
--- these two statements and re-enter for the remaining DDL.
+-- ALTER TYPE ... ADD VALUE is allowed inside a transaction from PG 12+.
+-- Restriction: the new value can't be *used* in the same transaction. This
+-- migration only adds the enum values; the code that writes them as
+-- integration_type values runs in later transactions. IF NOT EXISTS so
+-- re-apply is a no-op.
 -- ---------------------------------------------------------------------------
-COMMIT;
-
 ALTER TYPE integration_type ADD VALUE IF NOT EXISTS 'notion_experiment';
 ALTER TYPE integration_type ADD VALUE IF NOT EXISTS 'notion_survey';
-
-BEGIN;
 
 -- ---------------------------------------------------------------------------
 -- bookings.auto_completed_at
