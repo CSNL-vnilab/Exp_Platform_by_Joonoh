@@ -18,6 +18,7 @@ export interface ExperimentListRow {
   start_date: string;
   end_date: string;
   created_at: string;
+  notion_project_page_id?: string | null;
 }
 
 const statusConfig: Record<
@@ -154,6 +155,14 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                         {experiment.project_name && (
                           <p className="mt-0.5 text-xs text-muted">
                             {experiment.project_name}
+                            {experiment.notion_project_page_id && (
+                              <span
+                                title="Notion Projects & Chores 페이지 연결됨"
+                                className="ml-1 text-emerald-700"
+                              >
+                                · Notion 연동
+                              </span>
+                            )}
                           </p>
                         )}
                       </div>

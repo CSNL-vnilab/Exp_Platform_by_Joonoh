@@ -4,8 +4,11 @@
 // already have a matching page.
 //
 // Reads .test-artifacts/calendar-consistency-report.json (produced by
-// calendar-consistency-check.mjs). Only acts on `projects_map[*]` rows
-// with status='MISS'.
+// calendar-consistency-check.mjs). Acts on projects_map rows with
+// status='MISS'. AMBIGUOUS-in-Notion rows are deliberately skipped — the
+// researcher must dedupe the Notion DB manually before the backfill
+// consumes them (see C3 in review of 2026-04-23: AMBIGUOUS rows used to
+// silently fall through to null page_id).
 //
 // Dry-run by default. Pass --confirm to actually write.
 //
@@ -13,6 +16,7 @@
 // scripts can consume them.
 
 import { readFile, writeFile } from "node:fs/promises";
+import { canonProject } from "./lib/calendar-parse.mjs";
 
 const envText = await readFile(".env.local", "utf8");
 for (const line of envText.split("\n")) {
@@ -59,25 +63,13 @@ async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// Projects & Chores schema (discovered earlier): 항목명 (title), 분류
-// (select: 연구/강의/...), 상태 (status), 기간 (date), 담당자 (relation),
-// 우선순위 (select).
-// We only set 항목명 on backfill. Researchers fill the rest.
-
 // Non-project markers — these come from meetings / admin events that
 // happen to share the bracketed-initial shape, or from obvious typos.
 // Skipped entirely — the upstream calendar event won't get a Notion
 // booking page either (no project to link to).
 const BLACKLIST = new Set(["meeting: SK", "Meeting: SK"]);
 
-// Case/space normalization groups. When multiple calendar names fold
-// to the same canonical, we only create ONE Notion page and map all
-// variants to it.
-function canon(name) {
-  return name.trim().toLowerCase().replace(/[\s\-_]+/g, "-");
-}
 const CANONICAL_PICK = (variants) => {
-  // Prefer Title Case with spaces, then the shortest form.
   const sorted = [...variants].sort((a, b) => {
     const aTitle = /^[A-Z]/.test(a[0] ?? "");
     const bTitle = /^[A-Z]/.test(b[0] ?? "");
@@ -91,11 +83,12 @@ const missRaw = Object.entries(report.projects_map)
   .filter(([, v]) => v.status === "MISS")
   .map(([name]) => name);
 
-// Group by canonical key.
+// Group by canonical key so all variants (case, whitespace, dashes)
+// collapse into a single Notion page creation.
 const groups = new Map();
 for (const name of missRaw) {
   if (BLACKLIST.has(name)) continue;
-  const key = canon(name);
+  const key = canonProject(name);
   if (!groups.has(key)) groups.set(key, []);
   groups.get(key).push(name);
 }
@@ -116,6 +109,20 @@ for (const m of missing) {
 const blacklisted = missRaw.filter((n) => BLACKLIST.has(n));
 if (blacklisted.length > 0) {
   console.log(`\nBlacklisted (NOT created): ${blacklisted.join(", ")}`);
+}
+
+const ambiguousInNotion = Object.entries(report.projects_map)
+  .filter(([, v]) => v.status === "AMBIGUOUS")
+  .map(([name, v]) => ({ name, candidates: v.candidates }));
+if (ambiguousInNotion.length > 0) {
+  console.log(
+    `\nAMBIGUOUS in Notion (${ambiguousInNotion.length}) — researcher must dedupe before linking:`,
+  );
+  for (const a of ambiguousInNotion) {
+    console.log(
+      `  · ${a.name}   ${a.candidates.map((c) => `"${c.title}" (${c.id.slice(0, 8)})`).join(" | ")}`,
+    );
+  }
 }
 
 if (!confirm) {
@@ -157,13 +164,13 @@ for (const c of created) {
       report.projects_map[variant] = {
         status: "MATCH",
         page_id: c.page_id,
-        canonical_name: c.canonical,
+        canonical_title: c.canonical,
+        canon: canonProject(c.canonical),
         created_by_backfill: true,
       };
     }
   }
 }
-// Mark blacklisted entries as SKIP so the booking-backfill can avoid them.
 for (const name of blacklisted) {
   report.projects_map[name] = {
     status: "SKIP",

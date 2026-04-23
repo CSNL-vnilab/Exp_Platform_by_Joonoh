@@ -52,6 +52,11 @@ export const experimentSchema = z.object({
   // 프로토콜 버전 — 자유 형식 (예: "v1.0", "2026-03-rev2"). 64자 이내.
   // 실험 단위로 저장되며 그 이후의 예약마다 Notion 버전넘버 컬럼에 복사됨.
   protocol_version: z.string().max(64).nullable().optional(),
+  // Notion page id in Projects & Chores DB (migration 00043). Accepts
+  // the same forms as the /api/users PATCH helper (bare hex / dashed /
+  // URL); the API layer runs parseNotionPageId before handing off.
+  // Here we just validate the final stored form: dashed UUID or null.
+  notion_project_page_id: z.string().max(64).nullable().optional(),
   // HH:mm (reminder config). Optional inputs — defaults land via DB NOT NULL DEFAULT.
   reminder_day_before_enabled: z.boolean().default(true),
   reminder_day_before_time: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),

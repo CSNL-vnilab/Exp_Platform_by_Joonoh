@@ -1,38 +1,72 @@
 # 2026 Calendar backfill notes
 
-Run date: 2026-04-23 KST.
+Run date: 2026-04-23 KST.  Last strict review: 2026-04-23 (4 CRITICAL / 5 HIGH resolved — see below).
+
 Target: SLab Google Calendar (`dvjmpc33e56l0euaq4c0dekvu4@group.calendar.google.com`)
 Window: 2026-01-01 ~ 2026-12-31 (245 events fetched).
 
-## What got backfilled
+## Final state after the consistency loop
 
-- **Notion Projects & Chores** — 13 new canonical project pages created (see list below). Case/space variants merged (Pilot/pilot/Self Pilot/self pilot/Self-Pilot → 2 canonical pages). 1 non-project name (`meeting: SK`) deliberately skipped.
-- **Supabase linkage** — all 2 existing experiments linked to their matching Notion Projects page via `experiments.notion_project_page_id`. 3/4 profiles linked to CSNL Members page via `profiles.notion_member_page_id` (matched by email-local-part → initial).
-- **Notion SLab booking rows** — one row per parsed 2026 calendar event (236/245 parsed). Each row populated with 실험명 / 실험날짜 / 시간 / 프로젝트 / 피험자 ID / 회차 / 참여자 / 실험자 Relation / 프로젝트(관련) Relation / 상태=완료.
+- **Notion Projects & Chores** — 14 canonical pages now exist (13 from the first pass + `LabTour 실습 준비` added after the strict review). Case/space variants merged (Pilot/pilot, Self Pilot/self pilot/Self-Pilot → 2 canonical pages). 1 non-project name (`meeting: SK`) deliberately skipped.
+- **Projects page metadata** — 13 pages populated with 담당자 (unioned from linked SLab 실험자 relations), 기간 (min..max 실험날짜 range), 상태 (Done if past, In Progress if ongoing), 분류 (Research — only for the 2 pages with a linked Supabase experiment; others left blank for researcher classification), and 참여자 수 (distinct 참여자 count). 우선순위 is never auto-filled (researcher judgment call). 코드 디렉토리 (new rich_text column) filled when the linked experiment has `code_repo_url`; left blank otherwise — see the reminder flow below.
+- **Supabase linkage** — all 2 existing experiments linked. 3/4 profiles linked via email-local-part → initial.
+- **Notion SLab booking rows** — 235 rows backfilled (of 235 parsed; the 10 unparsed are listed below). All rows now have both 실험자 Relation and 프로젝트 (관련) Relation populated where possible.
+- **Duplicate protection** — all 25 Supabase bookings in 2026 with a `google_event_id` already share the SAME `notion_page_id` as the backfill progress file. No duplicate rows.
+
+## Researcher reminder system
+
+User directive 2026-04-23: "디렉토리, survey등 기록되지 않은 정보가 있으면 그에 대한 리마인드 노트가 각 연구자에게 할당되어야함."
+
+Implementation: `scripts/create-researcher-reminders.mjs` scans every Supabase experiments row for missing fields and creates a `분류=Lab Chore` entry in Projects & Chores assigned to the owning researcher via `담당자` Relation.
+
+Detected gaps per experiment:
+1. `code_repo_url` empty → reminder "[리마인더] {title} — 코드 디렉토리 / Repo URL 기록 필요"
+2. `data_path` empty → reminder "[리마인더] {title} — 데이터 디렉토리 기록 필요"
+3. `pre_experiment_checklist` empty → reminder "[리마인더] {title} — 실험 전 체크리스트 기록 필요"
+4. Any completed booking with `pre_survey_done=true` but `pre_survey_info=''` (historical data quality check) → reminder
+
+Idempotent: dedup'd by title before creating. Safe to re-run after researchers close tasks.
+
+Current dry-run (2026-04-23):
+
+| Researcher | Reminder count |
+|---|---|
+| 박준오 | 6 |
+
+The plan is persisted at `.test-artifacts/researcher-reminders-plan.json`. Execute with `node scripts/create-researcher-reminders.mjs --confirm`.
+
+## CRITICAL fixes applied (from 2026-04-23 strict review)
+
+| # | Defect                                                                | Fix                                                                                     | File(s)                                                                                                      |
+|---|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+|C1 | Bracketless parser minted phantom initials (`GPU`, `NEW`, `TAC`)      | Bracketless token is only accepted if it matches a Members-DB row. Rejects are unparsed | `scripts/calendar-consistency-check.mjs`, `scripts/lib/calendar-parse.mjs`                                   |
+|C2 | `Self-Pilot` FUZZY-merged to `Pilot`                                  | Strict canonical-equality match only. FUZZY status removed                              | `scripts/calendar-consistency-check.mjs`                                                                     |
+|C3 | `pilot` / `self pilot` AMBIGUOUS skipped by Projects backfill         | Projects-by-canon index; AMBIGUOUS-in-Notion surfaces to researcher, not silently       | `scripts/calendar-consistency-check.mjs`, `scripts/backfill-notion-projects.mjs`                             |
+|C4 | Dual-initial `[JYK BHL]` dropped second researcher                    | Parser returns `initials[]`; backfill writes all as Relation array                      | `scripts/lib/calendar-parse.mjs`, `scripts/backfill-notion-bookings.mjs`, `scripts/repair-backfilled-slab-rows.mjs` |
+|H1 | Duplicate-row risk with runtime pipeline                              | Cross-check `bookings.google_event_id → bookings.notion_page_id` before creating. Back-write on create | `scripts/backfill-notion-bookings.mjs`                                                                       |
+|H2 | Deleted calendar events leave stale progress entries                  | Orphan detector logs to `progress.orphan_progress[]` each run                           | `scripts/backfill-notion-bookings.mjs`                                                                       |
+|H3 | 22 MJC rows landed with blank 실험자 Relation                         | Logged as `researcher_decisions` and in the repair report                               | `scripts/repair-backfilled-slab-rows.mjs`                                                                    |
+|H4 | Supabase project match used substring (`'pilot'` in `'Pilot with Interns'`) | Canon-equality match                                                                    | `scripts/calendar-consistency-check.mjs`                                                                     |
+|M1 | Parser drift between two scripts                                      | Consolidated to `scripts/lib/calendar-parse.mjs`                                        | new                                                                                                          |
 
 ## Decisions made autonomously
 
-These aren't researcher-input calls — they were defaults picked to keep the backfill moving. Flag in review if any is wrong.
-
 ### Case/space normalization
-The 17 raw project names observed in calendar titles were normalized by lowercase + collapse `[\s_-]+` to `-`, merging case/separator variants to one canonical Notion page:
+17 raw project names observed in calendar titles → canonicalized by `trim().toLowerCase().replace(/[\s\-_]+/g, "-")`. Variants collapse:
 
 | Canonical | Variants covered |
 |---|---|
 | `Pilot` | Pilot, pilot |
 | `Self Pilot` | Self Pilot, self pilot, Self-Pilot |
 
-All others kept as single canonical. If researchers actually meant different things by `Pilot` vs `Self Pilot` vs `self pilot` etc, split pages manually in Notion UI.
-
 ### Blacklist
-Events whose "project" string was actually a non-experiment annotation got skipped entirely. Current blacklist:
-- `meeting: SK`
+Non-project markers skipped entirely: `meeting: SK`, `Meeting: SK`.
 
-### Title parsing fallback
-Events without `[INIT]` brackets but starting with an ALL-CAPS 2-4 letter token followed by whitespace/colon (e.g. `JOP Pilot`, `JOP: Pilot`, `BYL self pilot`) were parsed as if the prefix WAS a bracketed initial. 8 events recovered this way.
+### Bracketless title fallback
+Events without `[INIT]` brackets are only accepted if the leading ALL-CAPS 2-4 token IS already in the Members DB. `GPU 회의`, `NEW EVENT`, `TAC meeting: SK` — all rejected as unparsed (would otherwise mint phantom members).
 
 ### Dual-initial brackets
-Events like `[BHL SYJ] pilot` / `[JYK BHL] LabTour 실습 준비` were credited to the FIRST initial only. The second researcher is noted but not relation-linked.
+`[BHL SYJ] pilot` / `[JYK BHL] LabTour 실습 준비` — both initials are preserved and written to `실험자` Relation as an array.
 
 ### Backfilled row 상태
 All backfilled rows set `상태 = 완료` since they're past events.
@@ -41,73 +75,84 @@ All backfilled rows set `상태 = 완료` since they're past events.
 
 ### 1. Unknown initial: `MJC` (22 events)
 
-`[MJC]` appears on 22 events through January (all "Exp9" project). No matching row in Members DB. Candidates: JHR/JSL/SMJ/JOP/SK/BYL/JYK/SYJ/MSY/BHL/MIN JIN/SL.
+`[MJC]` appears on 22 January events (all "Exp9"). No matching Members-DB row. The 22 Notion rows currently have empty `실험자` Relation; their `상태`, `프로젝트 (관련)`, date, time and 참여자 rich_text are all populated.
 
-**Decision needed:** Add MJC to Members DB and re-run `scripts/backfill-supabase-relations.mjs`, or map to an existing initial, or leave un-linked (rows already have 실험자 relation blank).
+**Decision needed:** Add MJC to Members DB (then re-run `scripts/repair-backfilled-slab-rows.mjs --confirm` to link the 22 rows) — OR map to an existing initial — OR leave un-linked as historical.
 
-### 2. Unparsed events (9 remaining after parser improvements)
+### 2. Unparsed events (10)
 
-These aren't experiments per format, but may still warrant Notion entries if they're tracked work:
+| Date       | Summary                                                        | Why unparsed                                   |
+|------------|----------------------------------------------------------------|-----------------------------------------------|
+| 2026-01-12 | `Test`                                                          | No initial / format                           |
+| 2026-01-20 | `GPU 회의`                                                      | Bracketless, GPU not in Members DB (C1)       |
+| 2026-02-09 | `TAC meeting: SK`                                               | Bracketless, TAC not in Members DB (C1)       |
+| 2026-03-12 | `Day 5 Sbj 5`                                                   | Truncated — no initial / no project           |
+| 2026-03-31 | `New Event`                                                     | Placeholder                                    |
+| 2026-04-02 | `tES 점검`                                                     | No initial / format                           |
+| 2026-04-03 | `OpenLab`                                                       | No initial / format                           |
+| 2026-04-03 | `Meeting: SK`                                                   | Blacklisted                                    |
+| 2026-04-12 | `SYJ-BHL 실험 (Saemi Jung)`                                    | Dual-initial via dash (unsupported format)    |
+| 2026-04-19 | `[실험] E2E 테스트 실험 … - 테스트 참가자`                     | System-generated E2E test                     |
 
-- 2026-01-12 `Test`
-- 2026-01-20 `GPU 회의`
-- 2026-02-09 `TAC meeting: SK`
-- 2026-03-12 `Day 5 Sbj 5` (truncated title — no project)
-- 2026-03-26 `[JYK BHL] LabTour 실습 준비` (this DOES parse if we treat it as dual-initial with project='LabTour 실습 준비' — currently parsed and row created for JYK only; flag for review)
-- 2026-03-31 `New Event` (placeholder)
-- 2026-04-02 `tES 점검`
-- 2026-04-03 `OpenLab`
-- 2026-04-19 `[실험] E2E 테스트 실험 …` (system-generated E2E test)
-
-**Decision needed:** which (if any) of these should become Notion rows.
+**Decision needed:** edit titles in Google Calendar to the bracketed format and re-run the pipeline, or leave as-is.
 
 ### 3. Participant name duplicates
 
-Participant names observed in BOTH Korean and English romanization for the same person:
+Same person entered in both Korean and English romanization:
 
-| Korean | Romanized (same count range) |
+| Korean | Romanized |
 |---|---|
-| 왕주미 (5) | jumi wang (7) |
-| 김다영 (5) | dayoung Kim (6) |
-| 이보현 (10) | bohyun lee (6) |
-| 이효연 (5) | Hyoyeon Lee (7) |
+| 왕주미 | jumi wang |
+| 김다영 | dayoung Kim |
+| 이보현 | bohyun lee |
+| 이효연 | Hyoyeon Lee |
 
-Current backfill created separate Notion rows treating them as distinct participants.
-
-**Decision needed:** merge in Notion by editing the 참여자 column on duplicates, OR keep separate for historical accuracy, OR write a follow-up script that canonicalizes (risky — need the mapping from researcher).
+Separate Notion rows exist for each form. Merge manually in Notion if desired.
 
 ### 4. Profile `csnl@vnilab.local` (admin)
 
-No initial matches — by design, admin doesn't run experiments. Currently has no `notion_member_page_id`. No action needed unless this admin should also appear as a researcher on some legacy events.
+No initial match. No action unless admin should appear as researcher on legacy events.
 
 ### 5. Missing 담당자 relation on new Projects pages
 
-The 13 newly-created Projects & Chores pages are empty except for 항목명 title. No 담당자 (relation to Members) is filled.
+14 new Projects & Chores pages have only 항목명 populated — no 담당자 relation.  Proposed follow-up: `scripts/backfill-projects-owner.mjs` derives 담당자 from the dominant initial observed for each project.
 
-**Decision needed:** auto-fill 담당자 from the dominant initial that appears for each project in the calendar? (E.g. "Main task" has mostly BYL events → 담당자 = BYL's Members page.) Proposed follow-up script: `scripts/backfill-projects-owner.mjs`.
+## Re-running the pipeline
 
-## Re-running steps
-
-All backfill scripts are idempotent:
+Scripts are idempotent; safe to re-run any time.
 
 ```bash
-# Regenerate consistency report (reflects current Supabase + Notion state)
+# 1. Regenerate consistency report (reflects current Supabase + Notion state)
 node scripts/calendar-consistency-check.mjs
 
-# Create missing Projects pages (skips ones already present)
+# 2. Create any still-missing Projects pages
 node scripts/backfill-notion-projects.mjs --confirm
 
-# Link Supabase experiments.notion_project_page_id + profiles.notion_member_page_id
+# 3. Link Supabase → Notion (skips rows already linked)
 node scripts/backfill-supabase-relations.mjs --confirm
 
-# Create SLab booking pages for events not yet backfilled (reads progress file)
+# 4. Create SLab booking pages for events not yet backfilled
 node scripts/backfill-notion-bookings.mjs --confirm
+
+# 5. Audit + repair already-written SLab rows (covers Relation drift,
+#    dual-initial extension, logs MJC orphans)
+node scripts/repair-backfilled-slab-rows.mjs --confirm
+
+# 6. Fill Projects pages 담당자 / 기간 / 상태 / 분류 / 참여자 수 / 코드 디렉토리
+node scripts/backfill-projects-metadata.mjs --confirm
+
+# 7. Emit researcher reminders for experiments with missing metadata
+node scripts/create-researcher-reminders.mjs --confirm
 ```
 
-`.test-artifacts/calendar-backfill-progress.json` tracks which Google Calendar event IDs already produced a Notion booking row, so re-runs skip them.
+Progress is persisted per-script under `.test-artifacts/`:
+- `calendar-consistency-report.json` — full cross-check output + decisions
+- `calendar-backfill-progress.json` — event_id → notion_page_id for SLab
+- `calendar-repair-report.json` — repair actions + orphan list
 
 ## Invariants to preserve
 
 - Never write raw participant phone/email into Notion.
-- Do not overwrite existing `notion_project_page_id` / `notion_member_page_id` values on Supabase rows (scripts explicitly check for null first).
-- Only create NEW Notion rows; never PATCH existing backfilled rows on re-run (if someone edits 특이사항 in Notion, we leave it alone).
+- Do not overwrite existing `notion_project_page_id` / `notion_member_page_id` values on Supabase rows (scripts explicitly null-check).
+- Never PATCH a Notion row's user-editable fields (특이사항 etc.) on re-run. The repair script only writes Relation fields (실험자, 프로젝트 (관련)), never text fields.
+- `.test-artifacts/` is gitignored (contains PII from parsed descriptions).

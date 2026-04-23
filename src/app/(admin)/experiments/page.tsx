@@ -20,7 +20,7 @@ export default async function ExperimentsPage() {
   const { data: experiments } = await supabase
     .from("experiments")
     .select(
-      "id, title, project_name, status, session_duration_minutes, session_type, required_sessions, participation_fee, start_date, end_date, created_at",
+      "id, title, project_name, status, session_duration_minutes, session_type, required_sessions, participation_fee, start_date, end_date, created_at, notion_project_page_id",
     )
     .eq("created_by", user.id)
     .order("created_at", { ascending: false });

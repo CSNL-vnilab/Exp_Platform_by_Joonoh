@@ -4,21 +4,31 @@
 // Phase 1 of the backfill pipeline. Pure read, no writes. Produces
 // .test-artifacts/calendar-consistency-report.json with:
 //   * initials_map: observed initials → best-match Members page (or MISS)
-//   * projects_map: observed projects → best-match Projects & Chores
-//                   page (or MISS — needs creation)
+//   * projects_map: observed projects → strict canonical match against
+//                   Projects & Chores pages, else MISS. No FUZZY.
 //   * supabase_project_match: observed projects → Supabase experiments row
-//                   (matched by project_name/title)
+//                   matched by canon(project_name) equality (not substring).
 //   * participants_map: observed participant names → Supabase participants
 //                   (matched by name + fuzzy)
-//   * researcher_decisions[]: list of items the operator must resolve
-//                   (dual initials, bracket-less events, name duplicates)
+//   * researcher_decisions[]: items the operator must resolve (unknown
+//                   initials, unmatched projects, ambiguous names, etc.)
 //
-// After running this, scripts/backfill-* scripts consume the report to do
-// the actual writes.
+// Changes since 2026-04-23 strict review:
+//   * Bracketless-prefix initials are only accepted if the token exists
+//     in Notion Members DB. "GPU 회의" / "NEW EVENT" no longer mint
+//     phantom initials. (C1)
+//   * Project match is pure canonical equality. `Self-Pilot` ≠ `Pilot`
+//     and does NOT silently fuzzy-collapse. (C2)
+//   * `self pilot` / `SELF-PILOT` / `Self Pilot` all canon to the same
+//     key and map to the single existing page. (C3)
+//   * Dual-initial events keep ALL initials in `parsed_events[].initials`.
+//     Downstream backfill writes all researcher relations. (C4)
+//   * Supabase project match uses canon() equality, not substring. (H4)
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { google } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
+import { parseTitle, parseDescription, canonProject } from "./lib/calendar-parse.mjs";
 
 const envText = await readFile(".env.local", "utf8");
 for (const line of envText.split("\n")) {
@@ -28,87 +38,6 @@ for (const line of envText.split("\n")) {
 
 const MEMBERS_DB = "94854705-c91d-4a35-a91e-803c5934745e";
 const PROJECTS_DB = "76e7c392-127e-47f3-8b7e-212610db9376";
-
-// ── Calendar parse (copy of calendar-parse-2026.mjs parsing logic) ──
-// Bracketed initials, accepts single `[BYL]` or dual `[BYL SYJ]`.
-// Dual-initial events are credited to the FIRST initial; the rest go
-// into decision notes for the researcher.
-const INITIAL_RE = /^\s*\[(?<initial>[A-Za-z]{2,6})(?:\s+[A-Za-z]{2,6})*\]\s*/;
-// Bracket-less prefix: "BYL self pilot" / "JOP Pilot" / "JOP: Pilot".
-// Only trigger when the leading 3-4 letter ALL-CAPS token is immediately
-// followed by whitespace/colon and more text.
-const BRACKETLESS_INITIAL_RE = /^(?<initial>[A-Z]{2,4})\s*[:\s]\s*(?<rest>.+)$/;
-const SBJ_RE = /(?:Sbj|SBJ|sbj)\s*(\d+)/;
-const DAY_RE = /(?:Day|DAY|day)\s*(\d+)/;
-const PERIOD_RE = /기간\s*(\d+)/;
-const PAREN_RE = /\(([^()]+)\)/;
-
-function parseTitle(summary) {
-  if (!summary) return null;
-  const trimmed = summary.trim();
-  // Try bracketed first (authoritative), then bracket-less fallback for
-  // legacy entries that started with an initial prefix without brackets.
-  let initial = null;
-  let rest = "";
-  const im = trimmed.match(INITIAL_RE);
-  if (im) {
-    initial = im.groups.initial.toUpperCase();
-    rest = trimmed.slice(im[0].length).trim();
-  } else {
-    const bm = trimmed.match(BRACKETLESS_INITIAL_RE);
-    if (bm) {
-      initial = bm.groups.initial.toUpperCase();
-      rest = bm.groups.rest.trim();
-    }
-  }
-  if (!initial) return null;
-  let titleParticipant = null;
-  const pm = rest.match(PAREN_RE);
-  if (pm) {
-    titleParticipant = pm[1].trim();
-    rest = (rest.slice(0, pm.index) + rest.slice(pm.index + pm[0].length))
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-  let sbj = null, day = null, period = null;
-  const sm = rest.match(SBJ_RE);
-  if (sm) { sbj = Number.parseInt(sm[1], 10); rest = rest.replace(SBJ_RE, "").trim(); }
-  const dm = rest.match(DAY_RE);
-  if (dm) { day = Number.parseInt(dm[1], 10); rest = rest.replace(DAY_RE, "").trim(); }
-  const perm = rest.match(PERIOD_RE);
-  if (perm) { period = Number.parseInt(perm[1], 10); rest = rest.replace(PERIOD_RE, "").trim(); }
-  if (!titleParticipant) {
-    const segments = rest.split(/\s*\/\s*/);
-    const last = segments[segments.length - 1]?.trim() ?? "";
-    if (/^[가-힣]{2,4}$/.test(last)) {
-      titleParticipant = last;
-      segments.pop();
-      rest = segments.join(" / ").trim();
-    }
-  }
-  let project = rest.replace(/\s*\/\s*/g, " / ").replace(/\s+/g, " ").trim();
-  while (project.endsWith("/") || project.endsWith("-")) {
-    project = project.replace(/[-/\s]+$/, "").trim();
-  }
-  if (!project) return null;
-  return { initial, project, sbj, day, period, titleParticipant };
-}
-
-function parseDescription(desc) {
-  if (!desc) return {};
-  const out = {};
-  for (const line of desc.split(/\r?\n/)) {
-    const m = line.trim().match(/^(예약자|이메일|전화번호|회차)\s*[:：]\s*(.+)$/);
-    if (!m) continue;
-    out[
-      m[1] === "예약자" ? "name"
-      : m[1] === "이메일" ? "email"
-      : m[1] === "전화번호" ? "phone"
-      : "session"
-    ] = m[2].trim();
-  }
-  return out;
-}
 
 // ── Google Calendar fetch ──
 const auth = new google.auth.GoogleAuth({
@@ -186,7 +115,6 @@ const memberPages = await listAllDbRows(MEMBERS_DB);
 const membersByInitial = new Map(); // "JOP" → page_id
 for (const p of memberPages) {
   const t = titleOf(p);
-  // Members DB title is initials (JHR, JSL, etc.). Case-insensitive compare.
   const key = t.toUpperCase().trim();
   if (key) membersByInitial.set(key, { id: p.id, raw_title: t });
 }
@@ -194,10 +122,32 @@ console.log(`  ${memberPages.length} members`);
 
 console.log("Fetching Notion Projects & Chores…");
 const projectPages = await listAllDbRows(PROJECTS_DB);
+// Keep original title indexing AND a canonical → page_id index for
+// strict-equality matching (C2/C3 fix).
 const projectsByTitle = new Map();
+const projectsByCanon = new Map();
 for (const p of projectPages) {
   const t = titleOf(p);
   projectsByTitle.set(t, { id: p.id, raw_title: t });
+  const c = canonProject(t);
+  if (c) {
+    // If multiple Notion pages canon to the same key, flag as ambiguous so
+    // backfill doesn't silently pick one. Researcher must dedupe manually.
+    if (projectsByCanon.has(c)) {
+      const existing = projectsByCanon.get(c);
+      projectsByCanon.set(c, {
+        status: "AMBIGUOUS",
+        candidates: [
+          ...(existing.status === "AMBIGUOUS"
+            ? existing.candidates
+            : [{ id: existing.id, title: existing.raw_title }]),
+          { id: p.id, title: t },
+        ],
+      });
+    } else {
+      projectsByCanon.set(c, { id: p.id, raw_title: t });
+    }
+  }
 }
 console.log(`  ${projectPages.length} projects`);
 
@@ -221,6 +171,16 @@ const { data: profRows } = await supa
   .select("id, email, display_name, notion_member_page_id");
 console.log(`  ${profRows?.length ?? 0} profiles`);
 
+// Pull bookings in 2026 window for H1 dedup check (see backfill-notion-
+// bookings.mjs). We surface this so the booking backfill can cross-check
+// google_event_id → notion_page_id without a second round-trip.
+const { data: bookingRows } = await supa
+  .from("bookings")
+  .select("id, google_event_id, notion_page_id, slot_start, status")
+  .gte("slot_start", "2026-01-01T00:00:00Z")
+  .lte("slot_start", "2026-12-31T23:59:59Z");
+console.log(`  ${bookingRows?.length ?? 0} bookings in 2026 window`);
+
 // ── Aggregate calendar state ──
 const initialsSet = new Set();
 const projectsSet = new Set();
@@ -234,7 +194,21 @@ for (const e of events) {
     unparsed.push({ id: e.id, summary: e.summary, start: e.start?.dateTime ?? e.start?.date });
     continue;
   }
-  initialsSet.add(tp.initial);
+  // C1 — bracketless initial whitelist. If the parser fell back to the
+  // bracketless shape and the inferred token is not an actual Members-DB
+  // entry, refuse to treat it as an initial. The event lands in
+  // `unparsed` and gets surfaced to the researcher instead of minting a
+  // phantom member.
+  if (tp.bracketless && !membersByInitial.has(tp.initial)) {
+    unparsed.push({
+      id: e.id,
+      summary: e.summary,
+      start: e.start?.dateTime ?? e.start?.date,
+      note: `bracketless-initial '${tp.initial}' not in Members DB — rejected as phantom`,
+    });
+    continue;
+  }
+  for (const init of tp.initials) initialsSet.add(init);
   projectsSet.add(tp.project);
   const pname = dp.name ?? tp.titleParticipant;
   if (pname) participantsSet.add(pname);
@@ -243,7 +217,9 @@ for (const e of events) {
     summary: e.summary,
     start: e.start?.dateTime ?? e.start?.date,
     end: e.end?.dateTime ?? e.end?.date,
-    initial: tp.initial,
+    initial: tp.initial, // first / primary (back-compat)
+    initials: tp.initials, // all (for dual-initial relation writes)
+    bracketless: tp.bracketless,
     project: tp.project,
     sbj: tp.sbj,
     day: tp.day,
@@ -263,35 +239,42 @@ for (const k of initialsSet) {
     : { status: "MISS", candidates: [...membersByInitial.keys()] };
 }
 
+// C2/C3 — Strict canonical-equality match. No more FUZZY substring slop.
 const projects_map = {};
 for (const k of projectsSet) {
-  // Exact match first, then substring.
-  const exact = projectsByTitle.get(k);
-  if (exact) {
-    projects_map[k] = { status: "MATCH", page_id: exact.id };
+  const c = canonProject(k);
+  if (!c) {
+    projects_map[k] = { status: "MISS" };
     continue;
   }
-  const lk = k.toLowerCase();
-  const candidates = [...projectsByTitle.entries()]
-    .filter(([title]) =>
-      title.toLowerCase().includes(lk) || lk.includes(title.toLowerCase()),
-    )
-    .map(([title, v]) => ({ page_id: v.id, title }));
-  projects_map[k] =
-    candidates.length === 1
-      ? { status: "FUZZY", page_id: candidates[0].page_id, match_title: candidates[0].title }
-      : candidates.length === 0
-        ? { status: "MISS" }
-        : { status: "AMBIGUOUS", candidates };
+  const hit = projectsByCanon.get(c);
+  if (!hit) {
+    projects_map[k] = { status: "MISS", canon: c };
+  } else if (hit.status === "AMBIGUOUS") {
+    projects_map[k] = {
+      status: "AMBIGUOUS",
+      canon: c,
+      candidates: hit.candidates,
+    };
+  } else {
+    projects_map[k] = {
+      status: "MATCH",
+      page_id: hit.id,
+      canonical_title: hit.raw_title,
+      canon: c,
+    };
+  }
 }
 
+// H4 — supabase_project_match via canon equality on project_name OR title.
+// No substring matching; `'pilot'` never collides with `'Pilot with Interns'`.
 const supabase_project_match = {};
 for (const k of projectsSet) {
+  const c = canonProject(k);
   const matches = (expRows ?? []).filter(
     (e) =>
-      e.project_name?.toLowerCase() === k.toLowerCase() ||
-      e.title?.toLowerCase() === k.toLowerCase() ||
-      (e.project_name && k.toLowerCase().includes(e.project_name.toLowerCase())),
+      (e.project_name && canonProject(e.project_name) === c) ||
+      (e.title && canonProject(e.title) === c),
   );
   supabase_project_match[k] =
     matches.length === 1
@@ -300,7 +283,11 @@ for (const k of projectsSet) {
         ? { status: "MISS" }
         : {
             status: "AMBIGUOUS",
-            candidates: matches.map((e) => ({ id: e.id, title: e.title, project_name: e.project_name })),
+            candidates: matches.map((e) => ({
+              id: e.id,
+              title: e.title,
+              project_name: e.project_name,
+            })),
           };
 }
 
@@ -320,11 +307,21 @@ for (const k of participantsSet) {
         : { status: "AMBIGUOUS", candidates: matches.map((p) => ({ id: p.id, name: p.name })) };
 }
 
-// Profile → initial mapping (by display_name first char of syllables? or by
-// email prefix). We also collect profiles that HAVE notion_member_page_id
-// so we know what's already linked.
 const profiles_linked = (profRows ?? []).filter((p) => p.notion_member_page_id);
 const experiments_linked = (expRows ?? []).filter((e) => e.notion_project_page_id);
+
+// H1 — map google_event_id → existing notion_page_id so the booking-
+// backfill can skip events whose booking already has a Notion row.
+const booking_by_event_id = {};
+for (const b of bookingRows ?? []) {
+  if (b.google_event_id) {
+    booking_by_event_id[b.google_event_id] = {
+      booking_id: b.id,
+      notion_page_id: b.notion_page_id,
+      status: b.status,
+    };
+  }
+}
 
 const researcher_decisions = [];
 for (const [k, v] of Object.entries(initials_map)) {
@@ -341,14 +338,15 @@ for (const [k, v] of Object.entries(projects_map)) {
     researcher_decisions.push({
       kind: "project_missing",
       subject: k,
-      note: `Project '${k}' not in Projects & Chores — we'll create a page unless you say otherwise.`,
+      canon: v.canon,
+      note: `Project '${k}' not in Projects & Chores — backfill will create a single canonical page.`,
     });
   } else if (v.status === "AMBIGUOUS") {
     researcher_decisions.push({
-      kind: "project_ambiguous",
+      kind: "project_ambiguous_in_notion",
       subject: k,
       candidates: v.candidates,
-      note: `Multiple Projects & Chores pages match '${k}'. Pick one.`,
+      note: `Multiple Notion pages share canonical form '${v.canon}'. Dedupe manually.`,
     });
   }
 }
@@ -367,7 +365,9 @@ for (const u of unparsed) {
     kind: "event_unparsed",
     subject: u.summary,
     start: u.start,
-    note: "Event title didn't match any known format; skipped from backfill unless corrected.",
+    note:
+      u.note ??
+      "Event title didn't match any known format; skipped from backfill unless corrected.",
   });
 }
 
@@ -385,6 +385,7 @@ const report = {
     notion_projects_known: projectsByTitle.size,
     supabase_experiments: expRows?.length ?? 0,
     supabase_participants: partRows?.length ?? 0,
+    supabase_bookings_in_window: bookingRows?.length ?? 0,
     profiles_already_linked: profiles_linked.length,
     experiments_already_linked: experiments_linked.length,
   },
@@ -392,6 +393,7 @@ const report = {
   projects_map,
   supabase_project_match,
   participants_map,
+  booking_by_event_id,
   researcher_decisions_count: researcher_decisions.length,
   researcher_decisions,
   parsed_events: parsed,
@@ -406,13 +408,28 @@ await writeFile(
 
 console.log(`\n── Summary ──`);
 console.log(`  Events parsed: ${parsed.length}/${events.length}`);
-console.log(`  Initials: ${initialsSet.size} (${Object.values(initials_map).filter((v) => v.status === "MATCH").length} linked)`);
+console.log(
+  `  Initials: ${initialsSet.size} (${Object.values(initials_map).filter((v) => v.status === "MATCH").length} linked)`,
+);
 console.log(`  Projects: ${projectsSet.size}`);
-console.log(`    Notion matches: ${Object.values(projects_map).filter((v) => v.status === "MATCH").length}`);
-console.log(`    Notion fuzzy: ${Object.values(projects_map).filter((v) => v.status === "FUZZY").length}`);
-console.log(`    Notion miss: ${Object.values(projects_map).filter((v) => v.status === "MISS").length}`);
-console.log(`    Supabase matches: ${Object.values(supabase_project_match).filter((v) => v.status === "MATCH").length}`);
+console.log(
+  `    Notion matches: ${Object.values(projects_map).filter((v) => v.status === "MATCH").length}`,
+);
+console.log(
+  `    Notion ambiguous: ${Object.values(projects_map).filter((v) => v.status === "AMBIGUOUS").length}`,
+);
+console.log(
+  `    Notion miss: ${Object.values(projects_map).filter((v) => v.status === "MISS").length}`,
+);
+console.log(
+  `    Supabase matches: ${Object.values(supabase_project_match).filter((v) => v.status === "MATCH").length}`,
+);
 console.log(`  Participants observed: ${participantsSet.size}`);
-console.log(`    Supabase matches: ${Object.values(participants_map).filter((v) => v.status === "MATCH").length}`);
+console.log(
+  `    Supabase matches: ${Object.values(participants_map).filter((v) => v.status === "MATCH").length}`,
+);
+console.log(
+  `  Supabase 2026-window bookings with google_event_id: ${Object.keys(booking_by_event_id).length}`,
+);
 console.log(`  Researcher decisions needed: ${researcher_decisions.length}`);
 console.log(`\nReport: .test-artifacts/calendar-consistency-report.json`);

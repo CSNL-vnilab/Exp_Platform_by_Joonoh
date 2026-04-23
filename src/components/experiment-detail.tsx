@@ -12,6 +12,7 @@ import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { ExperimentForm } from "@/components/experiment-form";
 import { ExperimentFormCompleteness } from "@/components/experiment-form-completeness";
+import { NotionLinkInput } from "@/components/notion-link-input";
 import type { Experiment, ExperimentChecklistItem } from "@/types/database";
 import { format } from "date-fns";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
@@ -584,7 +585,7 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
               )}
               {experiment.notion_experiment_page_id && (
                 <div className="sm:col-span-2">
-                  <dt className="text-muted">Notion 페이지</dt>
+                  <dt className="text-muted">Notion 실험 마스터 페이지</dt>
                   <dd className="mt-0.5 break-all text-xs text-muted">
                     <a
                       href={`https://www.notion.so/${experiment.notion_experiment_page_id.replace(/-/g, "")}`}
@@ -597,6 +598,15 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
                   </dd>
                 </div>
               )}
+              <div className="sm:col-span-2">
+                <NotionLinkInput
+                  label="Notion Projects & Chores 연결"
+                  currentId={experiment.notion_project_page_id ?? null}
+                  endpoint={`/api/experiments/${experiment.id}`}
+                  field="notion_project_page_id"
+                  helperText="실험이 속한 Projects & Chores 페이지를 여기 연결해두면, 이후 생성되는 SLab 예약 행의 '프로젝트 (관련)' Relation 에 자동으로 연결됩니다. Notion 에서 해당 페이지 URL 을 복사해 붙여넣으세요."
+                />
+              </div>
             </dl>
           </CardContent>
         </Card>

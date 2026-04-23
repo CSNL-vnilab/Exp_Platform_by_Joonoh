@@ -78,6 +78,33 @@ export async function PUT(
     }
 
     const body = await request.json();
+    // Accept Notion page URL or bare hex id for notion_project_page_id,
+    // normalise before the schema sees it. Same parser as
+    // /api/users/[userId]/route.ts — kept inline here to avoid a shared
+    // helper churn.
+    if (typeof body?.notion_project_page_id === "string") {
+      const raw = body.notion_project_page_id.trim();
+      if (raw === "") {
+        body.notion_project_page_id = null;
+      } else {
+        let candidate = raw;
+        const urlMatch = raw.match(/notion\.so\/[^/]+\/(.+?)(?:[?#]|$)/i);
+        if (urlMatch) {
+          const segs = urlMatch[1].split(/[-]/);
+          candidate = segs[segs.length - 1];
+        }
+        const hex = candidate.replace(/-/g, "").toLowerCase();
+        if (/^[0-9a-f]{32}$/.test(hex)) {
+          body.notion_project_page_id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+        } else {
+          return NextResponse.json(
+            { error: "notion_project_page_id 형식이 올바르지 않습니다 (URL 또는 32자 hex)" },
+            { status: 400 },
+          );
+        }
+      }
+    }
+
     const result = experimentSchema.partial().safeParse(body);
 
     if (!result.success) {
