@@ -100,6 +100,9 @@ export function RunShell({
   const [completionCode, setCompletionCode] = useState<string | null>(progress.completion_code);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [attentionOverlay, setAttentionOverlay] = useState<
+    NonNullable<OnlineRuntimeConfig["attention_checks"]>[number] | null
+  >(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const entryUrl = cfg?.entry_url ?? "";
@@ -280,6 +283,18 @@ export function RunShell({
             );
           } else {
             setErrorMsg(null);
+          }
+          // Inject attention check if the researcher configured one after
+          // the just-submitted block. Block index passed in the payload.
+          const justSubmitted = (data as { block_index?: number })?.block_index;
+          const checks = cfg?.attention_checks ?? [];
+          if (typeof justSubmitted === "number" && checks.length > 0) {
+            const match = checks.find(
+              (c) =>
+                c.position === `after_block:${justSubmitted}` ||
+                (c.position === "random" && Math.random() < 1 / checks.length),
+            );
+            if (match) setAttentionOverlay(match);
           }
           return {
             blocks_submitted: body.blocks_submitted ?? 0,
@@ -622,6 +637,16 @@ export function RunShell({
             참여해 주셔서 감사합니다. 이 창은 닫으셔도 괜찮습니다.
           </p>
         </section>
+      )}
+
+      {attentionOverlay && phase === "running" && (
+        <AttentionOverlay
+          check={attentionOverlay}
+          onDone={(correct) => {
+            if (!correct) void postAttention();
+            setAttentionOverlay(null);
+          }}
+        />
       )}
 
       {phase === "blocked" && (
@@ -1052,6 +1077,83 @@ function Check({ ok, label }: { ok: boolean; label: string }) {
     >
       <span aria-hidden>{ok ? "✓" : "✗"}</span>
       <span className="text-sm">{label}</span>
+    </div>
+  );
+}
+
+function AttentionOverlay({
+  check,
+  onDone,
+}: {
+  check: NonNullable<OnlineRuntimeConfig["attention_checks"]>[number];
+  onDone: (correct: boolean) => void;
+}) {
+  const [answer, setAnswer] = useState<string | boolean | null>(null);
+  function submit() {
+    if (answer === null) return;
+    const correct =
+      check.kind === "yes_no"
+        ? (answer === true ? "yes" : "no") === check.correct_answer.toLowerCase()
+        : String(answer) === check.correct_answer;
+    onDone(correct);
+  }
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-live="polite"
+    >
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h3 className="text-base font-semibold text-foreground">잠깐 확인</h3>
+        <p className="mt-2 text-sm leading-relaxed text-foreground">{check.question}</p>
+        <div className="mt-4">
+          {check.kind === "yes_no" ? (
+            <div className="flex gap-3">
+              {[
+                { label: "예", val: true },
+                { label: "아니오", val: false },
+              ].map(({ label, val }) => (
+                <label key={label} className="flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="att"
+                    checked={answer === val}
+                    onChange={() => setAnswer(val)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="text-sm">{label}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(check.options ?? []).map((opt) => (
+                <label key={opt} className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="radio"
+                    name="att"
+                    checked={answer === opt}
+                    onChange={() => setAnswer(opt)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="text-sm">{opt}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={answer === null}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            계속
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
