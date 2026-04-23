@@ -32,19 +32,10 @@ export interface GCalRetryOutcome {
   skipped_reason?: string;
 }
 
-export async function claimNextGCalRetry(
-  supabase: Supabase,
-): Promise<GCalClaimedRow | null> {
-  const { data, error } = await supabase.rpc("claim_next_outbox_retry", {
-    p_types: ["gcal"],
-  });
-  if (error) {
-    console.error("[GCalRetry] claim rpc failed:", error.message);
-    return null;
-  }
-  const rows = (data ?? []) as GCalClaimedRow[];
-  return rows[0] ?? null;
-}
+// NOTE: claim is owned by /api/cron/outbox-retry, which calls the generic
+// RPC with the full allowlist in one pass. We expose GCalClaimedRow +
+// runGCalRetry here; callers that need to claim a gcal row in isolation
+// should go through that route, not re-invent a per-type claim helper.
 
 function creatorInitial(creator: {
   email: string;
@@ -102,6 +93,16 @@ export async function runGCalRetry(
 
   // Dedup — if an event was already created (by another cron or runtime
   // pipeline), record and exit. Avoids double-creating a calendar event.
+  //
+  // CAVEAT: this is best-effort. The runtime pipeline CAN write
+  // google_event_id between this read and the createEvent call below,
+  // producing a duplicate event on the shared calendar. The UPDATE at
+  // line ~170 uses `.is("google_event_id", null)` so our retry
+  // page_id won't clobber the first-write winner, but the duplicate
+  // event itself is already live in the GCal calendar. Accepted
+  // trade-off: alternative (pre-fetch via events.list filter) is heavier
+  // per retry and still not race-free. Operator cleans up duplicates in
+  // the UI if they occur.
   if (row.google_event_id) {
     await finalize(supabase, claim.id, "completed", row.google_event_id, null);
     return { ...base, ok: true, external_id: row.google_event_id };

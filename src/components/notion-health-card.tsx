@@ -11,7 +11,7 @@ import type { NotionDriftReport } from "@/lib/notion/schema";
 
 interface HealthRow {
   id: string;
-  check_type: "schema_drift" | "retry_sweep";
+  check_type: "schema_drift" | "retry_sweep" | "outbox_retry_sweep";
   healthy: boolean;
   schema_hash: string | null;
   report: NotionDriftReport | Record<string, unknown>;
@@ -25,7 +25,17 @@ export async function NotionHealthCard() {
   const rows = (data ?? []) as unknown as HealthRow[];
 
   const drift = rows.find((r) => r.check_type === "schema_drift") ?? null;
-  const retry = rows.find((r) => r.check_type === "retry_sweep") ?? null;
+  // Retry sweep tile shows whichever sweep ran most recently: the unified
+  // outbox-retry cron (D6) supersedes the Notion-only one, but until the
+  // cutover the older entry may still be the freshest. Pick the newer.
+  const retryNotion = rows.find((r) => r.check_type === "retry_sweep") ?? null;
+  const retryOutbox = rows.find((r) => r.check_type === "outbox_retry_sweep") ?? null;
+  const retry =
+    retryNotion && retryOutbox
+      ? new Date(retryOutbox.created_at) > new Date(retryNotion.created_at)
+        ? retryOutbox
+        : retryNotion
+      : (retryOutbox ?? retryNotion);
 
   // Staleness check — if the most recent row is older than 2× the
   // expected cadence (health: daily, retry: 30min), mark the tile

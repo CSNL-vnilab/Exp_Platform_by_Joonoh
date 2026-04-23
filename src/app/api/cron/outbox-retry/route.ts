@@ -121,7 +121,16 @@ async function runOne(
     const r = await runSMSRetry(supabase, claim as SMSClaimedRow);
     return { ...r, integration_type: claim.integration_type };
   }
-  // Exhaustive: TS would catch, but guard for runtime safety.
+  // L1 fix — if the RPC allowlist gets widened to a type we don't yet
+  // dispatch (e.g. "email" flipped on without the service), FINALIZE
+  // the row as failed so its `attempts` cap actually limits the noise.
+  // Without this, the RPC keeps bumping attempts every sweep forever.
+  await supabase.rpc("finalize_outbox_retry", {
+    p_integration_id: claim.id,
+    p_status: "failed",
+    p_external_id: null,
+    p_last_error: `unknown_integration_type:${claim.integration_type}`,
+  });
   return {
     booking_id: claim.booking_id,
     integration_type: claim.integration_type,
@@ -159,9 +168,16 @@ async function handle(request: NextRequest) {
         skipped += 1;
       } else {
         stillFailed += 1;
+        // H2 fix — widened to cover real provider error strings:
+        //   * GCal: "Rate Limit Exceeded", "rateLimitExceeded",
+        //            "userRateLimitExceeded", "Quota exceeded for …"
+        //   * Notion: "rate_limited" / "ThrottlerException" / 429
+        //   * Solapi: "Daily limit exceeded", code starting with "Limit"
         if (
           typeof outcome.error === "string" &&
-          /rate_limited|429|too many|ThrottlerException|quota/i.test(outcome.error)
+          /rate[\s_]?limit|429|too many|throttl|quota|userRateLimit|daily\s*limit/i.test(
+            outcome.error,
+          )
         ) {
           rateLimitedAt = new Date().toISOString();
           break;

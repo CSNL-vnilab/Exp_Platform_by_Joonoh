@@ -32,19 +32,8 @@ export interface SMSRetryOutcome {
   skipped_reason?: string;
 }
 
-export async function claimNextSMSRetry(
-  supabase: Supabase,
-): Promise<SMSClaimedRow | null> {
-  const { data, error } = await supabase.rpc("claim_next_outbox_retry", {
-    p_types: ["sms"],
-  });
-  if (error) {
-    console.error("[SMSRetry] claim rpc failed:", error.message);
-    return null;
-  }
-  const rows = (data ?? []) as SMSClaimedRow[];
-  return rows[0] ?? null;
-}
+// Claim is owned by /api/cron/outbox-retry (unified dispatch). This module
+// exposes the run function + the row shape, never a per-type claimNext.
 
 export async function runSMSRetry(
   supabase: Supabase,
@@ -85,10 +74,19 @@ export async function runSMSRetry(
   const text = `[${BRAND_NAME}] 예약확정\n${row.participants.name}님, "${row.experiments.title}" 실험이 예약되었습니다.\n일시: ${formatDateKR(row.slot_start)} ${formatTimeKR(row.slot_start)}\n문의: ${BRAND_CONTACT_EMAIL}`;
 
   try {
-    await sendSMS(row.participants.phone, text);
+    // B2 fix — sendSMS returns {success: false, error} on 4xx instead of
+    // throwing. Earlier versions of this retry finalized "completed"
+    // unconditionally, which silently masked Solapi quota/auth failures.
+    const res = await sendSMS(row.participants.phone, text);
+    if (!res.success) {
+      const msg = res.error ?? "sms_failed";
+      await finalize(supabase, claim.id, "failed", scrubPii(msg).slice(0, 500));
+      return { ...base, ok: false, error: msg };
+    }
     await finalize(supabase, claim.id, "completed", null);
     return { ...base, ok: true };
   } catch (err) {
+    // Network-level reject — sendSMS only throws on fetch failure.
     const msg = err instanceof Error ? err.message : String(err);
     await finalize(supabase, claim.id, "failed", scrubPii(msg).slice(0, 500));
     return { ...base, ok: false, error: msg };
