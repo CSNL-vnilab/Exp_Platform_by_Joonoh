@@ -43,3 +43,7 @@ next-env.d.ts
 .wrangler/
 supabase/.temp/
 supabase/schema-combined.sql
+
+# Local test artifacts
+.test-artifacts/
+.claude/scheduled_tasks.lock

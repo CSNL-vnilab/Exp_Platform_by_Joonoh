@@ -1,0 +1,225 @@
+<!doctype html>
+<!--
+  Minimal reference implementation of an "online experiment" hosted on the
+  platform's /run runtime shell. Researchers can copy this file, replace the
+  stimulus rendering + trial structure, and host the resulting JS on a static
+  CDN. The platform loads the entry_url inside a sandboxed iframe (no same-
+  origin, allow-scripts only) and the researcher's JS talks to the shell via
+  window.expPlatform.
+
+  API exposed by the shell:
+    window.expPlatform.subject        // integer, e.g. 12
+    window.expPlatform.experimentId   // uuid
+    window.expPlatform.bookingId      // uuid
+    window.expPlatform.config         // researcher's online_runtime_config
+    window.expPlatform.submitBlock({ blockIndex, trials, isLast })
+    window.expPlatform.log(message)
+    window.expPlatform.reportProgress({ block, trial, ... })
+
+  Contract:
+    * blockIndex must be 0 for the first block, 1 for the second, etc.
+      The server rejects out-of-order submissions.
+    * trials[] is opaque — whatever the researcher wants to record. Top-level
+      PII keys (name, email, phone, birthdate, address, rrn, ssn) are stripped
+      server-side as defence in depth. Use neutral keys: rt, response, stim, …
+    * Rate limits: 1 submit/sec burst, 100 submits/min sustained.
+    * isLast: true on the final block triggers completion-code minting.
+
+  To host this file directly (e.g. as a local mock), serve it from any CDN
+  and point online_runtime_config.entry_url at it. The shell will load it
+  inside the runtime iframe — the iframe's src will be the shim shell, not
+  this file. The shim injects a <script src="entry_url"> tag at load.
+
+  A researcher hosting real JS should strip the outer <html>/<body>/<script>
+  tags — only the JS body matters. Everything outside <script> is ignored
+  when loaded via <script src>.
+-->
+<!-- The HTML wrapper below is only for convenience when opening this file
+     directly in a browser to eyeball the flow. When loaded via entry_url
+     only the <script> block below runs. -->
+<html lang="en">
+<head><meta charset="utf-8" /><title>Demo experiment</title></head>
+<body>
+<script>
+(function () {
+  var EP = window.expPlatform;
+  if (!EP) {
+    // Loaded outside the shell — print a hint so the researcher knows.
+    document.body.innerHTML =
+      '<p style="font-family:sans-serif;padding:24px;color:#555">' +
+      'This file is meant to run inside the experiment platform /run shell.' +
+      ' Open via a booking link.' +
+      '</p>';
+    return;
+  }
+
+  var root = document.getElementById('exp-root') || document.body;
+  root.style.fontFamily = '-apple-system, "Segoe UI", sans-serif';
+  root.style.color = '#e5e7eb';
+  root.style.padding = '32px';
+
+  var BLOCKS = 3;
+  var TRIALS_PER_BLOCK = 8;
+
+  function h(tag, attrs, children) {
+    var el = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      if (k === 'style') Object.assign(el.style, attrs.style);
+      else if (k === 'onclick') el.onclick = attrs.onclick;
+      else el.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(function (c) {
+      if (typeof c === 'string') el.appendChild(document.createTextNode(c));
+      else if (c) el.appendChild(c);
+    });
+    return el;
+  }
+
+  function screen(content) {
+    root.innerHTML = '';
+    root.appendChild(content);
+  }
+
+  function wait(ms) {
+    return new Promise(function (r) { setTimeout(r, ms); });
+  }
+
+  async function runTrial(blockIdx, trialIdx) {
+    // Toy paradigm: show a colored square (blue or red), participant presses
+    // F for blue, J for red. RT + accuracy recorded.
+    var isBlue = Math.random() < 0.5;
+    var color = isBlue ? '#60a5fa' : '#f87171';
+    var targetKey = isBlue ? 'f' : 'j';
+
+    var stim = h('div', {
+      style: {
+        width: '180px', height: '180px', margin: '0 auto',
+        background: color, borderRadius: '12px',
+      },
+    });
+    var prompt = h('p', {
+      style: { textAlign: 'center', marginTop: '24px', fontSize: '14px', color: '#9ca3af' },
+    }, ['파란색 → F,  빨간색 → J']);
+    var wrap = h('div', null, [
+      h('p', { style: { textAlign: 'center', color: '#9ca3af', fontSize: '12px' } }, [
+        'Block ' + (blockIdx + 1) + ' / ' + BLOCKS +
+        ' · Trial ' + (trialIdx + 1) + ' / ' + TRIALS_PER_BLOCK,
+      ]),
+      h('div', { style: { marginTop: '60px' } }, []),
+      stim,
+      prompt,
+    ]);
+    screen(wrap);
+
+    var t0 = performance.now();
+    return new Promise(function (resolve) {
+      function onKey(e) {
+        var k = e.key.toLowerCase();
+        if (k !== 'f' && k !== 'j') return;
+        var rt = performance.now() - t0;
+        window.removeEventListener('keydown', onKey);
+        resolve({
+          trial_index: trialIdx,
+          stim_color: color,
+          target_key: targetKey,
+          response_key: k,
+          correct: k === targetKey,
+          rt_ms: Math.round(rt),
+          timestamp: new Date().toISOString(),
+        });
+      }
+      window.addEventListener('keydown', onKey);
+    });
+  }
+
+  async function runBlock(blockIdx) {
+    // Block intro
+    screen(h('div', { style: { textAlign: 'center' } }, [
+      h('h2', { style: { fontSize: '20px' } }, ['Block ' + (blockIdx + 1) + ' / ' + BLOCKS]),
+      h('p', { style: { marginTop: '16px', color: '#9ca3af' } }, [
+        '키를 눌러 시작하세요.',
+      ]),
+    ]));
+    await new Promise(function (r) {
+      function onKey() {
+        window.removeEventListener('keydown', onKey);
+        r();
+      }
+      window.addEventListener('keydown', onKey);
+    });
+
+    var trials = [];
+    for (var i = 0; i < TRIALS_PER_BLOCK; i++) {
+      var t = await runTrial(blockIdx, i);
+      trials.push(t);
+      await wait(400);
+    }
+
+    // Submit block
+    screen(h('div', { style: { textAlign: 'center' } }, [
+      h('p', { style: { color: '#9ca3af' } }, ['블록 결과를 업로드 중입니다…']),
+    ]));
+
+    try {
+      var res = await EP.submitBlock({
+        blockIndex: blockIdx,
+        trials: trials,
+        blockMetadata: {
+          n_trials: trials.length,
+          block_accuracy:
+            trials.filter(function (t) { return t.correct; }).length / trials.length,
+        },
+        isLast: blockIdx === BLOCKS - 1,
+      });
+      return res;
+    } catch (err) {
+      screen(h('div', { style: { textAlign: 'center', color: '#fca5a5' } }, [
+        h('p', null, ['업로드 실패: ' + err.message]),
+        h('p', { style: { marginTop: '12px', fontSize: '12px' } }, ['새로고침 후 다시 시도해주세요.']),
+      ]));
+      throw err;
+    }
+  }
+
+  async function main() {
+    screen(h('div', { style: { textAlign: 'center', maxWidth: '560px', margin: '0 auto' } }, [
+      h('h1', { style: { fontSize: '24px' } }, ['데모 실험']),
+      h('p', { style: { marginTop: '16px', color: '#9ca3af', lineHeight: '1.6' } }, [
+        '간단한 반응 시간 과제입니다. 화면에 나타나는 색깔에 맞춰 키를 눌러주세요.',
+      ]),
+      h('p', { style: { marginTop: '24px', color: '#9ca3af', fontSize: '13px' } }, [
+        '참여자 번호: Sbj ' + EP.subject,
+      ]),
+      h('p', { style: { marginTop: '24px', fontSize: '12px', color: '#6b7280' } }, [
+        '아무 키나 눌러 시작합니다.',
+      ]),
+    ]));
+    await new Promise(function (r) {
+      function onKey() {
+        window.removeEventListener('keydown', onKey);
+        r();
+      }
+      window.addEventListener('keydown', onKey);
+    });
+
+    // Resume from where the server last accepted a block — a participant
+    // who reloaded mid-run picks up at the next block instead of retrying
+    // an already-submitted one.
+    var resumeFrom = typeof EP.blocksSubmitted === 'number' ? EP.blocksSubmitted : 0;
+    for (var b = resumeFrom; b < BLOCKS; b++) {
+      await runBlock(b);
+    }
+    // On the final block the server returns the completion code and the
+    // shell transitions to its "completed" view. Our job here is just to
+    // show a thank-you; the shell takes over the completion UI.
+    screen(h('div', { style: { textAlign: 'center' } }, [
+      h('h2', { style: { fontSize: '20px' } }, ['완료되었습니다']),
+      h('p', { style: { marginTop: '12px', color: '#9ca3af' } }, ['감사합니다.']),
+    ]));
+  }
+
+  main().catch(function (err) { EP.log('Fatal error: ' + (err && err.message)); });
+})();
+</script>
+</body>
+</html>

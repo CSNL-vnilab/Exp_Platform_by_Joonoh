@@ -66,6 +66,15 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
   const hasDataPath = Boolean(experiment.data_path?.trim());
   const activationReady = hasCodeRepo && hasDataPath;
 
+  // Notion experiment-mirror retry state. A prior activation may have
+  // attempted the Notion push but failed — attempted_at is set without a
+  // page_id. The researcher needs a way to retry without flipping status.
+  const notionAttempted = Boolean(experiment.notion_experiment_sync_attempted_at);
+  const notionSynced = Boolean(experiment.notion_experiment_page_id);
+  const notionNeedsRetry =
+    experiment.status === "active" && notionAttempted && !notionSynced;
+  const [notionResyncing, setNotionResyncing] = useState(false);
+
   const requiredOpenCount = checklist.filter((i) => i.required && !i.checked).length;
   const checklistComplete =
     checklist.length === 0 ||
@@ -85,6 +94,30 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
 
   const status = statusConfig[experiment.status] ?? statusConfig.draft;
   const bookingUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/book/${experiment.id}`;
+
+  async function handleNotionResync() {
+    setNotionResyncing(true);
+    const res = await fetch(
+      `/api/experiments/${experiment.id}/notion-resync`,
+      { method: "POST" },
+    );
+    setNotionResyncing(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast(j.error ?? "Notion 재동기화에 실패했습니다.", "error");
+      return;
+    }
+    const j = await res.json().catch(() => ({}));
+    if (j.notion_synced) {
+      toast("Notion 페이지가 생성되었습니다.", "success");
+      router.refresh();
+    } else {
+      toast(
+        j.notion_error ?? "Notion 재동기화가 실패했습니다. 환경변수를 확인해 주세요.",
+        "error",
+      );
+    }
+  }
 
   async function handleStatusChange(newStatus: "active" | "completed") {
     if (newStatus === "active" && !activationReady) {
@@ -317,6 +350,59 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
           ← 실험 목록으로
         </Link>
       </div>
+      {/* Activation-readiness banner — spec: "block activation with an
+          inline error otherwise". Disabled button alone isn't discoverable
+          on mobile / keyboard users. */}
+      {experiment.status === "draft" && !activationReady && (
+        <div
+          role="alert"
+          className="mb-5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <p className="font-semibold">활성화 전 필수 입력 항목이 남아 있습니다.</p>
+          <ul className="mt-1 list-inside list-disc text-xs">
+            {!hasCodeRepo && <li>분석 코드 저장소 (code_repo_url)</li>}
+            {!hasDataPath && <li>원본 데이터 경로 (data_path)</li>}
+          </ul>
+          <p className="mt-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="font-medium text-amber-900 underline hover:text-amber-700"
+            >
+              실험 수정에서 입력하기 →
+            </button>
+          </p>
+        </div>
+      )}
+
+      {/* Notion mirror retry banner — shows when an activation attempt
+          tried to push to Notion but never got a page_id back. */}
+      {notionNeedsRetry && (
+        <div
+          role="status"
+          className="mb-5 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="flex-1 font-semibold">
+              Notion 동기화가 완료되지 않았습니다.
+            </p>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={notionResyncing}
+              onClick={handleNotionResync}
+            >
+              {notionResyncing ? "재시도 중..." : "Notion 재동기화"}
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-sky-800">
+            이전 활성화 시 Notion 페이지 생성이 실패했거나 writeback이 끊겼습니다.
+            재시도 버튼으로 다시 시도할 수 있으며, 동일한 실험에 대해 중복 페이지가
+            생성되지 않도록 보호됩니다.
+          </p>
+        </div>
+      )}
+
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-foreground">{experiment.title}</h1>
@@ -503,8 +589,15 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
               {experiment.notion_experiment_page_id && (
                 <div className="sm:col-span-2">
                   <dt className="text-muted">Notion 페이지</dt>
-                  <dd className="mt-0.5 text-xs text-muted">
-                    <code>{experiment.notion_experiment_page_id}</code>
+                  <dd className="mt-0.5 break-all text-xs text-muted">
+                    <a
+                      href={`https://www.notion.so/${experiment.notion_experiment_page_id.replace(/-/g, "")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      {experiment.notion_experiment_page_id}
+                    </a>
                   </dd>
                 </div>
               )}

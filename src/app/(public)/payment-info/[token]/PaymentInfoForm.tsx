@@ -1,0 +1,393 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/toast";
+
+const BANKS = [
+  "국민은행", "기업은행", "신한은행", "우리은행", "하나은행",
+  "농협은행", "SC제일은행", "씨티은행", "카카오뱅크", "토스뱅크",
+  "케이뱅크", "부산은행", "대구은행", "경남은행", "광주은행",
+  "전북은행", "제주은행", "산업은행", "수협은행",
+  "새마을금고", "신협", "우체국", "저축은행", "기타",
+];
+
+const BANKBOOK_MAX_BYTES = 5 * 1024 * 1024;
+const BANKBOOK_TYPES = ["image/png", "image/jpeg", "application/pdf"];
+
+interface Props {
+  token: string;
+  defaultHolder: string;
+  experimentTitle: string;
+  amountKrw: number;
+}
+
+export default function PaymentInfoForm({ token, defaultHolder }: Props) {
+  const router = useRouter();
+  const { toast } = useToast();
+
+  const [rrn, setRrn] = useState("");
+  const [bank, setBank] = useState(BANKS[2]);
+  const [account, setAccount] = useState("");
+  const [holder, setHolder] = useState(defaultHolder);
+  const [institution, setInstitution] = useState("서울대학교");
+  const [submitting, setSubmitting] = useState(false);
+
+  const [bankbook, setBankbook] = useState<File | null>(null);
+  const [bankbookPreview, setBankbookPreview] = useState<string | null>(null);
+  const bankbookInputRef = useRef<HTMLInputElement | null>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+  const hasSignedRef = useRef(false);
+  const [hasSigned, setHasSigned] = useState(false);
+
+  const handleRrnChange = useCallback((raw: string) => {
+    const digits = raw.replace(/\D/g, "").slice(0, 13);
+    if (digits.length <= 6) {
+      setRrn(digits);
+    } else {
+      setRrn(`${digits.slice(0, 6)}-${digits.slice(6)}`);
+    }
+  }, []);
+
+  // Canvas: retina-scale + fill white bg so toDataURL is a proper PNG.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#111111";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+  }, []);
+
+  const getPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.setPointerCapture(e.pointerId);
+    drawingRef.current = true;
+    const ctx = canvas.getContext("2d")!;
+    const { x, y } = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current) return;
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
+    const { x, y } = getPos(e);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    if (!hasSignedRef.current) {
+      hasSignedRef.current = true;
+      setHasSigned(true);
+    }
+  };
+
+  const onPointerUp = () => {
+    drawingRef.current = false;
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d")!;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+    hasSignedRef.current = false;
+    setHasSigned(false);
+  };
+
+  const onBankbookSelected = (file: File | null) => {
+    if (!file) {
+      setBankbook(null);
+      setBankbookPreview(null);
+      return;
+    }
+    if (!BANKBOOK_TYPES.includes(file.type)) {
+      toast("통장 사본은 PDF, PNG, JPEG 형식만 가능합니다.", "error");
+      return;
+    }
+    if (file.size > BANKBOOK_MAX_BYTES) {
+      toast("통장 사본 파일이 너무 큽니다 (최대 5MB).", "error");
+      return;
+    }
+    setBankbook(file);
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (e) => setBankbookPreview((e.target?.result as string) ?? null);
+      reader.readAsDataURL(file);
+    } else {
+      setBankbookPreview(null);
+    }
+  };
+
+  async function fileToDataUrl(f: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.onerror = () => reject(new Error("read failed"));
+      r.readAsDataURL(f);
+    });
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const rrnDigits = rrn.replace(/\D/g, "");
+    if (rrnDigits.length !== 13) {
+      toast("주민등록번호는 13자리여야 합니다.", "error");
+      return;
+    }
+    if (!institution.trim()) {
+      toast("소속을 입력하세요.", "error");
+      return;
+    }
+    if (!account.trim()) {
+      toast("계좌번호를 입력하세요.", "error");
+      return;
+    }
+    if (!bankbook) {
+      toast("통장 사본을 첨부해 주세요.", "error");
+      return;
+    }
+    if (!hasSigned) {
+      toast("전자서명을 입력해 주세요.", "error");
+      return;
+    }
+
+    const canvas = canvasRef.current!;
+    const signaturePng = canvas.toDataURL("image/png");
+    const bankbookDataUrl = await fileToDataUrl(bankbook);
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/payment-info/${encodeURIComponent(token)}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rrn: rrn.trim(),
+          bankName: bank,
+          accountNumber: account.trim().replace(/\s+/g, ""),
+          accountHolder: (holder || defaultHolder).trim(),
+          institution: institution.trim(),
+          signaturePng,
+          bankbook: {
+            dataUrl: bankbookDataUrl,
+            fileName: bankbook.name,
+            mimeType: bankbook.type,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast(body?.error ?? "제출에 실패했습니다.", "error");
+        setSubmitting(false);
+        return;
+      }
+
+      toast("정산 정보가 제출되었습니다.", "success");
+      router.refresh();
+    } catch {
+      toast("네트워크 오류가 발생했습니다.", "error");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="rounded-xl border border-border bg-white p-5 space-y-4">
+        <h2 className="text-sm font-semibold text-foreground">👤 참가자 정보</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="institution" className="mb-1 block text-xs font-medium text-foreground">
+              소속 <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="institution"
+              type="text"
+              value={institution}
+              onChange={(e) => setInstitution(e.target.value)}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="rrn" className="mb-1 block text-xs font-medium text-foreground">
+              주민등록번호 <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="rrn"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={rrn}
+              onChange={(e) => handleRrnChange(e.target.value)}
+              placeholder="XXXXXX-XXXXXXX"
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm font-mono text-foreground focus:border-primary focus:outline-none"
+              required
+              maxLength={14}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted">
+          주민등록번호는 AES-256 암호화되어 저장되며, 행정 제출용 엑셀 파일 생성 시에만 복호화됩니다.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-border bg-white p-5 space-y-4">
+        <h2 className="text-sm font-semibold text-foreground">🏦 계좌 정보</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="bank" className="mb-1 block text-xs font-medium text-foreground">
+              은행명 <span className="text-red-500">*</span>
+            </label>
+            <select
+              id="bank"
+              value={bank}
+              onChange={(e) => setBank(e.target.value)}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+            >
+              {BANKS.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="account" className="mb-1 block text-xs font-medium text-foreground">
+              계좌번호 <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="account"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={account}
+              onChange={(e) => setAccount(e.target.value)}
+              placeholder="110-545-811341"
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm font-mono text-foreground focus:border-primary focus:outline-none"
+              required
+            />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="holder" className="mb-1 block text-xs font-medium text-foreground">
+            예금주
+          </label>
+          <input
+            id="holder"
+            type="text"
+            value={holder}
+            onChange={(e) => setHolder(e.target.value)}
+            placeholder={defaultHolder || "비워두면 이름과 동일"}
+            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+          />
+          <p className="mt-1 text-xs text-muted">본인 명의 계좌여야 합니다.</p>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-foreground">
+            통장 사본 <span className="text-red-500">*</span>
+          </label>
+          <input
+            ref={bankbookInputRef}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf"
+            onChange={(e) => onBankbookSelected(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm text-foreground file:mr-3 file:rounded-lg file:border file:border-border file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground file:hover:bg-muted/30"
+          />
+          {bankbook && (
+            <div className="mt-2 flex items-center gap-3 rounded-lg border border-border bg-muted/10 p-2">
+              {bankbookPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={bankbookPreview}
+                  alt="통장 사본 미리보기"
+                  className="h-14 w-auto rounded border border-border object-cover"
+                />
+              ) : (
+                <div className="flex h-14 w-14 items-center justify-center rounded border border-border bg-white text-xs text-muted">
+                  PDF
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-foreground">{bankbook.name}</p>
+                <p className="text-[11px] text-muted">
+                  {(bankbook.size / 1024).toFixed(1)} KB
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (bankbookInputRef.current) bankbookInputRef.current.value = "";
+                  onBankbookSelected(null);
+                }}
+                className="text-xs text-muted hover:text-foreground"
+              >
+                지우기
+              </button>
+            </div>
+          )}
+          <p className="mt-1 text-[11px] text-muted">
+            PDF, PNG, JPEG · 최대 5MB · 비공개 저장소에 보관됩니다.
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-white p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-foreground">✍️ 전자서명 <span className="text-red-500">*</span></h2>
+          <button
+            type="button"
+            onClick={clearSignature}
+            className="text-xs text-muted hover:text-foreground"
+          >
+            지우기
+          </button>
+        </div>
+        <canvas
+          ref={canvasRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerLeave={onPointerUp}
+          style={{ width: "100%", height: "140px", touchAction: "none" }}
+          className="block rounded-lg border border-dashed border-border bg-white"
+        />
+        <p className="text-xs text-muted">
+          참여자비 청구 양식의 수령인 서명란에 자동 삽입됩니다.
+        </p>
+      </div>
+
+      <button
+        type="submit"
+        disabled={submitting}
+        className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {submitting ? "제출 중…" : "정산 정보 제출"}
+      </button>
+    </form>
+  );
+}

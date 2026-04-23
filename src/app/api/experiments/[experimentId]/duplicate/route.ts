@@ -37,6 +37,17 @@ export async function POST(
     return NextResponse.json({ error: "복사 권한이 없습니다" }, { status: 403 });
   }
 
+  // Reset any per-session state on the duplicated checklist — the copy is
+  // a fresh experiment, researcher must tick items again before bookings open.
+  const copiedChecklist = (original.pre_experiment_checklist ?? []).map(
+    (item) => ({
+      item: item.item,
+      required: item.required,
+      checked: false,
+      checked_at: null,
+    }),
+  );
+
   const { data: inserted, error: insertError } = await supabase
     .from("experiments")
     .insert({
@@ -55,6 +66,24 @@ export async function POST(
       google_calendar_id: original.google_calendar_id,
       irb_document_url: original.irb_document_url,
       precautions: original.precautions,
+      categories: original.categories,
+      location_id: original.location_id,
+      weekdays: original.weekdays,
+      registration_deadline: original.registration_deadline,
+      auto_lock: original.auto_lock,
+      subject_start_number: original.subject_start_number,
+      project_name: original.project_name,
+      reminder_day_before_enabled: original.reminder_day_before_enabled,
+      reminder_day_before_time: original.reminder_day_before_time,
+      reminder_day_of_enabled: original.reminder_day_of_enabled,
+      reminder_day_of_time: original.reminder_day_of_time,
+      // Stream 1 research metadata — carried over; researcher edits if needed.
+      // checklist `checked` flags reset; notion_experiment_* NOT carried so
+      // the copy mirrors to a fresh Notion page on its own activation.
+      code_repo_url: original.code_repo_url,
+      data_path: original.data_path,
+      parameter_schema: original.parameter_schema,
+      pre_experiment_checklist: copiedChecklist,
       status: "draft",
       created_by: profile.id, // transfer ownership to the duplicator
     })

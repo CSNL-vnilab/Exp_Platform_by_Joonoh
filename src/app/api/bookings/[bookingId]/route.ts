@@ -9,16 +9,20 @@ import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { intervalsOverlap } from "@/lib/utils/date";
 import { runReschedulePipeline } from "@/lib/services/booking.service";
 
-// Valid status transitions: prevents going back from terminal states
+// Valid status transitions: prevents going back from terminal states.
+// 'running' is set automatically when /run mints a completion code —
+// researchers typically only transition running → completed (after verifying
+// the completion code) or running → cancelled (participant abandoned the run).
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  confirmed: ["cancelled", "completed", "no_show"],
+  confirmed: ["cancelled", "completed", "no_show", "running"],
+  running: ["cancelled", "completed", "no_show"],
   cancelled: [],
   completed: [],
   no_show: [],
 };
 
 const bookingStatusSchema = z.object({
-  status: z.enum(["confirmed", "cancelled", "completed", "no_show"]),
+  status: z.enum(["confirmed", "cancelled", "completed", "no_show", "running"]),
 });
 
 export async function GET(

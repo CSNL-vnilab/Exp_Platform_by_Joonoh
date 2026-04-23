@@ -19,7 +19,7 @@ export default async function BookPage({ params }: BookPageProps) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
-          <svg
+          <svg aria-hidden="true"
             className="h-8 w-8 text-danger"
             fill="none"
             viewBox="0 0 24 24"
@@ -53,7 +53,7 @@ export default async function BookPage({ params }: BookPageProps) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-yellow-100">
-          <svg
+          <svg aria-hidden="true"
             className="h-8 w-8 text-yellow-600"
             fill="none"
             viewBox="0 0 24 24"
@@ -87,7 +87,7 @@ export default async function BookPage({ params }: BookPageProps) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-yellow-100">
-          <svg
+          <svg aria-hidden="true"
             className="h-8 w-8 text-yellow-600"
             fill="none"
             viewBox="0 0 24 24"

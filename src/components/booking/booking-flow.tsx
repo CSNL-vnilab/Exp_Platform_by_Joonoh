@@ -100,8 +100,12 @@ export function BookingFlow({ experiment, location }: BookingFlowProps) {
   const [submitting, setSubmitting] = useState(false);
   const [showPrecautions, setShowPrecautions] = useState(false);
   const [precautionsCleared, setPrecautionsCleared] = useState(false);
+  const [dataConsent, setDataConsent] = useState(false);
 
   const hasPrecautions = experiment.precautions && experiment.precautions.length > 0;
+  const isOnline =
+    experiment.experiment_mode === "online" || experiment.experiment_mode === "hybrid";
+  const requiresDataConsent = experiment.data_consent_required || isOnline;
 
   const requiredSessions =
     experiment.session_type === "multi" ? experiment.required_sessions : 1;
@@ -360,6 +364,40 @@ export function BookingFlow({ experiment, location }: BookingFlowProps) {
             participant={participant}
             slots={selectedSlots}
           />
+          {requiresDataConsent && (
+            <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
+              <p className="text-sm font-semibold text-blue-900">데이터 수집 동의</p>
+              <p className="mt-1 text-xs leading-relaxed text-blue-800">
+                본 실험의 응답 데이터는 연구 목적으로 수집·보관되며, IRB 승인 문서에 명시된
+                방식으로만 사용됩니다. 개인 식별 정보는 저장되지 않고, 참여자는 내부
+                식별번호(Sbj)로만 기록됩니다.
+                {experiment.irb_document_url && (
+                  <>
+                    {" "}
+                    <a
+                      href={experiment.irb_document_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      IRB 문서 확인
+                    </a>
+                  </>
+                )}
+              </p>
+              <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-blue-300 bg-white p-3">
+                <input
+                  type="checkbox"
+                  checked={dataConsent}
+                  onChange={(e) => setDataConsent(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-primary"
+                />
+                <span className="text-sm text-foreground">
+                  위 내용에 동의하며 본 실험의 데이터 수집에 참여합니다.
+                </span>
+              </label>
+            </div>
+          )}
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between">
             <Button
               variant="secondary"
@@ -374,7 +412,7 @@ export function BookingFlow({ experiment, location }: BookingFlowProps) {
               size="lg"
               className="w-full sm:w-auto"
               onClick={handleConfirm}
-              disabled={submitting}
+              disabled={submitting || (requiresDataConsent && !dataConsent)}
             >
               {submitting ? (
                 <span className="flex items-center gap-2">

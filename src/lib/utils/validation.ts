@@ -75,19 +75,46 @@ export const experimentSchema = z.object({
     .optional(),
   parameter_schema: z
     .array(
-      z.object({
-        key: z
-          .string()
-          .min(1)
-          .regex(
-            /^[A-Za-z_][A-Za-z0-9_]*$/,
-            "파라미터 키는 영문/숫자/언더스코어만 허용합니다 (예: stim_contrast)",
-          ),
-        type: z.enum(["number", "string", "enum"]),
-        default: z.union([z.string(), z.number(), z.null()]).optional(),
-        options: z.array(z.string()).optional(),
-      }),
+      z
+        .object({
+          key: z
+            .string()
+            .min(1, "파라미터 키를 입력해주세요")
+            .max(64)
+            .regex(
+              /^[A-Za-z_][A-Za-z0-9_]*$/,
+              "파라미터 키는 영문/숫자/언더스코어만 허용합니다 (예: stim_contrast)",
+            ),
+          type: z.enum(["number", "string", "enum"]),
+          default: z.union([z.string(), z.number(), z.null()]).optional(),
+          options: z.array(z.string().min(1).max(120)).max(50).optional(),
+        })
+        .superRefine((v, ctx) => {
+          if (v.type === "enum") {
+            if (!v.options || v.options.length === 0) {
+              ctx.addIssue({
+                code: "custom",
+                path: ["options"],
+                message: "enum 타입은 최소 1개의 옵션이 필요합니다",
+              });
+            } else if (new Set(v.options).size !== v.options.length) {
+              ctx.addIssue({
+                code: "custom",
+                path: ["options"],
+                message: "옵션이 중복됩니다",
+              });
+            }
+          }
+          if (v.type === "number" && typeof v.default === "string" && v.default !== "") {
+            ctx.addIssue({
+              code: "custom",
+              path: ["default"],
+              message: "number 타입의 기본값은 숫자여야 합니다",
+            });
+          }
+        }),
     )
+    .max(50, "파라미터는 최대 50개까지 등록할 수 있습니다")
     .default([])
     .refine(
       (arr) => new Set(arr.map((p) => p.key)).size === arr.length,
@@ -96,12 +123,17 @@ export const experimentSchema = z.object({
   pre_experiment_checklist: z
     .array(
       z.object({
-        item: z.string().min(1),
+        item: z
+          .string()
+          .trim()
+          .min(1, "체크리스트 항목 내용을 입력해주세요")
+          .max(500),
         required: z.boolean(),
         checked: z.boolean().optional(),
         checked_at: z.string().nullable().optional(),
       }),
     )
+    .max(50, "체크리스트는 최대 50개까지 등록할 수 있습니다")
     .default([]),
   // Online runtime (migration 00023). Offline keeps online_runtime_config
   // null; online/hybrid require entry_url. Other fields are optional hints
