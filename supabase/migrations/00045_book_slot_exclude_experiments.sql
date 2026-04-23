@@ -114,26 +114,48 @@ BEGIN
 
   -- D9 — cross-study exclusion enforcement.
   --
-  -- online_runtime_config is JSONB; exclude_experiment_ids is an array
-  -- of UUIDs as strings. NULL config, missing key, empty array, or an
-  -- offline experiment all skip the check. Any prior booking of this
-  -- participant (by participant_id, not by phone/email — so variant
-  -- addresses can't bypass) in confirmed/running/completed status on
-  -- any excluded experiment blocks this booking.
+  -- online_runtime_config is JSONB; exclude_experiment_ids SHOULD be
+  -- an array of UUID strings. F1 guard: if a researcher wrote a
+  -- scalar/object by mistake (current forms don't prevent it), the
+  -- jsonb_array_elements_text call would abort book_slot with a
+  -- generic 500. We explicitly check jsonb_typeof='array' first and
+  -- treat any other shape as "no exclusion configured" — log-worthy
+  -- but non-fatal.
+  --
+  -- Participant match uses participant_id (the UPSERT target) so the
+  -- blacklist bypass via renamed-name doesn't apply. NOTE: variant
+  -- email addresses (foo@x vs foo+tag@x) still create distinct
+  -- participant rows via the (phone,email) unique key — that pre-
+  -- existing gap in the identity model is NOT closed by this check.
+  -- A future migration normalising participant identity would cover it.
+  --
+  -- Status set includes `no_show` — a participant who intended to
+  -- participate but didn't appear is still considered "already engaged"
+  -- for cross-study exclusion purposes (they're tracked in
+  -- participant_classes and would show up in royal-queue stats).
   IF v_experiment.experiment_mode <> 'offline'
      AND v_experiment.online_runtime_config IS NOT NULL
-     AND v_experiment.online_runtime_config ? 'exclude_experiment_ids' THEN
-    SELECT ARRAY(
-      SELECT (value)::uuid
-      FROM jsonb_array_elements_text(v_experiment.online_runtime_config->'exclude_experiment_ids')
-    ) INTO v_exclude_ids;
+     AND v_experiment.online_runtime_config ? 'exclude_experiment_ids'
+     AND jsonb_typeof(v_experiment.online_runtime_config->'exclude_experiment_ids') = 'array' THEN
+    BEGIN
+      SELECT ARRAY(
+        SELECT (value)::uuid
+        FROM jsonb_array_elements_text(v_experiment.online_runtime_config->'exclude_experiment_ids')
+        WHERE value ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      ) INTO v_exclude_ids;
+    EXCEPTION WHEN OTHERS THEN
+      -- Last-resort guard: malformed entries in the array (e.g. legacy
+      -- non-UUID string, pasted URL) shouldn't abort the booking. Null
+      -- out the array and let the booking proceed.
+      v_exclude_ids := NULL;
+    END;
 
     IF v_exclude_ids IS NOT NULL AND array_length(v_exclude_ids, 1) > 0 THEN
       SELECT COUNT(*) INTO v_excluded_count
       FROM bookings b
       WHERE b.participant_id = v_participant_id
         AND b.experiment_id = ANY(v_exclude_ids)
-        AND b.status IN ('confirmed', 'running', 'completed');
+        AND b.status IN ('confirmed', 'running', 'completed', 'no_show');
 
       IF v_excluded_count > 0 THEN
         RETURN jsonb_build_object(
