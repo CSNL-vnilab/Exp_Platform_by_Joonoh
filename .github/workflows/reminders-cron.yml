@@ -18,9 +18,17 @@ jobs:
             echo "::error::CRON_SECRET repo secret is missing — add it at Settings → Secrets → Actions"
             exit 1
           fi
-          status=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
-            -H "x-cron-secret: $CRON_SECRET" \
-            -X POST "$REMINDER_URL")
+          # Print length only (never the secret itself). Expected 64 for hex32.
+          echo "secret_length=${#CRON_SECRET}"
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" \
+            -X POST "$REMINDER_URL" \
+            -H "x-cron-secret: $CRON_SECRET")
           echo "HTTP $status"
-          cat /tmp/resp.json
-          test "$status" = "200"
+          echo "--- response body ---"
+          cat /tmp/resp || true
+          echo
+          echo "--- /end ---"
+          if [ "$status" != "200" ]; then
+            echo "::error::reminders endpoint returned HTTP $status"
+            exit 1
+          fi
