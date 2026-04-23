@@ -168,7 +168,7 @@ edit flow; sidebar shows "활성화 전 필수" tiles until they're set.
 
 ## Migration log (current prod state)
 
-Last applied: `00038_promotion_notifications.sql` on 2026-04-23.
+Last applied: `00041_promotion_notify_scope.sql` on 2026-04-23.
 
 Full list: `ls supabase/migrations/`.
 

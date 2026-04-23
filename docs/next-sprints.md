@@ -13,7 +13,8 @@ on main).
 | D4 | DB audit + salt rotation | ✅ migrations 00033, scripts/db-audit.mjs (14 checks), scripts/salt-rotate.mjs + runbook |
 | D5 | Researcher field requirement clarity | ✅ docs/experiment-field-requirements.md, ExperimentFormCompleteness sidebar on /new + /[id]/edit |
 | D6 | Outbox retry generalisation (foundation) | ✅ migration 00037 generic claim_next_outbox_retry RPC; service layer deferred |
-| D8 | Auto-promotion notification emails | ✅ migration 00038, /api/cron/promotion-notifications, GH Actions workflow |
+| D8 | Auto-promotion notification emails | ✅ migrations 00038/00040/00041, /api/cron/promotion-notifications with transient-retry + RLS disabled gate + researcher-scope tightening (only notifies researchers who ran the participant's sessions) |
+| D8.5 | Class-delete audit trigger | ✅ migration 00039 — direct SQL DELETE on participant_classes now logs into audit trail |
 | — | Notion rate-limit-aware fetch wrapper | ✅ src/lib/notion/rate-limit.ts; client.ts refactored |
 | — | Background QC loop (db-audit + notion health) | ✅ scripts/qc-loop.mjs under Monitor |
 | — | Ops playbook + rolling plan + MIN_SECRET_LENGTH consistency | ✅ |
