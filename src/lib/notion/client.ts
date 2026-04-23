@@ -1,6 +1,8 @@
-import { Client } from "@notionhq/client";
-
-const notion = new Client({ auth: process.env.NOTION_API_KEY });
+// Notion writes go through our rate-limit-aware wrapper instead of
+// @notionhq/client so we can read X-RateLimit-Remaining / Retry-After
+// headers and back off pre-emptively. The wrapper handles auth,
+// Notion-Version, JSON body, and 429 retry with Retry-After respect.
+import { fetchNotion } from "@/lib/notion/rate-limit";
 
 export interface BookingNotionData {
   experimentTitle: string;
@@ -55,9 +57,12 @@ export async function createBookingPage(data: BookingNotionData): Promise<string
     },
   };
 
-  const response = await notion.pages.create({
-    parent: { database_id: dbId.trim() },
-    properties: properties as Parameters<typeof notion.pages.create>[0]["properties"],
+  const response = await fetchNotion<{ id: string }>("/v1/pages", {
+    method: "POST",
+    body: JSON.stringify({
+      parent: { database_id: dbId.trim() },
+      properties,
+    }),
   });
 
   return response.id;
@@ -67,11 +72,11 @@ export async function updateBookingPage(
   pageId: string,
   status: string,
 ): Promise<void> {
-  await notion.pages.update({
-    page_id: pageId,
-    properties: {
-      상태: { select: { name: status } },
-    },
+  await fetchNotion(`/v1/pages/${pageId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      properties: { 상태: { select: { name: status } } },
+    }),
   });
 }
 
@@ -152,9 +157,12 @@ export async function createExperimentPage(
     },
   };
 
-  const response = await notion.pages.create({
-    parent: { database_id: dbId.trim() },
-    properties: properties as Parameters<typeof notion.pages.create>[0]["properties"],
+  const response = await fetchNotion<{ id: string }>("/v1/pages", {
+    method: "POST",
+    body: JSON.stringify({
+      parent: { database_id: dbId.trim() },
+      properties,
+    }),
   });
 
   return response.id;
@@ -229,11 +237,9 @@ export async function upsertObservationPage(
   };
 
   if (data.bookingNotionPageId) {
-    await notion.pages.update({
-      page_id: data.bookingNotionPageId,
-      properties: observationProps as Parameters<
-        typeof notion.pages.update
-      >[0]["properties"],
+    await fetchNotion(`/v1/pages/${data.bookingNotionPageId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ properties: observationProps }),
     });
     return data.bookingNotionPageId;
   }
@@ -270,9 +276,12 @@ export async function upsertObservationPage(
     ...observationProps,
   };
 
-  const response = await notion.pages.create({
-    parent: { database_id: dbId.trim() },
-    properties: properties as Parameters<typeof notion.pages.create>[0]["properties"],
+  const response = await fetchNotion<{ id: string }>("/v1/pages", {
+    method: "POST",
+    body: JSON.stringify({
+      parent: { database_id: dbId.trim() },
+      properties,
+    }),
   });
 
   return response.id;
