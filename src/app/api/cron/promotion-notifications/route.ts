@@ -144,6 +144,7 @@ async function handle(request: NextRequest) {
     let sent = 0;
     let failed = 0;
     let skipped = 0;
+    let rateLimitedAt: string | null = null;
     const results: Array<{
       audit_id: string;
       researcher_user_id: string;
@@ -156,20 +157,17 @@ async function handle(request: NextRequest) {
       if (i > 0) await sleep(MIN_GMAIL_DELAY_MS);
 
       const to = (c.researcher_contact_email ?? "").trim();
+      // H7 fix: the RPC (migration 00040) no longer returns rows
+      // with missing contact_email, but defense-in-depth — skip here
+      // too WITHOUT writing a tracking row so the researcher can set
+      // contact_email later and the row re-enters the queue.
       if (!to || !to.includes("@")) {
         skipped += 1;
         results.push({
           audit_id: c.audit_id,
           researcher_user_id: c.researcher_user_id,
           ok: false,
-          error: "missing researcher email",
-        });
-        // Still record so the cron doesn't spin on the same row.
-        await admin.from("class_promotion_notifications").insert({
-          audit_id: c.audit_id,
-          researcher_user_id: c.researcher_user_id,
-          email_to: "",
-          error_message: "missing researcher email",
+          error: "missing researcher email (deferred)",
         });
         continue;
       }
@@ -183,16 +181,16 @@ async function handle(request: NextRequest) {
         html: buildEmailHtml(c),
       });
 
-      await admin.from("class_promotion_notifications").insert({
-        audit_id: c.audit_id,
-        researcher_user_id: c.researcher_user_id,
-        email_to: to,
-        error_message: result.success
-          ? null
-          : (result.error ?? "unknown").slice(0, 500),
-      });
-
       if (result.success) {
+        // H1 fix: only record success rows without error_message so the
+        // RPC treats them as delivered. Transient Gmail errors (below)
+        // do NOT insert a tracking row — next sweep retries.
+        await admin.from("class_promotion_notifications").insert({
+          audit_id: c.audit_id,
+          researcher_user_id: c.researcher_user_id,
+          email_to: to,
+          error_message: null,
+        });
         sent += 1;
         results.push({
           audit_id: c.audit_id,
@@ -200,13 +198,40 @@ async function handle(request: NextRequest) {
           ok: true,
         });
       } else {
+        // Classify the error. Terminal errors (bad recipient, 5.x.x
+        // SMTP permanent) SHOULD be recorded so we don't spin on them.
+        // Transient (429 / 5xx / network / quota) SHOULD NOT so we retry.
+        const err = result.error ?? "unknown";
+        // Scrub recipient email from error body (L6 reviewer concern).
+        const scrubbed = err
+          .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "<email>")
+          .slice(0, 500);
+        const isTransient =
+          /429|rate|quota|5\d\d|ETIMEDOUT|ECONNRESET|ENOTFOUND|temporar/i.test(
+            err,
+          );
+        if (!isTransient) {
+          await admin.from("class_promotion_notifications").insert({
+            audit_id: c.audit_id,
+            researcher_user_id: c.researcher_user_id,
+            email_to: to,
+            error_message: scrubbed,
+          });
+        }
         failed += 1;
         results.push({
           audit_id: c.audit_id,
           researcher_user_id: c.researcher_user_id,
           ok: false,
-          error: result.error,
+          error: scrubbed,
         });
+
+        // M4 fix: on the FIRST transient failure, stop the sweep. Don't
+        // burn the remaining quota against a locked-out Gmail account.
+        if (isTransient) {
+          rateLimitedAt = new Date().toISOString();
+          break;
+        }
       }
     }
 
@@ -217,6 +242,7 @@ async function handle(request: NextRequest) {
       sent,
       failed,
       skipped,
+      rate_limited_at: rateLimitedAt,
       duration_ms: Date.now() - started,
       results,
     });
