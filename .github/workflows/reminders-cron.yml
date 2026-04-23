@@ -1,0 +1,26 @@
+name: Reminders cron
+on:
+  schedule:
+    # Every 15 minutes (UTC).
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reminders endpoint
+        env:
+          REMINDER_URL: https://lab-reservation-seven.vercel.app/api/notifications/reminders
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is missing — add it at Settings → Secrets → Actions"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            -X POST "$REMINDER_URL")
+          echo "HTTP $status"
+          cat /tmp/resp.json
+          test "$status" = "200"
