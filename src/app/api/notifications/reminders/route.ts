@@ -13,9 +13,12 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
+// Minimum CRON_SECRET entropy — 32 hex = 128 bits.
+const MIN_SECRET_LENGTH = 32;
+
 function authorize(request: NextRequest): boolean {
   const expected = (process.env.CRON_SECRET ?? "").trim();
-  if (!expected) return false;
+  if (!expected || expected.length < MIN_SECRET_LENGTH) return false;
 
   // Accept either our custom header (manual triggers / tests)...
   const custom = request.headers.get("x-cron-secret") ?? "";

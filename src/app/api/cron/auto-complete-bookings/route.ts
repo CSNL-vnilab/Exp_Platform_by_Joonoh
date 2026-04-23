@@ -22,9 +22,13 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
+// Minimum CRON_SECRET entropy — 32 hex = 128 bits. timingSafeEqual on
+// a 1-byte secret is degenerate; enforce a floor.
+const MIN_SECRET_LENGTH = 32;
+
 function authorize(request: NextRequest): boolean {
   const expected = (process.env.CRON_SECRET ?? "").trim();
-  if (!expected) return false;
+  if (!expected || expected.length < MIN_SECRET_LENGTH) return false;
 
   const custom = request.headers.get("x-cron-secret") ?? "";
   if (custom && safeCompare(custom, expected)) return true;
