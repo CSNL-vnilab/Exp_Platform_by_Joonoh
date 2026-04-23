@@ -34,7 +34,9 @@ export default async function DashboardPage() {
 
   const { data: myExperiments } = await admin
     .from("experiments")
-    .select("id, title, status, start_date, end_date, session_type, required_sessions")
+    .select(
+      "id, title, status, start_date, end_date, session_type, required_sessions, code_repo_url, data_path, pre_experiment_checklist",
+    )
     .eq("created_by", user.id)
     .order("created_at", { ascending: false });
 
@@ -78,6 +80,21 @@ export default async function DashboardPage() {
 
   const active = (myExperiments ?? []).filter((e) => e.status === "active");
   const upcomingRows = (upcoming as unknown as UpcomingRow[]) ?? [];
+
+  // Per-researcher metadata-gap summary (user directive 2026-04-23:
+  // "리마인드 노트가 각 연구자에게 할당되어야함"). We surface this
+  // in-app instead of mass-creating Notion Lab Chore pages — avoids
+  // shared-DB noise while still making gaps discoverable.
+  type GapRow = { id: string; title: string; gaps: string[] };
+  const metadataGapRows: GapRow[] = [];
+  for (const e of myExperiments ?? []) {
+    const gaps: string[] = [];
+    if (!e.code_repo_url || !String(e.code_repo_url).trim()) gaps.push("코드 디렉토리");
+    if (!e.data_path || !String(e.data_path).trim()) gaps.push("데이터 경로");
+    if (!Array.isArray(e.pre_experiment_checklist) || e.pre_experiment_checklist.length === 0)
+      gaps.push("사전 체크리스트");
+    if (gaps.length > 0) metadataGapRows.push({ id: e.id, title: e.title, gaps });
+  }
 
   return (
     <div className="space-y-6">
@@ -191,6 +208,47 @@ export default async function DashboardPage() {
 
       {/* Pending work — D2 */}
       <PendingWorkCard userId={user.id} />
+
+      {/* Research metadata reminder — user directive 2026-04-23 */}
+      {metadataGapRows.length > 0 && (
+        <Card>
+          <CardContent>
+            <div className="mb-3 flex items-baseline justify-between">
+              <h2 className="text-lg font-semibold text-foreground">
+                기록이 누락된 실험 메타데이터
+              </h2>
+              <span className="text-xs text-muted">{metadataGapRows.length}개 실험</span>
+            </div>
+            <p className="mb-3 text-xs text-muted">
+              코드 디렉토리 / 데이터 경로 / 사전 체크리스트 등이 누락된 실험입니다. 각 실험 페이지에서 수정하세요.
+            </p>
+            <ul className="space-y-2">
+              {metadataGapRows.slice(0, 8).map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-2">
+                  <Link
+                    href={`/experiments/${r.id}`}
+                    className="truncate text-sm font-medium text-foreground hover:text-primary"
+                  >
+                    {r.title}
+                  </Link>
+                  <div className="flex flex-wrap gap-1">
+                    {r.gaps.map((g) => (
+                      <Badge key={g} variant="danger">
+                        {g}
+                      </Badge>
+                    ))}
+                  </div>
+                </li>
+              ))}
+              {metadataGapRows.length > 8 && (
+                <li className="text-xs text-muted">
+                  … 및 {metadataGapRows.length - 8}개 더
+                </li>
+              )}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Notion integration health */}
       <NotionHealthCard />

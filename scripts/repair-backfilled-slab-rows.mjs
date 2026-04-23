@@ -312,8 +312,13 @@ for (const a of actions) {
       console.log(`  ✓ ${a.kind}  ${a.notion_page_id.slice(0, 8)}  → ${a.target_project_page_id.slice(0, 8)}`);
       written += 1;
     } else if (a.kind === "dual_initial_missing") {
-      // Extend: union of current + missing.
-      const newRel = [...new Set([...a.current, ...a.to_add])].map((id) => ({ id }));
+      // M12 — re-fetch the Relation right before the write so a
+      // researcher edit between the plan-phase fetch and now isn't
+      // clobbered. Union = current-live ∪ to_add.
+      const freshPage = await fetchPage(a.notion_page_id);
+      await sleep(DELAY_MS);
+      const liveCurrent = await currentMemberRelation(freshPage);
+      const newRel = [...new Set([...liveCurrent, ...a.to_add])].map((id) => ({ id }));
       await notion(
         `/pages/${a.notion_page_id}`,
         { properties: { "실험자": { relation: newRel } } },

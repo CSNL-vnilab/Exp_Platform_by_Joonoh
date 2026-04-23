@@ -66,7 +66,21 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
 
   const hasCodeRepo = Boolean(experiment.code_repo_url?.trim());
   const hasDataPath = Boolean(experiment.data_path?.trim());
+  const hasChecklist =
+    Array.isArray(experiment.pre_experiment_checklist) &&
+    experiment.pre_experiment_checklist.length > 0;
   const activationReady = hasCodeRepo && hasDataPath;
+  // Research-metadata reminder gaps (per 2026-04-23 user directive).
+  // Surfaced on the detail view regardless of status so researchers can
+  // see what's still missing after activation, without us having to
+  // mass-create Lab Chore pages in the shared Notion DB.
+  const metadataGaps: Array<{ field: string; label: string }> = [];
+  if (!hasCodeRepo)
+    metadataGaps.push({ field: "code_repo_url", label: "분석 코드 저장소 / 디렉토리" });
+  if (!hasDataPath)
+    metadataGaps.push({ field: "data_path", label: "원본 데이터 경로" });
+  if (!hasChecklist)
+    metadataGaps.push({ field: "pre_experiment_checklist", label: "실험 전 체크리스트" });
 
   // Notion experiment-mirror retry state. A prior activation may have
   // attempted the Notion push but failed — attempted_at is set without a
@@ -365,6 +379,37 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
               type="button"
               onClick={() => setEditing(true)}
               className="font-medium text-amber-900 underline hover:text-amber-700"
+            >
+              실험 수정에서 입력하기 →
+            </button>
+          </p>
+        </div>
+      )}
+
+      {/* Post-activation metadata reminder — lightweight nudge for
+          experiments that are already active but still missing research-
+          metadata (code dir, data path, pre-experiment checklist, etc.).
+          Draft case is already handled by the amber activation banner
+          above; this is for ongoing experiments. User directive
+          2026-04-23: per-researcher reminder notes for unrecorded info. */}
+      {experiment.status !== "draft" && metadataGaps.length > 0 && (
+        <div
+          role="status"
+          className="mb-5 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900"
+        >
+          <p className="font-semibold">
+            이 실험에 아직 기록되지 않은 연구 메타데이터가 있습니다.
+          </p>
+          <ul className="mt-1 list-inside list-disc text-xs">
+            {metadataGaps.map((g) => (
+              <li key={g.field}>{g.label}</li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="font-medium text-sky-900 underline hover:text-sky-700"
             >
               실험 수정에서 입력하기 →
             </button>
