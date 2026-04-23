@@ -6,8 +6,11 @@
 // expected to whitelist it against the Members DB — this module itself
 // does not judge validity.
 
+// Accept whitespace OR dash as the separator between multiple
+// initials inside brackets. Lets `[BYL BHL]` AND `[BYL-BHL]` both
+// parse. (M10 from 2026-04-23 strict review.)
 const INITIAL_RE =
-  /^\s*\[(?<initials>[A-Za-z]{2,6}(?:\s+[A-Za-z]{2,6})*)\]\s*/;
+  /^\s*\[(?<initials>[A-Za-z]{2,6}(?:[\s-]+[A-Za-z]{2,6})*)\]\s*/;
 // Bracketless fallback: a leading ALL-CAPS 2-4 token followed by ':' or
 // whitespace then more text. Caller MUST whitelist before treating the
 // token as a researcher initial (see C1 in review of 2026-04-23).
@@ -26,7 +29,7 @@ export function parseTitle(summary) {
   const im = trimmed.match(INITIAL_RE);
   if (im) {
     initials = im.groups.initials
-      .split(/\s+/)
+      .split(/[\s-]+/)
       .filter(Boolean)
       .map((s) => s.toUpperCase());
     rest = trimmed.slice(im[0].length).trim();
@@ -70,7 +73,14 @@ export function parseTitle(summary) {
   if (!titleParticipant) {
     const segments = rest.split(/\s*\/\s*/);
     const last = segments[segments.length - 1]?.trim() ?? "";
-    if (/^[가-힣]{2,4}$/.test(last)) {
+    // M9 from 2026-04-23 strict review — only treat trailing Korean as
+    // a participant name when it's NOT the only content left. A title
+    // like `[BYL] 홍길동` could mean the project IS "홍길동"; stealing
+    // it as the participant makes the whole event return null. Require
+    // at least one other segment OR a Sbj/Day/기간 token seen earlier.
+    const otherContextSeen =
+      segments.length > 1 || sbj != null || day != null || period != null;
+    if (otherContextSeen && /^[가-힣]{2,4}$/.test(last)) {
       titleParticipant = last;
       segments.pop();
       rest = segments.join(" / ").trim();

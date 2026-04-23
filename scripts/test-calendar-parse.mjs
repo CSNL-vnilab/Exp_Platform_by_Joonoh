@@ -42,8 +42,38 @@ test("bracketless accepted but flagged for whitelist check", () => {
 
 test("bracketless phantom — parser admits it; caller must whitelist", () => {
   const r = parseTitle("GPU 회의");
-  // 회의 is Korean so trailing-Korean heuristic strips it → project empty → null.
-  assert.equal(r, null);
+  // Post-M9 fix: single-segment Korean is NOT stolen as participant
+  // when there's no other context. The parser returns a shape so the
+  // CALLER (consistency-check.mjs) can reject it via the Members-DB
+  // whitelist. "GPU" isn't in Members → rejected as phantom.
+  assert.deepEqual(r?.initials, ["GPU"]);
+  assert.equal(r?.project, "회의");
+  assert.equal(r?.bracketless, true);
+});
+
+test("M9: Korean-only project no longer drops to null", () => {
+  const r = parseTitle("[BYL] 홍길동");
+  assert.deepEqual(r?.initials, ["BYL"]);
+  assert.equal(r?.project, "홍길동");
+  assert.equal(r?.titleParticipant, null);
+});
+
+test("M9: Korean participant still stolen when other context exists", () => {
+  const r = parseTitle("[BYL] Exp1 / Day 2 / 김영희");
+  assert.equal(r?.project, "Exp1");
+  assert.equal(r?.titleParticipant, "김영희");
+  assert.equal(r?.day, 2);
+});
+
+test("M10: dash-separated dual-initial", () => {
+  const r = parseTitle("[BYL-BHL] pilot");
+  assert.deepEqual(r?.initials, ["BYL", "BHL"]);
+  assert.equal(r?.project, "pilot");
+});
+
+test("M10: mixed whitespace + dash dual-initial", () => {
+  const r = parseTitle("[BYL - BHL] pilot");
+  assert.deepEqual(r?.initials, ["BYL", "BHL"]);
 });
 
 test("bracketless NEW EVENT", () => {
