@@ -1254,6 +1254,10 @@ export interface Database {
         };
         Returns: void;
       };
+      get_researcher_pending_work: {
+        Args: { p_user_id: string };
+        Returns: Json;
+      };
     };
     Enums: {
       [_ in never]: never;

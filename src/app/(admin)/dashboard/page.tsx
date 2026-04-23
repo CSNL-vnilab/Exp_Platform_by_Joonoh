@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { NotionHealthCard } from "@/components/notion-health-card";
+import { PendingWorkCard } from "@/components/pending-work-card";
 
 export const dynamic = "force-dynamic";
 
@@ -187,6 +188,9 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Pending work — D2 */}
+      <PendingWorkCard userId={user.id} />
 
       {/* Notion integration health */}
       <NotionHealthCard />
