@@ -264,6 +264,15 @@ export function ExperimentForm({ experiment, onCancel }: ExperimentFormProps) {
         }
       }
       setErrors(fieldErrors);
+      // Surface the first issue as a toast — parameter_schema / checklist
+      // errors live on deeply-nested paths that don't have a single inline
+      // host, so without this a validation failure looks like a silent
+      // no-op to the researcher.
+      const first = result.error.issues[0];
+      if (first) {
+        const pathHint = first.path.length > 0 ? ` (${first.path.join(".")})` : "";
+        toast(`${first.message}${pathHint}`, "error");
+      }
       return;
     }
 
