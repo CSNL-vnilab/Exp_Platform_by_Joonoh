@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ClassBadge } from "@/components/class-badge";
@@ -25,11 +25,13 @@ interface PendingWork {
   class_changes_7d: ClassChangeRow[];
 }
 
-export async function PendingWorkCard({ userId }: { userId: string }) {
-  const admin = createAdminClient();
-  const { data, error } = await admin.rpc("get_researcher_pending_work", {
-    p_user_id: userId,
-  });
+export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
+  // The RPC now sources auth.uid() itself (D2-1 IDOR fix, migration 00035).
+  // We must call via the cookie-bound (user-scoped) client so auth.uid()
+  // inside the function resolves to the caller — the admin client would
+  // return null auth.uid() and the function returns {error: 'UNAUTHENTICATED'}.
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_researcher_pending_work");
 
   if (error) {
     console.error("[PendingWorkCard] rpc failed:", error.message);

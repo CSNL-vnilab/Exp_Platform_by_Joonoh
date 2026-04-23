@@ -70,6 +70,10 @@ export interface OnlineRuntimeConfig {
     correct_answer: string;
     position: `after_block:${number}` | "random";
   }>;
+  // Cross-study exclusion. If set, the booking API refuses any participant
+  // (matched by phone + email) who has a prior confirmed/running/completed
+  // booking on ANY of these experiments. Online/hybrid only.
+  exclude_experiment_ids?: string[];
 }
 
 export type OnlineScreenerKind =
@@ -1255,7 +1259,9 @@ export interface Database {
         Returns: void;
       };
       get_researcher_pending_work: {
-        Args: { p_user_id: string };
+        // D2-1 hardening (migration 00035): arg removed, function now
+        // uses auth.uid() internally. EXECUTE restricted to authenticated.
+        Args: Record<string, never>;
         Returns: Json;
       };
     };

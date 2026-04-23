@@ -164,6 +164,9 @@ export function ExperimentForm({
     (experiment?.online_runtime_config?.counterbalance_spec as { block_size?: number } | undefined)
       ?.block_size ?? "",
   );
+  const [excludeExperimentIds, setExcludeExperimentIds] = useState<string>(
+    (experiment?.online_runtime_config?.exclude_experiment_ids ?? []).join("\n"),
+  );
 
   const [previewOpen, setPreviewOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -176,68 +179,50 @@ export function ExperimentForm({
   const [calendarsError, setCalendarsError] = useState<string | null>(null);
   const [serviceAccountEmail, setServiceAccountEmail] = useState<string | null>(null);
 
-  // Emit a partial Experiment-shaped snapshot whenever the researcher-
-  // facing fields change. Consumers (page wrappers) render the live
-  // completeness sidebar from this. Intentionally narrow: we only emit
-  // the fields the sidebar / activation gate cares about so this effect
-  // doesn't need to re-run on every keystroke of the less-critical
-  // online/counterbalance state.
+  // D5-3 fix: compose the draft snapshot and depend on a JSON signature
+  // of the whole thing rather than a manual 22-entry dep list. Any new
+  // field added to the form and included in the draft object
+  // automatically participates in change detection. JSON.stringify is
+  // cheap at this size and the alternative (deep-equal) isn't worth
+  // the import. Emit ONLY when the signature changes so the parent's
+  // setState doesn't infinite-loop.
+  const draftSnapshot: Partial<Experiment> = {
+    title,
+    description: description || null,
+    start_date: startDate,
+    end_date: endDate,
+    daily_start_time: dailyStartTime,
+    daily_end_time: dailyEndTime,
+    session_duration_minutes: sessionDuration,
+    weekdays,
+    code_repo_url: codeRepoUrl || null,
+    data_path: dataPath || null,
+    parameter_schema: parameterSchema,
+    pre_experiment_checklist: checklist,
+    project_name: projectName || null,
+    location_id: locationId || null,
+    google_calendar_id: googleCalendarId || null,
+    irb_document_url: irbDocumentUrl || null,
+    precautions,
+    reminder_day_before_enabled: reminderDayBeforeEnabled,
+    reminder_day_of_enabled: reminderDayOfEnabled,
+    experiment_mode: experimentMode,
+    online_runtime_config:
+      experimentMode === "offline"
+        ? null
+        : {
+            entry_url: onlineEntryUrl,
+            entry_url_sri: entryUrlSri || null,
+          },
+  };
+  const draftSignature = JSON.stringify(draftSnapshot);
   useEffect(() => {
     if (!onDraftChange) return;
-    onDraftChange({
-      title,
-      description: description || null,
-      start_date: startDate,
-      end_date: endDate,
-      daily_start_time: dailyStartTime,
-      daily_end_time: dailyEndTime,
-      session_duration_minutes: sessionDuration,
-      weekdays,
-      code_repo_url: codeRepoUrl || null,
-      data_path: dataPath || null,
-      parameter_schema: parameterSchema,
-      pre_experiment_checklist: checklist,
-      project_name: projectName || null,
-      location_id: locationId || null,
-      google_calendar_id: googleCalendarId || null,
-      irb_document_url: irbDocumentUrl || null,
-      precautions,
-      reminder_day_before_enabled: reminderDayBeforeEnabled,
-      reminder_day_of_enabled: reminderDayOfEnabled,
-      experiment_mode: experimentMode,
-      online_runtime_config:
-        experimentMode === "offline"
-          ? null
-          : {
-              entry_url: onlineEntryUrl,
-              entry_url_sri: entryUrlSri || null,
-            },
-    });
+    onDraftChange(JSON.parse(draftSignature) as Partial<Experiment>);
+    // Intentional: signature captures all fields; the stringified form
+    // is the single dep so any added field auto-triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    title,
-    description,
-    startDate,
-    endDate,
-    dailyStartTime,
-    dailyEndTime,
-    sessionDuration,
-    weekdays,
-    codeRepoUrl,
-    dataPath,
-    parameterSchema,
-    checklist,
-    projectName,
-    locationId,
-    googleCalendarId,
-    irbDocumentUrl,
-    precautions,
-    reminderDayBeforeEnabled,
-    reminderDayOfEnabled,
-    experimentMode,
-    onlineEntryUrl,
-    entryUrlSri,
-  ]);
+  }, [draftSignature]);
 
   useEffect(() => {
     let cancelled = false;
@@ -315,6 +300,7 @@ export function ExperimentForm({
         | { kind: "latin_square"; conditions: string[] }
         | { kind: "block_rotation"; conditions: string[]; block_size?: number }
         | { kind: "random"; conditions: string[]; seed?: string };
+      exclude_experiment_ids?: string[];
     } = { entry_url: onlineEntryUrl.trim() };
     if (typeof onlineTrialCount === "number") cfg.trial_count = onlineTrialCount;
     if (typeof onlineBlockCount === "number") cfg.block_count = onlineBlockCount;
@@ -331,6 +317,13 @@ export function ExperimentForm({
     if (preflightRequireAudio) preflight.require_audio = true;
     if (preflightInstructions.trim()) preflight.instructions = preflightInstructions.trim();
     if (Object.keys(preflight).length > 0) cfg.preflight = preflight;
+
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const excludeIds = excludeExperimentIds
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter((s) => uuidRe.test(s));
+    if (excludeIds.length > 0) cfg.exclude_experiment_ids = excludeIds;
 
     if (counterbalanceKind) {
       const conds = counterbalanceConditions
@@ -1008,6 +1001,26 @@ export function ExperimentForm({
                 실험은 자동으로 동의 절차가 포함됩니다.)
               </span>
             </label>
+
+            {/* Cross-study exclusion list */}
+            {experimentMode !== "offline" && (
+              <div className="mt-4 rounded-xl border border-border bg-card p-4">
+                <h3 className="text-sm font-semibold text-foreground">
+                  교차 연구 제외
+                </h3>
+                <p className="mt-0.5 text-xs text-muted">
+                  아래 실험에 이미 참여한 분은 이 연구에 예약할 수 없습니다. 실험 UUID 를 한
+                  줄에 하나씩 입력하세요. UUID 가 아닌 줄은 무시됩니다.
+                </p>
+                <textarea
+                  value={excludeExperimentIds}
+                  onChange={(e) => setExcludeExperimentIds(e.target.value)}
+                  rows={3}
+                  placeholder="ex: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+                  className="mt-2 w-full rounded-lg border border-border bg-white px-3 py-2 font-mono text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            )}
 
             {/* Online screener editor — separate API, lives on the experiment id */}
             {isEditing && experimentMode !== "offline" && experiment?.id && (

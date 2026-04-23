@@ -117,11 +117,13 @@ async function checkOrphans() {
 }
 
 async function checkRls() {
+  // B-4 severity: researcher-vs-researcher tenancy means RLS-off on a
+  // public table can leak the other researcher's data. CRITICAL.
   const rows = await q(
     "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity = false ORDER BY c.relname",
   );
   if (rows.length > 0) {
-    for (const r of rows) warning("RLS_OFF", `RLS disabled on ${r.relname}`);
+    for (const r of rows) critical("RLS_OFF", `RLS disabled on ${r.relname}`);
   } else {
     ok("RLS_ON", "all public tables have RLS enabled");
   }
@@ -295,7 +297,87 @@ async function checkFailedOutboxAccumulation() {
       `${r.n} rows in ${r.integration_type} outbox exhausted retries (attempts >= 5)`,
     );
   }
-  if (rows.length === 0) ok("OUTBOX", "no dead-letter accumulation");
+
+  // D4-5: time-based dead-letter detection. Rows can stay in failed-with-
+  // attempts<5 indefinitely if Notion / downstream keeps failing but the
+  // backoff keeps rescheduling. Anything that hasn't moved in 48h is a
+  // human-attention case.
+  const stale = await q(
+    "SELECT integration_type, COUNT(*)::int AS n FROM booking_integrations WHERE status='failed' AND processed_at < now() - interval '48 hours' GROUP BY integration_type",
+  );
+  for (const r of stale) {
+    warning(
+      "OUTBOX_STALE_FAILED",
+      `${r.n} rows in ${r.integration_type} outbox failed >48h ago and still not recovered`,
+    );
+  }
+
+  if (rows.length === 0 && stale.length === 0)
+    ok("OUTBOX", "no dead-letter or stale-failed accumulation");
+}
+
+async function checkProjectIdentity() {
+  // D4-3: verify the management token can reach the expected project.
+  // A token scoped to account X pointed at project Y in same account
+  // would silently return green for the WRONG database otherwise.
+  try {
+    const r = await fetch(`https://api.supabase.com/v1/projects/${ref}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) {
+      critical(
+        "PROJECT_IDENTITY",
+        `management API returned ${r.status} for project ${ref} — wrong token?`,
+      );
+      return;
+    }
+    const body = await r.json();
+    const hints = [];
+    if (body?.name) hints.push(`name=${body.name}`);
+    if (body?.region) hints.push(`region=${body.region}`);
+    if (body?.organization_id)
+      hints.push(`org=${body.organization_id.slice(0, 8)}…`);
+    ok("PROJECT_IDENTITY", `token matches ${ref} (${hints.join(" ")})`);
+  } catch (err) {
+    critical(
+      "PROJECT_IDENTITY",
+      `project identity probe crashed: ${err.message}`,
+    );
+  }
+}
+
+async function checkPgcryptoLocation() {
+  // D4-2: salt rotation calls extensions.hmac() — verify pgcrypto is
+  // actually there, not in public or elsewhere.
+  const rows = await q(
+    "SELECT n.nspname AS schema FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'pgcrypto'",
+  );
+  if (rows.length === 0) {
+    critical("PGCRYPTO", "pgcrypto extension not installed");
+  } else if (rows[0].schema !== "extensions") {
+    critical(
+      "PGCRYPTO",
+      `pgcrypto installed in schema '${rows[0].schema}', not 'extensions' — salt-rotate.mjs will abort mid-transaction`,
+    );
+  } else {
+    ok("PGCRYPTO", "extensions.pgcrypto present");
+  }
+}
+
+async function checkSaltPreviousPrivilege() {
+  // D4-4: migration 00033 claimed to REVOKE the previous salt; verify.
+  const [{ authed, anon }] = await q(
+    "SELECT has_column_privilege('authenticated','public.labs','participant_id_salt_previous','SELECT') AS authed, has_column_privilege('anon','public.labs','participant_id_salt_previous','SELECT') AS anon",
+  );
+  if (authed || anon) {
+    critical(
+      "SALT_PREVIOUS_EXPOSED",
+      "labs.participant_id_salt_previous readable by authenticated/anon",
+      { authed, anon },
+    );
+  } else {
+    ok("SALT_PREVIOUS", "participant_id_salt_previous locked to service_role");
+  }
 }
 
 // ─────────────────── run ───────────────────
@@ -304,6 +386,7 @@ console.log(`DB Audit · project ref=${ref} · ${new Date().toISOString()}`);
 console.log("─".repeat(70));
 
 const checks = [
+  ["Project identity", checkProjectIdentity],
   ["Orphans", checkOrphans],
   ["RLS", checkRls],
   ["Triggers", checkTriggers],
@@ -311,6 +394,8 @@ const checks = [
   ["Enums", checkEnums],
   ["Indexes", checkIndexes],
   ["Salt privilege", checkSaltPrivilege],
+  ["Salt previous privilege", checkSaltPreviousPrivilege],
+  ["pgcrypto location", checkPgcryptoLocation],
   ["Lab seed", checkLabSeed],
   ["Dead tuples", checkDeadTuples],
   ["Dropped UNIQUE", checkDroppedUnique],

@@ -103,9 +103,11 @@ console.log(`New salt: \\x${newSalt.toString("hex").slice(0, 16)}… (32 bytes)`
 
 // Step 3: dry-run preview — show HMACs for 3 sample identities using both
 // old and new salt so the operator can verify the rehash logic before
-// committing.
+// committing. D4-1 fix: btrim the name to match identity.ts:normalizeName
+// which uses `.trim()`.
 const samples = await sql(
-  `SELECT pli.identity_hmac::text AS old_hmac, p.phone, p.birthdate, lower(p.name) AS name_lc
+  `SELECT pli.identity_hmac::text AS old_hmac, p.phone, p.birthdate,
+          btrim(lower(p.name)) AS name_lc
    FROM participant_lab_identity pli
    JOIN participants p ON p.id = pli.participant_id
    WHERE pli.lab_id=${sqlString(labRow.id)}
@@ -121,6 +123,28 @@ if (samples.length > 0) {
       .digest("hex");
     console.log(`  ${s.old_hmac.slice(0, 20)}… → ${newHash.slice(0, 20)}…`);
   }
+}
+
+// Pre-rotation hygiene: flag participants whose names have leading/
+// trailing whitespace. identity.ts trims; the SQL rotation now also
+// trims, but the UI-level lookup uses the stored name. Fix source of
+// truth before rotation so lookups stay aligned.
+const whitespaceDirty = (
+  await sql(
+    `SELECT COUNT(*)::int AS n FROM participants
+     WHERE name IS NOT NULL AND name <> btrim(name)`,
+  )
+)[0].n;
+if (whitespaceDirty > 0) {
+  console.warn(
+    `\n⚠  ${whitespaceDirty} participants have leading/trailing whitespace in name.`,
+  );
+  console.warn(
+    `   Rotation will still work (both paths now trim), but consider:`,
+  );
+  console.warn(
+    `   UPDATE participants SET name = btrim(name) WHERE name <> btrim(name);`,
+  );
 }
 
 if (!confirm) {
@@ -148,12 +172,16 @@ WHERE id = ${sqlString(labRow.id)};
 
 -- Recompute identity_hmac for every row in this lab. Using pgcrypto so
 -- we don't have to stream every participant back to Node.
+-- D4-1 fix: btrim(lower(name)) matches identity.ts:normalizeName which
+-- applies NFKC + trim + lowercase. NFKC is not native to Postgres but
+-- names saved through the booking form are NFC/NFKC by default (modern
+-- browsers produce NFC). Trim is the one we can replicate here.
 UPDATE participant_lab_identity pli
 SET identity_hmac = extensions.hmac(
   (
     regexp_replace(p.phone, '[^0-9]', '', 'g')
     || '|' || p.birthdate::text
-    || '|' || lower(p.name)
+    || '|' || btrim(lower(p.name))
   ),
   ${sqlBytea(newSalt)},
   'sha256'

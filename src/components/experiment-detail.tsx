@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { ExperimentForm } from "@/components/experiment-form";
+import { ExperimentFormCompleteness } from "@/components/experiment-form-completeness";
 import type { Experiment, ExperimentChecklistItem } from "@/types/database";
 import { format } from "date-fns";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
@@ -328,15 +329,10 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
 
   if (editing) {
     return (
-      <div>
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-foreground">실험 수정</h1>
-        </div>
-        <ExperimentForm
-          experiment={experiment}
-          onCancel={() => setEditing(false)}
-        />
-      </div>
+      <EditView
+        experiment={experiment}
+        onCancel={() => setEditing(false)}
+      />
     );
   }
 
@@ -682,11 +678,20 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
                 <h2 className="text-lg font-semibold text-foreground">예약 현황</h2>
                 <p className="mt-1 text-sm text-muted">확정 예약 {bookingCount}건</p>
               </div>
-              <Link href={`/experiments/${experiment.id}/bookings`}>
-                <Button variant="secondary" size="sm">
-                  예약 목록 보기
-                </Button>
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                <Link href={`/experiments/${experiment.id}/bookings`}>
+                  <Button variant="secondary" size="sm">
+                    예약 목록 보기
+                  </Button>
+                </Link>
+                {experiment.experiment_mode !== "offline" && (
+                  <Link href={`/experiments/${experiment.id}/live`}>
+                    <Button variant="secondary" size="sm">
+                      실시간 세션
+                    </Button>
+                  </Link>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -789,6 +794,42 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+// Edit flow. Lives here (not an import) so the completeness sidebar gets
+// the same wiring as /experiments/new (D5-1 review fix).
+function EditView({
+  experiment,
+  onCancel,
+}: {
+  experiment: Experiment;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<Partial<Experiment>>(experiment);
+  return (
+    <div>
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-foreground">실험 수정</h1>
+        <p className="mt-1 text-sm text-muted">
+          오른쪽 사이드바에서 필수·권장 항목 입력 현황을 실시간으로 확인할 수 있습니다.
+        </p>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+        <div className="min-w-0">
+          <ExperimentForm
+            experiment={experiment}
+            onCancel={onCancel}
+            onDraftChange={setDraft}
+          />
+        </div>
+        <div className="order-first lg:order-last">
+          <div className="lg:sticky lg:top-6">
+            <ExperimentFormCompleteness draft={draft} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

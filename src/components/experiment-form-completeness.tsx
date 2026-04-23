@@ -25,11 +25,17 @@ interface FieldStatus {
   hint?: string;
 }
 
-function hasValue(v: unknown): boolean {
+function hasValue(v: unknown, opts: { minNumber?: number } = {}): boolean {
   if (v == null) return false;
   if (typeof v === "string") return v.trim().length > 0;
   if (Array.isArray(v)) return v.length > 0;
-  if (typeof v === "number") return true;
+  if (typeof v === "number") {
+    // D5-2 fix — 0 is NOT "filled" for fields that have a min. The
+    // `session_duration_minutes` schema is z.number().min(10); a zero
+    // value would fail submit but previously rendered a green tick.
+    if (typeof opts.minNumber === "number") return v >= opts.minNumber;
+    return Number.isFinite(v);
+  }
   if (typeof v === "boolean") return true;
   if (typeof v === "object") return Object.keys(v as object).length > 0;
   return Boolean(v);
@@ -55,7 +61,8 @@ function classify(draft: Draft): FieldStatus[] {
     {
       name: "세션 시간",
       level: "required",
-      filled: typeof draft.session_duration_minutes === "number",
+      filled: hasValue(draft.session_duration_minutes, { minNumber: 10 }),
+      hint: "최소 10분",
     },
     {
       name: "운영 요일",
@@ -110,12 +117,24 @@ function classify(draft: Draft): FieldStatus[] {
       hint: "참여자 안전 질문",
     },
     {
-      name: "사전 체크리스트",
+      name: "사전 체크리스트 구성",
       level: "recommended",
       filled:
         Array.isArray(draft.pre_experiment_checklist) &&
         draft.pre_experiment_checklist.length > 0,
-      hint: "필수 항목이 미완이면 공개 예약이 차단됩니다",
+      hint: "항목을 한 개 이상 추가해 두면 권장 충족",
+    },
+    {
+      // D5-5 — distinguish "configured" from "all required ticked".
+      // The booking gate is about the latter, not the former.
+      name: "체크리스트 필수 항목 완료",
+      level: "required_for_activation",
+      filled:
+        !Array.isArray(draft.pre_experiment_checklist) ||
+        draft.pre_experiment_checklist.every(
+          (c) => !c.required || c.checked,
+        ),
+      hint: "미완료된 필수 항목이 있으면 공개 예약이 차단됩니다",
     },
     {
       name: "파라미터 스키마",
@@ -129,8 +148,11 @@ function classify(draft: Draft): FieldStatus[] {
   if (isOnline) {
     out.push(
       {
+        // D5-4 — schema superRefine rejects save without entry_url for
+        // online/hybrid mode, so it's required at submit time not just
+        // at activation. Level accordingly.
         name: "온라인 entry_url",
-        level: "required_for_activation",
+        level: "required",
         filled: hasValue(draft.online_runtime_config?.entry_url),
       },
       {
