@@ -6,17 +6,22 @@
 
 Notion에서 새 데이터베이스(Table view)를 만들고 아래 속성을 **그대로** 추가하세요. (속성 이름이 한 글자라도 다르면 연동이 실패합니다.)
 
+권장 컬럼 순서 (연구자 편의를 위해 자주 보는 정보를 앞쪽으로 배치): 실험명 → 실험날짜 → 시간 → 프로젝트 → 버전넘버 → 피험자 ID → 회차 → 참여자 → 실험자 → 프로젝트 (관련) → … → 상태.
+
 | 속성 이름 | 타입 | 자동 채움? | 설명 |
 |---|---|---|---|
 | 실험명 | Title | ✅ 예약 시 | 실험 제목 |
-| 프로젝트 | Text | ✅ 예약 시 | `project_name` (예: TimeEst) |
 | 실험날짜 | Date | ✅ 예약 시 | KST 기준 날짜 |
 | 시간 | Text | ✅ 예약 시 | `HH:MM - HH:MM` KST |
+| 프로젝트 | Text | ✅ 예약 시 | `project_name` (예: TimeEst). 텍스트 표시용 — Relation은 `프로젝트 (관련)` 참조. |
+| **버전넘버** | **Text** | ✅ 예약 시 | `experiments.protocol_version` 복사. 예약 생성 시점의 프로토콜 버전을 기록. 비어 있을 수 있음 (migration 00042). |
 | 피험자 ID | Text | ✅ 예약 시 | `Sbj{번호}` (예: Sbj10) |
 | 회차 | Number | ✅ 예약 시 | 다회차 실험의 N회차 |
 | 참여자 | Text | ✅ 예약 시 | 참여자 이름 (PII). 내부 공유용에만 사용하세요. |
+| **실험자** | **Relation → CSNL Members DB** | ✅ 예약 시 | 해당 실험을 운영한 연구원 (`profiles.notion_member_page_id`). 미연결 프로필은 빈 relation. 캘린더 backfill의 dual-initial 이벤트는 relation 배열에 둘 다 포함됩니다. (migration 00043) |
 | **공개 ID** | **Text** | ✅ 예약 시 (가능한 경우) / ✅ 관찰 기록 시 | Lab-scoped 가명 식별자 (예: `CSNL-A4F2B1`). 외부 공유·논문/리포트 참조는 이 컬럼을 사용하세요. `participant_lab_identity.public_code`와 1:1 매핑. 식별자 미생성 상태면 공백. |
-| 상태 | Select | ✅ 예약 시 | `확정` / `취소` / `완료` 등 |
+| **프로젝트 (관련)** | **Relation → Projects & Chores DB** | ✅ 예약 시 | `experiments.notion_project_page_id` 가 설정된 경우에만 채워짐. 프로젝트 페이지와 SLab 행의 양방향 연결. (migration 00043) |
+| 상태 | Select | ✅ 예약 시 | `확정` / `취소` / `완료` 등. 캘린더 backfill 으로 생성된 과거 이벤트는 `완료` 로 기록됩니다. |
 | **Pre-Survey 완료** | **Checkbox** | ✅ 관찰 기록 시 | Pre-experiment survey 배포 완료 여부. PUT `/api/bookings/:id/observation` 호출 시 체크. |
 | **Pre-Survey 정보** | **Text** | ✅ 관찰 기록 시 | 참여자가 pre-survey에 응답한 핵심 정보(자유 기술). 체크박스가 켜져 있으면 값 필수. |
 | **Post-Survey 완료** | **Checkbox** | ✅ 관찰 기록 시 | Post-experiment survey 완료 여부. 이 값이 `true`이고 `slot_end`가 지났다면 DB 트리거가 booking을 `completed`로 전환합니다. |
@@ -118,6 +123,33 @@ df = pd.DataFrame(rows)
 
 - 관찰 기록은 기본적으로 `slot_start + 10분` 이후에만 기록 가능 (실수 방지). 관리자/연구자가 선소급 입력이 필요하면 `?backfill=true` 쿼리 파라미터로 우회.
 - Notion 측 컬럼 이름은 **정확히 한글**이어야 합니다 (`Pre-Survey 완료`, `Post-Survey 정보`, `특이사항`, `공개 ID` …). 한 글자라도 다르면 PATCH 가 400 으로 떨어지고 `last_error` 에 Notion 에러가 그대로 보관됩니다.
+
+## 9. 보조 DB: Projects & Chores / CSNL Members
+
+SLab DB 외에 두 개의 보조 DB를 사용합니다. **두 DB의 page_id 는 코드에 하드코딩되어 있으므로 기존 DB 를 삭제·재생성하지 마세요** — 옮겨야 한다면 `src/lib/notion/schema.ts` 의 `NOTION_MEMBERS_DB_ID` / `NOTION_PROJECTS_DB_ID` 를 함께 갱신해야 합니다.
+
+### CSNL Members (`94854705-c91d-4a35-a91e-803c5934745e`)
+
+실험을 운영하는 연구원 목록. `profiles.notion_member_page_id` 가 이곳의 페이지를 가리킵니다. 타이틀(항목명)은 연구원의 이니셜(JOP, BYL, SMJ 등) — SLab DB의 `실험자` Relation 이 이 DB 를 참조합니다. 이니셜이 캘린더 이벤트 prefix 와 일치해야 `scripts/calendar-consistency-check.mjs` 의 자동 매칭이 동작합니다.
+
+### Projects & Chores (`76e7c392-127e-47f3-8b7e-212610db9376`)
+
+실험 프로젝트 / 연구실 업무 트래커. SLab DB 의 `프로젝트 (관련)` Relation 이 이 DB 를 참조합니다. 필요한 컬럼:
+
+| 속성 이름 | 타입 | 설명 |
+|---|---|---|
+| 항목명 | Title | 프로젝트/업무 이름 |
+| 분류 | Select | `Research` / `Lab Chore` / `Coursework` |
+| 상태 | Status | `Not Started` / `In Progress` / `Review` / `Done` |
+| 기간 | Date | 시작 ~ 종료 (또는 단일 날짜) |
+| 담당자 | Relation → CSNL Members | 담당 연구원 |
+| 우선순위 | Select | `P1` / `P2` / `P3` |
+| **코드 디렉토리** | **Text** | 연결된 실험의 `code_repo_url` 을 누적 기록 (개행 구분, 1800자 제한) |
+| **참여자 수** | **Number** | 연결된 SLab 행의 distinct 참여자 개수 (집계 스크립트가 채움) |
+
+`scripts/backfill-projects-metadata.mjs --confirm` 으로 이미 존재하는 프로젝트 페이지의 메타데이터를 자동 채울 수 있습니다. 담당자/기간/상태/참여자 수는 연결된 SLab 행으로부터 유도되고, 분류는 Supabase 실험이 연결된 경우에만 `Research` 로 기본 설정됩니다. 우선순위는 절대 자동 지정되지 않습니다 (연구자 판단).
+
+`scripts/create-researcher-reminders.mjs --confirm` 은 `experiments.code_repo_url` / `data_path` / `pre_experiment_checklist` 등이 비어 있는 실험에 대해 **분류=Lab Chore** 페이지를 생성하여 해당 연구원에게 할당합니다 (`담당자` Relation 으로 연결). 대시보드에도 동일한 정보가 "기록이 누락된 실험 메타데이터" 카드로 노출됩니다.
 
 ---
 
