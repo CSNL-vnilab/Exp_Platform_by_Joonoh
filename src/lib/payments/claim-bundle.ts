@@ -293,31 +293,52 @@ export async function buildClaimBundle(
     };
   });
 
-  // 1. Combined upload form.
+  // Outer ZIP layout: three artefact categories at the top level, matching
+  // the "참여자별 파일 + 전체 청구 파일 + 통장사본 zip" mental model.
+  //
+  //   실험참여자비 양식_{이름}.xlsx × N      — per-participant claim forms
+  //   일회성경비지급자_업로드양식_작성.xlsx  — combined admin upload form
+  //   통장사본.zip                          — nested zip with every bankbook
+  //   README.txt
+  //
+  // Dedup per category so two participants with identical 이름 still get
+  // distinct filenames.
+  const formNames = new Map<string, number>();
+  const bankbookNames = new Map<string, number>();
+
+  // 1. Combined admin upload form at root.
   const uploadBuf = await buildUploadFormWorkbook(exportParticipants);
   zip.file(
     "일회성경비지급자_업로드양식_작성.xlsx",
     uploadBuf as unknown as ArrayBuffer,
   );
 
-  // 2. Per-participant individual forms + bankbook scans — bucketed into
-  //    subfolders so the admin sees a clean layout. Filenames deduped
-  //    against collisions (same name different participant).
-  const formNames = new Map<string, number>();
-  const bankbookNames = new Map<string, number>();
-
+  // 2. Per-participant forms at root (not under a sub-folder).
   for (const p of exportParticipants) {
     const safe = safeFilename(p.name || p.bookingGroupId);
     const indivBuf = await buildIndividualFormWorkbook(p);
     const indivName = dedupeName(`실험참여자비 양식_${safe}.xlsx`, formNames);
-    zip.file(`실험참여자비 양식/${indivName}`, indivBuf as unknown as ArrayBuffer);
+    zip.file(indivName, indivBuf as unknown as ArrayBuffer);
+  }
 
+  // 3. Bankbook scans bundled into a single nested zip — the researcher can
+  //    hand this one file to 행정 선생님 as the "통장사본 모음" attachment.
+  const bankbookZip = new JSZip();
+  for (const p of exportParticipants) {
     const bb = bankbooks.get(p.bookingGroupId);
-    if (bb) {
-      const ext = extFromMime(bb.mime);
-      const bbName = dedupeName(`통장사본_${safe}.${ext}`, bankbookNames);
-      zip.file(`통장사본/${bbName}`, bb.bytes);
-    }
+    if (!bb) continue;
+    const safe = safeFilename(p.name || p.bookingGroupId);
+    const ext = extFromMime(bb.mime);
+    const bbName = dedupeName(`통장사본_${safe}.${ext}`, bankbookNames);
+    bankbookZip.file(bbName, bb.bytes);
+  }
+  if (bankbookNames.size > 0) {
+    const innerZipBuffer = await bankbookZip.generateAsync({
+      type: "nodebuffer",
+      compression: "DEFLATE",
+      compressionOptions: { level: 6 },
+    });
+    zip.file("통장사본.zip", innerZipBuffer);
   }
 
   // 3. Summary README so the admin knows what's in the bundle.
@@ -350,9 +371,9 @@ function buildReadme(participants: ExportParticipant[]): string {
   );
   lines.push("");
   lines.push("포함된 파일:");
-  lines.push("  일회성경비지급자_업로드양식_작성.xlsx (행정 제출 파일)");
-  lines.push("  실험참여자비 양식/ (참가자별 청구서)");
-  lines.push("  통장사본/ (참가자별 통장 사본)");
+  lines.push("  ① 일회성경비지급자_업로드양식_작성.xlsx — 행정 제출용 통합 파일");
+  lines.push("  ② 실험참여자비 양식_*.xlsx — 참가자별 청구서 (서명 포함)");
+  lines.push("  ③ 통장사본.zip — 참가자별 통장 사본 모음");
   lines.push("");
   lines.push("참가자 목록:");
   for (const p of participants) {

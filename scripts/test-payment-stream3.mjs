@@ -519,25 +519,46 @@ await group("buildClaimBundle with stubbed storage", async () => {
   const files = Object.keys(reopened.files)
     .filter((n) => !n.endsWith("/"))
     .sort();
-  check("bundle contains README", files.includes("README.txt"));
-  check("bundle contains upload form", files.includes("일회성경비지급자_업로드양식_작성.xlsx"));
-  check(
-    "bundle contains 2 individual forms",
-    files.filter((n) => n.startsWith("실험참여자비 양식/")).length === 2,
+
+  // New flat layout: 3 artefact categories at top level.
+  check("outer zip contains README", files.includes("README.txt"));
+  check("outer zip contains upload form", files.includes("일회성경비지급자_업로드양식_작성.xlsx"));
+  const indivForms = files.filter((n) =>
+    n.startsWith("실험참여자비 양식_") && n.endsWith(".xlsx"),
   );
   check(
-    "bundle contains 2 bankbooks",
-    files.filter((n) => n.startsWith("통장사본/")).length === 2,
+    "outer zip contains 2 individual forms at root",
+    indivForms.length === 2,
+    `got ${indivForms.join(", ")}`,
+  );
+  check("outer zip contains 통장사본.zip", files.includes("통장사본.zip"));
+
+  // Open the nested bankbook zip and verify contents.
+  const innerZipBuf = await reopened.file("통장사본.zip").async("nodebuffer");
+  const innerZip = await JSZip.loadAsync(innerZipBuf);
+  const bankbookEntries = Object.keys(innerZip.files)
+    .filter((n) => !n.endsWith("/"))
+    .sort();
+  check(
+    "통장사본.zip contains 2 bankbook files",
+    bankbookEntries.length === 2,
+    `got ${bankbookEntries.join(", ")}`,
+  );
+  check(
+    "통장사본 filenames start with 통장사본_",
+    bankbookEntries.every((n) => n.startsWith("통장사본_")),
   );
 
-  // Injection-safe filename (no semicolons, quotes, etc. unsanitized)
-  const hasInjection = files.some((n) => /[\\/:*?"<>|]/.test(n.replace(/^실험참여자비 양식\/|^통장사본\//, "")));
-  check("no filesystem-unsafe characters in filenames", !hasInjection, `files: ${files.join(", ")}`);
+  // Injection-safe filenames everywhere.
+  const allEntries = [...files, ...bankbookEntries];
+  const hasInjection = allEntries.some((n) => /[\\/:*?"<>|]/.test(n));
+  check("no filesystem-unsafe characters in any filename", !hasInjection);
 
-  // README contents should include participant list
+  // README content check.
   const readmeText = await reopened.file("README.txt").async("string");
   check("README includes participant count", readmeText.includes("참가자 수: 2명"));
   check("README includes total", readmeText.includes("270,000원"));
+  check("README documents the 3 artefact categories", /①.*②.*③/s.test(readmeText));
 });
 
 // ──────────────────────────────────────────────────────────────────────────
