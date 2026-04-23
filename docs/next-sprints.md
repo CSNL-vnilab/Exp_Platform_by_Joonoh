@@ -18,6 +18,10 @@ on main).
 | — | Notion rate-limit-aware fetch wrapper | ✅ src/lib/notion/rate-limit.ts; client.ts refactored |
 | — | Background QC loop (db-audit + notion health) | ✅ scripts/qc-loop.mjs under Monitor |
 | — | Ops playbook + rolling plan + MIN_SECRET_LENGTH consistency | ✅ |
+| — | 2026 calendar backfill (Projects pages + SLab rows + linkage) | ✅ commit 129c087 |
+| — | Consistency review round 2 (C1-C4 / H1-H5 resolved) | ✅ commit ba217dc |
+| — | Projects page metadata fill (담당자/기간/상태/분류/참여자 수/코드 디렉토리) | ✅ commit ba217dc |
+| — | In-app research-metadata reminder (dashboard + detail banner) + M12 stale-relation refetch | ✅ commit 961c5b2 |
 
 ## D6 — Outbox retry generalisation (high leverage)
 
