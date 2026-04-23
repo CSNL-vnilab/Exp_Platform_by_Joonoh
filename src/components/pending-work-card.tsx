@@ -20,6 +20,7 @@ interface ClassChangeRow {
 interface PendingWork {
   obs_missing: number;
   notion_stuck: number;
+  notion_dead_letter: number;
   royal_queue: number;
   auto_completed_7d: number;
   class_changes_7d: ClassChangeRow[];
@@ -41,6 +42,7 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
   const work = (data ?? {
     obs_missing: 0,
     notion_stuck: 0,
+    notion_dead_letter: 0,
     royal_queue: 0,
     auto_completed_7d: 0,
     class_changes_7d: [],
@@ -49,7 +51,7 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
   const tiles: Array<{
     label: string;
     value: number;
-    tone: "default" | "danger" | "info" | "success";
+    tone: "default" | "danger" | "info" | "success" | "warning";
     href?: string;
   }> = [
     {
@@ -58,9 +60,14 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
       tone: work.obs_missing > 0 ? "danger" : "success",
     },
     {
-      label: "Notion 미동기화",
+      label: "Notion 재시도 중",
       value: work.notion_stuck,
-      tone: work.notion_stuck > 0 ? "danger" : "success",
+      tone: work.notion_stuck > 0 ? "warning" : "success",
+    },
+    {
+      label: "Notion 재시도 한계",
+      value: work.notion_dead_letter,
+      tone: work.notion_dead_letter > 0 ? "danger" : "success",
     },
     {
       label: "Royal 승급 대기",
@@ -85,7 +92,7 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
             실시간 · RPC get_researcher_pending_work
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {tiles.map((t) => (
             <div
               key={t.label}
@@ -142,20 +149,24 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
   );
 }
 
-function toneBg(t: "default" | "danger" | "info" | "success"): string {
+type Tone = "default" | "danger" | "info" | "success" | "warning";
+
+function toneBg(t: Tone): string {
   return {
     default: "border-border bg-card",
     danger: "border-rose-200 bg-rose-50",
     info: "border-sky-200 bg-sky-50",
     success: "border-emerald-200 bg-emerald-50",
+    warning: "border-amber-200 bg-amber-50",
   }[t];
 }
 
-function toneText(t: "default" | "danger" | "info" | "success"): string {
+function toneText(t: Tone): string {
   return {
     default: "text-foreground",
     danger: "text-rose-700",
     info: "text-sky-700",
     success: "text-emerald-700",
+    warning: "text-amber-800",
   }[t];
 }
