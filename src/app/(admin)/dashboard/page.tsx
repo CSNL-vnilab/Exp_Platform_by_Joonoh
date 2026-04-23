@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
+import { NotionHealthCard } from "@/components/notion-health-card";
 
 export const dynamic = "force-dynamic";
 
@@ -186,6 +187,9 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Notion integration health */}
+      <NotionHealthCard />
 
       {/* Active experiments with fill rate */}
       <Card>

@@ -1,0 +1,30 @@
+name: Notion schema-drift health check
+on:
+  schedule:
+    # Daily at 16:00 UTC (01:00 KST next day).
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-notion-health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger notion-health endpoint
+        env:
+          URL: https://lab-reservation-seven.vercel.app/api/cron/notion-health
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is missing"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $status"
+          cat /tmp/resp || true
+          echo
+          if [ "$status" != "200" ]; then
+            echo "::error::notion-health returned HTTP $status"
+            exit 1
+          fi

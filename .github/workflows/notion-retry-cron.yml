@@ -1,0 +1,30 @@
+name: Notion outbox retry sweep
+on:
+  schedule:
+    # Every 30 minutes.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-notion-retry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger notion-retry endpoint
+        env:
+          URL: https://lab-reservation-seven.vercel.app/api/cron/notion-retry
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is missing"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $status"
+          cat /tmp/resp || true
+          echo
+          if [ "$status" != "200" ]; then
+            echo "::error::notion-retry returned HTTP $status"
+            exit 1
+          fi

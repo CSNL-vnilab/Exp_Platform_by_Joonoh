@@ -35,15 +35,23 @@ interface SyncResult {
 
 export async function syncObservationToNotion(
   bookingId: string,
+  options: { skipOutboxMark?: boolean } = {},
 ): Promise<SyncResult> {
   const supabase = createAdminClient();
+  // `skipOutboxMark` is set by the retry worker. The worker atomically
+  // claimed the row (bumping `attempts` once) via `claim_next_notion_retry`
+  // and will call `finalize_notion_retry` with the final status itself —
+  // so the internal markNotionSurvey calls here would double-count
+  // attempts and fight the worker's writes. See D1 review H1+H3.
+  const mark = async (patch: Parameters<typeof markNotionSurvey>[2]) => {
+    if (options.skipOutboxMark) return;
+    await markNotionSurvey(supabase, bookingId, patch);
+  };
 
   // Short-circuit when Notion isn't configured. Mark the outbox row as
   // skipped so retry workers don't churn on it.
   if (!process.env.NOTION_API_KEY || !process.env.NOTION_DATABASE_ID) {
-    await markNotionSurvey(supabase, bookingId, {
-      status: "skipped",
-    });
+    await mark({ status: "skipped" });
     return { ok: true, skipped: true };
   }
 
@@ -71,10 +79,7 @@ export async function syncObservationToNotion(
 
   if (error || !data) {
     const msg = error?.message ?? "booking not found";
-    await markNotionSurvey(supabase, bookingId, {
-      status: "failed",
-      last_error: msg.slice(0, 500),
-    });
+    await mark({ status: "failed", last_error: msg.slice(0, 500) });
     return { ok: false, error: msg };
   }
 
@@ -107,23 +112,15 @@ export async function syncObservationToNotion(
 
   const observation = row.booking_observations;
   if (!observation) {
-    // submit_booking_observation() always upserts, so this should not
-    // happen in practice. Fail loud but don't throw.
     const msg = "observation row missing";
-    await markNotionSurvey(supabase, bookingId, {
-      status: "failed",
-      last_error: msg,
-    });
+    await mark({ status: "failed", last_error: msg });
     return { ok: false, error: msg };
   }
 
   const experiment = row.experiments;
   if (!experiment) {
     const msg = "experiment missing";
-    await markNotionSurvey(supabase, bookingId, {
-      status: "failed",
-      last_error: msg,
-    });
+    await mark({ status: "failed", last_error: msg });
     return { ok: false, error: msg };
   }
 
@@ -184,18 +181,18 @@ export async function syncObservationToNotion(
       })
       .eq("booking_id", bookingId);
 
-    await markNotionSurvey(supabase, bookingId, {
-      status: "completed",
-      external_id: pageId,
-    });
+    await mark({ status: "completed", external_id: pageId });
 
     return { ok: true, notionPageId: pageId };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await markNotionSurvey(supabase, bookingId, {
-      status: "failed",
-      last_error: msg.slice(0, 500),
-    });
+    // Scrub common PII patterns from Notion errors before they land in
+    // booking_integrations.last_error. Notion sometimes echoes the
+    // offending property value in 400 responses (reviewer finding O4).
+    const scrubbed = msg
+      .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "<email>")
+      .replace(/\b\d{2,3}-?\d{3,4}-?\d{4}\b/g, "<phone>");
+    await mark({ status: "failed", last_error: scrubbed.slice(0, 500) });
     return { ok: false, error: msg };
   }
 }

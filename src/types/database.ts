@@ -31,6 +31,10 @@ export interface OnlineRuntimeConfig {
   // Researcher-provided URL to the experiment JavaScript file(s). Loaded
   // as a <script> inside the /run shell's sandbox iframe.
   entry_url: string;
+  // Subresource Integrity hash, e.g. "sha384-…". When set, the shim loads
+  // the script with `<script integrity="…">` so a silently-swapped CDN
+  // payload can't run. Researchers compute this once per release.
+  entry_url_sri?: string | null;
   // Optional shape hints for the /run shell's progress UI.
   trial_count?: number;
   block_count?: number;
@@ -41,6 +45,49 @@ export interface OnlineRuntimeConfig {
   // Kept as `string` here so zod's regex-narrowed literal still type-checks;
   // the ingestion route validates the shape at runtime.
   completion_token_format?: string;
+  // Pre-run environment check. If set, /run shell shows a preflight screen
+  // before loading the researcher's JS.
+  preflight?: {
+    min_width?: number;
+    min_height?: number;
+    require_keyboard?: boolean;
+    require_audio?: boolean;
+    // Free-form researcher instructions ("조용한 방에서 진행해주세요").
+    instructions?: string;
+  };
+  // Condition assignment spec. Server computes the condition deterministically
+  // from subject_number at session-endpoint time.
+  counterbalance_spec?:
+    | { kind: "latin_square"; conditions: string[] }
+    | { kind: "block_rotation"; conditions: string[]; block_size?: number }
+    | { kind: "random"; conditions: string[]; seed?: string };
+  // Attention checks inserted by the shell between blocks. `position` is
+  // 'after_block:N' (0-indexed) or 'random' (randomly placed among blocks).
+  attention_checks?: Array<{
+    question: string;
+    kind: "yes_no" | "single_choice";
+    options?: string[];
+    correct_answer: string;
+    position: `after_block:${number}` | "random";
+  }>;
+}
+
+export type OnlineScreenerKind =
+  | "yes_no"
+  | "numeric"
+  | "single_choice"
+  | "multi_choice";
+
+export interface OnlineScreenerValidation {
+  required_answer?: boolean; // yes_no
+  min?: number; // numeric
+  max?: number; // numeric
+  integer?: boolean; // numeric
+  options?: string[]; // single / multi
+  accepted?: string[]; // single: one-of; multi: all-must-include
+  min_selected?: number; // multi
+  max_selected?: number; // multi
+  accepted_all?: string[]; // multi: allow-any-of-these-set
 }
 
 // participant_class enum — matches 00025 migration.
@@ -512,6 +559,11 @@ export interface Database {
           minute_count: number;
           verify_attempts: number;
           verify_locked_until: string | null;
+          is_pilot: boolean;
+          condition_assignment: string | null;
+          attention_fail_count: number;
+          behavior_signals: Record<string, unknown>;
+          entry_url_sri: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -529,6 +581,11 @@ export interface Database {
           verified_by?: string | null;
           verify_attempts?: number;
           verify_locked_until?: string | null;
+          is_pilot?: boolean;
+          condition_assignment?: string | null;
+          attention_fail_count?: number;
+          behavior_signals?: Record<string, unknown>;
+          entry_url_sri?: string | null;
         };
         Update: {
           token_hash?: string;
@@ -541,6 +598,11 @@ export interface Database {
           verified_by?: string | null;
           verify_attempts?: number;
           verify_locked_until?: string | null;
+          is_pilot?: boolean;
+          condition_assignment?: string | null;
+          attention_fail_count?: number;
+          behavior_signals?: Record<string, unknown>;
+          entry_url_sri?: string | null;
         };
         Relationships: [
           {
@@ -548,6 +610,84 @@ export interface Database {
             columns: ["booking_id"];
             isOneToOne: true;
             referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      experiment_online_screeners: {
+        Row: {
+          id: string;
+          experiment_id: string;
+          position: number;
+          kind: OnlineScreenerKind;
+          question: string;
+          help_text: string | null;
+          validation_config: OnlineScreenerValidation;
+          required: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          experiment_id: string;
+          position: number;
+          kind: OnlineScreenerKind;
+          question: string;
+          help_text?: string | null;
+          validation_config?: OnlineScreenerValidation;
+          required?: boolean;
+        };
+        Update: {
+          position?: number;
+          kind?: OnlineScreenerKind;
+          question?: string;
+          help_text?: string | null;
+          validation_config?: OnlineScreenerValidation;
+          required?: boolean;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "experiment_online_screeners_experiment_id_fkey";
+            columns: ["experiment_id"];
+            isOneToOne: false;
+            referencedRelation: "experiments";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      experiment_online_screener_responses: {
+        Row: {
+          id: string;
+          booking_id: string;
+          screener_id: string;
+          answer: Json;
+          passed: boolean;
+          submitted_at: string;
+        };
+        Insert: {
+          id?: string;
+          booking_id: string;
+          screener_id: string;
+          answer: Json;
+          passed: boolean;
+        };
+        Update: {
+          answer?: Json;
+          passed?: boolean;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "experiment_online_screener_responses_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: false;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "experiment_online_screener_responses_screener_id_fkey";
+            columns: ["screener_id"];
+            isOneToOne: false;
+            referencedRelation: "experiment_online_screeners";
             referencedColumns: ["id"];
           },
         ];
@@ -927,8 +1067,47 @@ export interface Database {
           },
         ];
       };
+      notion_health_state: {
+        Row: {
+          id: string;
+          check_type: "schema_drift" | "retry_sweep";
+          healthy: boolean;
+          schema_hash: string | null;
+          report: Json;
+          duration_ms: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          check_type: "schema_drift" | "retry_sweep";
+          healthy: boolean;
+          schema_hash?: string | null;
+          report?: Json;
+          duration_ms?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          healthy?: boolean;
+          schema_hash?: string | null;
+          report?: Json;
+          duration_ms?: number | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
+      notion_health_current: {
+        Row: {
+          id: string;
+          check_type: "schema_drift" | "retry_sweep";
+          healthy: boolean;
+          schema_hash: string | null;
+          report: Json;
+          duration_ms: number | null;
+          created_at: string;
+        };
+        Relationships: [];
+      };
       participant_class_current: {
         Row: {
           id: string;
@@ -995,6 +1174,26 @@ export interface Database {
         };
         Returns: Json;
       };
+      rpc_assign_condition: {
+        Args: {
+          p_booking_id: string;
+        };
+        Returns: string | null;
+      };
+      rpc_record_attention_failure: {
+        Args: {
+          p_booking_id: string;
+          p_delta?: number;
+        };
+        Returns: number;
+      };
+      rpc_merge_behavior_signals: {
+        Args: {
+          p_booking_id: string;
+          p_delta: Json;
+        };
+        Returns: Json;
+      };
       recompute_participant_class: {
         Args: {
           p_participant_id: string;
@@ -1025,6 +1224,35 @@ export interface Database {
           p_assigned_by: string | null;
         };
         Returns: ParticipantClassRow;
+      };
+      claim_next_notion_retry: {
+        Args: Record<string, never>;
+        Returns: Array<{
+          id: string;
+          booking_id: string;
+          integration_type:
+            | "gcal"
+            | "notion"
+            | "email"
+            | "sms"
+            | "notion_experiment"
+            | "notion_survey";
+          status: "pending" | "completed" | "failed" | "skipped";
+          attempts: number;
+          last_error: string | null;
+          external_id: string | null;
+          created_at: string;
+          processed_at: string | null;
+        }>;
+      };
+      finalize_notion_retry: {
+        Args: {
+          p_integration_id: string;
+          p_status: "completed" | "failed" | "skipped";
+          p_external_id: string | null;
+          p_last_error: string | null;
+        };
+        Returns: void;
       };
     };
     Enums: {
