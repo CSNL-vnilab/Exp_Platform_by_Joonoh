@@ -12,8 +12,11 @@ on main).
 | D2 | Operational dashboard pending-work widgets | ✅ migrations 00034/00035/00036 |
 | D4 | DB audit + salt rotation | ✅ migrations 00033, scripts/db-audit.mjs (14 checks), scripts/salt-rotate.mjs + runbook |
 | D5 | Researcher field requirement clarity | ✅ docs/experiment-field-requirements.md, ExperimentFormCompleteness sidebar on /new + /[id]/edit |
+| D6 | Outbox retry generalisation (foundation) | ✅ migration 00037 generic claim_next_outbox_retry RPC; service layer deferred |
+| D8 | Auto-promotion notification emails | ✅ migration 00038, /api/cron/promotion-notifications, GH Actions workflow |
 | — | Notion rate-limit-aware fetch wrapper | ✅ src/lib/notion/rate-limit.ts; client.ts refactored |
 | — | Background QC loop (db-audit + notion health) | ✅ scripts/qc-loop.mjs under Monitor |
+| — | Ops playbook + rolling plan + MIN_SECRET_LENGTH consistency | ✅ |
 
 ## D6 — Outbox retry generalisation (high leverage)
 

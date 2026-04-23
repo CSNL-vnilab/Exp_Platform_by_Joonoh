@@ -86,6 +86,7 @@ route.
 | Daily 17:15 UTC (02:15 KST+1d) | `/api/cron/auto-complete-bookings` | `.github/workflows/auto-complete-cron.yml` daily |
 | Daily 16:00 UTC | `/api/cron/notion-health` | `.github/workflows/notion-health-cron.yml` daily |
 | Every 30 min | `/api/cron/notion-retry` | `.github/workflows/notion-retry-cron.yml` every 30 min |
+| Every 30 min | `/api/cron/promotion-notifications` | `.github/workflows/promotion-notifications-cron.yml` every 30 min — sends Royal-promotion emails to experiment owners (D8, migration 00038) |
 
 Only the first two are declared in `vercel.json` (Vercel Hobby caps at
 2 crons per project). Notion crons run exclusively via GitHub Actions;
@@ -167,7 +168,7 @@ edit flow; sidebar shows "활성화 전 필수" tiles until they're set.
 
 ## Migration log (current prod state)
 
-Last applied: `00037_generalize_outbox_retry.sql` on 2026-04-23.
+Last applied: `00038_promotion_notifications.sql` on 2026-04-23.
 
 Full list: `ls supabase/migrations/`.
 
