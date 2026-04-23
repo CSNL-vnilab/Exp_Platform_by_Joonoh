@@ -46,13 +46,29 @@ async function fetchDb() {
 // The title property has special semantics: Notion requires exactly one,
 // and you can rename it but not add/remove it after creation.
 const TITLE_NAME = "실험명";
+// Keep this in sync with src/lib/notion/schema.ts NOTION_REQUIRED_PROPERTIES.
+// Order matters for newly-added columns (Notion preserves declaration order
+// for new props). Existing props that drifted in order need UI drag.
+const NOTION_MEMBERS_DB_ID = "94854705-c91d-4a35-a91e-803c5934745e";
+const NOTION_PROJECTS_DB_ID = "76e7c392-127e-47f3-8b7e-212610db9376";
 const DESIRED = [
-  { name: "프로젝트", type: "rich_text" },
   { name: "실험날짜", type: "date" },
   { name: "시간", type: "rich_text" },
+  { name: "프로젝트", type: "rich_text" },
+  { name: "버전넘버", type: "rich_text" },
   { name: "피험자 ID", type: "rich_text" },
   { name: "회차", type: "number" },
   { name: "참여자", type: "rich_text" },
+  {
+    name: "실험자",
+    type: "relation",
+    relatedDbId: NOTION_MEMBERS_DB_ID,
+  },
+  {
+    name: "프로젝트 (관련)",
+    type: "relation",
+    relatedDbId: NOTION_PROJECTS_DB_ID,
+  },
   { name: "공개 ID", type: "rich_text" },
   {
     name: "상태",
@@ -84,6 +100,16 @@ function buildPropertyPayload(spec) {
       return {
         select: {
           options: (spec.options ?? []).map((name) => ({ name })),
+        },
+      };
+    case "relation":
+      if (!spec.relatedDbId) {
+        throw new Error(`relation spec '${spec.name}' missing relatedDbId`);
+      }
+      return {
+        relation: {
+          database_id: spec.relatedDbId,
+          single_property: {},
         },
       };
     default:

@@ -99,7 +99,11 @@ async function handle(request: NextRequest) {
     const db = (await res.json()) as {
       properties: Record<
         string,
-        { type: string; select?: { options: Array<{ name: string }> } }
+        {
+          type: string;
+          select?: { options: Array<{ name: string }> };
+          relation?: { database_id?: string };
+        }
       >;
     };
 
@@ -114,6 +118,7 @@ async function handle(request: NextRequest) {
       live[name] = {
         type: p.type,
         selectOptions: p.select?.options.map((o) => o.name),
+        relatedDbId: p.relation?.database_id,
       };
     }
     // Title column is also represented in live so the diff sees it in

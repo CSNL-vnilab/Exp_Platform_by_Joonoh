@@ -16,7 +16,8 @@ export type NotionPropertySpec =
   | { name: string; type: "date" }
   | { name: string; type: "checkbox" }
   | { name: string; type: "select"; options: string[] }
-  | { name: string; type: "title" };
+  | { name: string; type: "title" }
+  | { name: string; type: "relation"; relatedDbId: string };
 
 export const NOTION_TITLE_COLUMN = "실험명";
 
@@ -28,6 +29,11 @@ export const NOTION_TITLE_COLUMN = "실험명";
 // existing database-level properties; view-level reorder is possible
 // via /v1/views but requires creating a named view). See
 // docs/notion-db-template.md §9.
+// Expected Relation targets. These are stable DB ids in the CSNL
+// Notion workspace; if they ever change the drift detector flags it.
+export const NOTION_MEMBERS_DB_ID = "94854705-c91d-4a35-a91e-803c5934745e";
+export const NOTION_PROJECTS_DB_ID = "76e7c392-127e-47f3-8b7e-212610db9376";
+
 export const NOTION_REQUIRED_PROPERTIES: NotionPropertySpec[] = [
   { name: "실험명", type: "title" },
   { name: "실험날짜", type: "date" },
@@ -37,10 +43,20 @@ export const NOTION_REQUIRED_PROPERTIES: NotionPropertySpec[] = [
   { name: "피험자 ID", type: "rich_text" },
   { name: "회차", type: "number" },
   { name: "참여자", type: "rich_text" },
-  // 실험자: researcher running the session. Separated from 참여자 so
-  // the Notion column reflects session ownership clearly and so we can
-  // later upgrade to a People/Relation link (CSNL members DB).
-  { name: "실험자", type: "rich_text" },
+  // 실험자: Relation → CSNL Members. Populated from
+  // profiles.notion_member_page_id; empty when unmapped.
+  {
+    name: "실험자",
+    type: "relation",
+    relatedDbId: NOTION_MEMBERS_DB_ID,
+  },
+  // 프로젝트 (관련): Relation → Projects & Chores. Populated from
+  // experiments.notion_project_page_id; empty when unmapped.
+  {
+    name: "프로젝트 (관련)",
+    type: "relation",
+    relatedDbId: NOTION_PROJECTS_DB_ID,
+  },
   { name: "공개 ID", type: "rich_text" },
   {
     name: "상태",
@@ -63,6 +79,8 @@ export interface NotionLivePropertyType {
   // Select type exposes its options — we care about these because if
   // the set of select options drifts we want to surface it.
   selectOptions?: string[];
+  // Relation type exposes the target database id.
+  relatedDbId?: string;
 }
 
 export interface NotionDriftItem {
@@ -90,6 +108,9 @@ export function computeExpectedSchemaHash(): string {
   const canonical = NOTION_REQUIRED_PROPERTIES.map((p) => {
     if (p.type === "select") {
       return `${p.name}:select[${[...p.options].sort().join("|")}]`;
+    }
+    if (p.type === "relation") {
+      return `${p.name}:relation→${p.relatedDbId.replace(/-/g, "")}`;
     }
     return `${p.name}:${p.type}`;
   })
@@ -160,6 +181,20 @@ export function diffNotionSchema(
             (missing.length ? `missing options: ${missing.join(", ")}` : "") +
             (missing.length && extra.length ? "; " : "") +
             (extra.length ? `extra options: ${extra.join(", ")}` : ""),
+        });
+      }
+    }
+    if (spec.type === "relation") {
+      // Normalise: Notion returns ids with dashes; spec strips them.
+      const liveDb = (actual.relatedDbId ?? "").replace(/-/g, "");
+      const expectedDb = spec.relatedDbId.replace(/-/g, "");
+      if (liveDb !== expectedDb) {
+        items.push({
+          name: spec.name,
+          kind: "type_mismatch",
+          expected: `relation → ${expectedDb}`,
+          actual: `relation → ${liveDb || "(none)"}`,
+          details: "Relation target DB id differs from spec.",
         });
       }
     }
