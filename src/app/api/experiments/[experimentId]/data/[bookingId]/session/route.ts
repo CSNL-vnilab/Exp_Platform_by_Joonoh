@@ -6,13 +6,14 @@ import { verifyRunToken, hashToken, TokenError } from "@/lib/experiments/run-tok
 
 // GET /api/experiments/:experimentId/data/:bookingId/session?t=<token>
 //
-// Called by the /run shell on load. Returns the minimum context the shell
-// needs to render + load the researcher's JS:
-//   - experiment metadata (title, entry_url, runtime config)
-//   - current blocks_submitted (so the shell can tell the researcher JS
-//     where to resume)
-//   - consent + IRB URL if required
-//   - subject_number (the only identifier the runtime sees)
+// Called by the /run shell on load. Returns everything the shell needs to
+// decide what to show before loading the researcher's JS:
+//   - experiment metadata (title, entry_url + SRI, preflight spec)
+//   - consent + IRB URL
+//   - online screeners the participant must pass
+//   - attention check spec for the shell to inject
+//   - counterbalanced condition assignment (stable across reloads)
+//   - blocks_submitted so the researcher's JS resumes mid-run
 //
 // Auth: signed run token (query ?t= or Authorization: Bearer).
 
@@ -54,7 +55,7 @@ export async function GET(
   const { data: progress, error: progressErr } = await supabase
     .from("experiment_run_progress")
     .select(
-      "token_hash, token_revoked_at, blocks_submitted, completion_code, completion_code_issued_at",
+      "token_hash, token_revoked_at, blocks_submitted, completion_code, completion_code_issued_at, is_pilot, condition_assignment, attention_fail_count",
     )
     .eq("booking_id", bookingId)
     .maybeSingle();
@@ -96,6 +97,35 @@ export async function GET(
     );
   }
 
+  // ── Online screeners (ordered) ────────────────────────────────────────
+  // Public-readable. Participant answers via POST /screener before blocks.
+  const { data: screenerRows } = await supabase
+    .from("experiment_online_screeners")
+    .select("id, position, kind, question, help_text, validation_config, required")
+    .eq("experiment_id", experimentId)
+    .order("position", { ascending: true });
+
+  const screenerResponses = await supabase
+    .from("experiment_online_screener_responses")
+    .select("screener_id, passed")
+    .eq("booking_id", bookingId);
+
+  const passedIds = new Set(
+    (screenerResponses.data ?? [])
+      .filter((r) => r.passed)
+      .map((r) => r.screener_id),
+  );
+  const anyFailed = (screenerResponses.data ?? []).some((r) => !r.passed);
+
+  // ── Counterbalanced condition — deterministic, stored on first call ──
+  let condition = progress.condition_assignment;
+  if (!condition) {
+    const { data: assigned } = await supabase.rpc("rpc_assign_condition", {
+      p_booking_id: bookingId,
+    });
+    condition = (assigned as string | null) ?? null;
+  }
+
   return NextResponse.json({
     experiment: {
       id: exp.id,
@@ -109,11 +139,51 @@ export async function GET(
       id: booking.id,
       subject_number: booking.subject_number,
       status: booking.status,
+      is_pilot: progress.is_pilot,
+      condition: condition,
     },
     progress: {
       blocks_submitted: progress.blocks_submitted,
       completion_code: progress.completion_code,
       completion_code_issued_at: progress.completion_code_issued_at,
+      attention_fail_count: progress.attention_fail_count,
+    },
+    screeners: {
+      questions: (screenerRows ?? []).map((s) => ({
+        id: s.id,
+        position: s.position,
+        kind: s.kind,
+        question: s.question,
+        help_text: s.help_text,
+        // Only expose the *shape* of validation so the shell can render
+        // inputs — don't leak accepted answers (participant shouldn't see
+        // which answer is "right" before choosing).
+        ui: publicScreenerUI(s.kind, s.validation_config as Record<string, unknown>),
+        required: s.required,
+      })),
+      passed_ids: Array.from(passedIds),
+      any_failed: anyFailed,
     },
   });
+}
+
+function publicScreenerUI(
+  kind: "yes_no" | "numeric" | "single_choice" | "multi_choice",
+  v: Record<string, unknown>,
+): Record<string, unknown> {
+  if (kind === "yes_no") return {};
+  if (kind === "numeric")
+    return {
+      min: v.min ?? null,
+      max: v.max ?? null,
+      integer: v.integer ?? false,
+    };
+  if (kind === "single_choice" || kind === "multi_choice") {
+    return {
+      options: Array.isArray(v.options) ? v.options : [],
+      min_selected: kind === "multi_choice" ? v.min_selected ?? null : null,
+      max_selected: kind === "multi_choice" ? v.max_selected ?? null : null,
+    };
+  }
+  return {};
 }

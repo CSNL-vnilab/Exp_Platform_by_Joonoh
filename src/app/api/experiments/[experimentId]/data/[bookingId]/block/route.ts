@@ -128,10 +128,14 @@ export async function POST(
 
   // Second gate: token_hash must match the row we issued this booking.
   // This lets researchers revoke the token (null out token_hash or set
-  // token_revoked_at) without invalidating the HMAC key.
+  // token_revoked_at) without invalidating the HMAC key. Also pull is_pilot
+  // so pilot runs land under a distinct storage prefix and don't pollute
+  // the real dataset.
   const { data: progress, error: progressErr } = await supabase
     .from("experiment_run_progress")
-    .select("token_hash, token_revoked_at, blocks_submitted, completion_code")
+    .select(
+      "token_hash, token_revoked_at, blocks_submitted, completion_code, is_pilot, condition_assignment",
+    )
     .eq("booking_id", bookingId)
     .maybeSingle();
 
@@ -230,24 +234,47 @@ export async function POST(
   const ingest = ingestRes as { blocks_submitted: number; accepted_at: string };
 
   // Serialize + write the block JSON. Strip PII recursively.
+  const scrubbedTrials = stripPii(parsed.data.trials) as unknown[];
+  const scrubbedMeta = parsed.data.block_metadata
+    ? (stripPii(parsed.data.block_metadata) as Record<string, unknown>)
+    : undefined;
+
+  // Honeypot detection: if the researcher-facing iframe embedded the
+  // hidden trap instruction (via our LLM honeypot component) and the
+  // participant's response included the trap word, flag the session.
+  // Word is the same as in run-shell.tsx.
+  const HONEYPOT = "hazelnut-97f3";
+  const serialized = JSON.stringify([scrubbedTrials, scrubbedMeta ?? null]);
+  if (serialized.toLowerCase().includes(HONEYPOT)) {
+    try {
+      await supabase.rpc("rpc_record_attention_failure", {
+        p_booking_id: bookingId,
+        p_delta: 5,
+      });
+    } catch {}
+  }
+
   const blockPayload = {
     block_index: parsed.data.block_index,
-    trials: stripPii(parsed.data.trials) as unknown[],
-    block_metadata: parsed.data.block_metadata
-      ? (stripPii(parsed.data.block_metadata) as Record<string, unknown>)
-      : undefined,
+    trials: scrubbedTrials,
+    block_metadata: scrubbedMeta,
     submitted_at: ingest.accepted_at,
     completed_at: parsed.data.completed_at ?? null,
     subject_number: booking.subject_number,
+    is_pilot: progress.is_pilot,
+    condition_assignment: progress.condition_assignment,
   };
 
   // Folder uses subject_number when present, else the bookingId so two
   // bookings with a null subject_number don't collide at the same path.
+  // Pilot runs live under a separate `_pilot/` prefix so researchers can
+  // drop it wholesale before final analysis.
   const sbjFolder =
     typeof booking.subject_number === "number"
       ? String(booking.subject_number)
       : `booking-${bookingId}`;
-  const path = `${exp.id}/${sbjFolder}/block_${parsed.data.block_index}.json`;
+  const pilotPrefix = progress.is_pilot ? "_pilot/" : "";
+  const path = `${exp.id}/${pilotPrefix}${sbjFolder}/block_${parsed.data.block_index}.json`;
   const bytes = new TextEncoder().encode(JSON.stringify(blockPayload));
 
   // upsert=false so a participant cannot overwrite an already-accepted

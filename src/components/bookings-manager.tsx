@@ -31,6 +31,9 @@ export interface BookingRowView {
     completion_code: string | null;
     completion_code_issued_at: string | null;
     verified_at: string | null;
+    is_pilot?: boolean | null;
+    condition_assignment?: string | null;
+    attention_fail_count?: number | null;
   } | null;
   // Joined by the bookings page from participant_class_current (see migration
   // 00025). Null when the participant has no class row yet.
@@ -409,6 +412,12 @@ export function BookingsManager({
                                     experimentId={experimentId}
                                   />
                                 )}
+                              {showsOnlineCols && (
+                                <PilotToggleButton
+                                  booking={b}
+                                  experimentId={experimentId}
+                                />
+                              )}
                               <Button
                                 size="sm"
                                 variant="secondary"
@@ -604,11 +613,34 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
   if (!p) {
     return <span className="text-muted">대기 중</span>;
   }
+  const badges = (
+    <div className="flex flex-wrap items-center gap-1">
+      {p.is_pilot && (
+        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+          파일럿
+        </span>
+      )}
+      {p.condition_assignment && (
+        <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
+          {p.condition_assignment}
+        </span>
+      )}
+      {typeof p.attention_fail_count === "number" && p.attention_fail_count > 0 && (
+        <span
+          className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
+          title="주의 체크 실패"
+        >
+          ⚠ {p.attention_fail_count}
+        </span>
+      )}
+    </div>
+  );
   if (p.verified_at) {
     return (
       <div className="space-y-0.5">
         <div className="font-medium text-emerald-700">✓ 코드 확인됨</div>
         <div className="text-muted">{p.blocks_submitted}개 블록 제출</div>
+        {badges}
       </div>
     );
   }
@@ -619,6 +651,7 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
           {p.completion_code}
         </div>
         <div className="text-amber-700">확인 대기</div>
+        {badges}
       </div>
     );
   }
@@ -626,7 +659,57 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
     <div className="space-y-0.5">
       <div className="text-foreground">{p.blocks_submitted}개 블록 제출</div>
       <div className="text-muted">미완료</div>
+      {badges}
     </div>
+  );
+}
+
+function PilotToggleButton({
+  booking,
+  experimentId,
+}: {
+  booking: BookingRowView;
+  experimentId: string;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const isPilot = booking.run_progress?.is_pilot ?? false;
+  const hasBlocks = (booking.run_progress?.blocks_submitted ?? 0) > 0;
+  if (!booking.run_progress) return null;
+  if (hasBlocks) return null;
+  async function toggle() {
+    if (
+      !window.confirm(
+        isPilot
+          ? "파일럿 표시를 해제합니다. 이후 블록은 정식 데이터로 저장됩니다."
+          : "파일럿으로 표시합니다. 데이터는 _pilot/ 경로에 저장되어 최종 분석에서 분리됩니다.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/api/experiments/${experimentId}/pilot-toggle`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ booking_id: booking.id, is_pilot: !isPilot }),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        alert(body.error || "변경 실패");
+        return;
+      }
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Button size="sm" variant="secondary" onClick={toggle} disabled={busy}>
+      {busy ? "변경 중…" : isPilot ? "파일럿 해제" : "파일럿 표시"}
+    </Button>
   );
 }
 

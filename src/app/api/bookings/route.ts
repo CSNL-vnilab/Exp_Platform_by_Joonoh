@@ -26,6 +26,45 @@ export async function POST(request: NextRequest) {
 
     const adminClient = createAdminClient();
 
+    // Online/hybrid experiment cross-study exclusion (phase 2 follow-up):
+    // refuse the booking if this participant has any prior bookings on
+    // experiments listed in online_runtime_config.exclude_experiment_ids.
+    // Offline experiments ignore this — they never populate the field.
+    {
+      const { data: exp } = await adminClient
+        .from("experiments")
+        .select("experiment_mode, online_runtime_config")
+        .eq("id", experiment_id)
+        .maybeSingle();
+      const cfg = exp?.online_runtime_config as
+        | { exclude_experiment_ids?: string[] }
+        | null;
+      const excludeIds = cfg?.exclude_experiment_ids ?? [];
+      if (
+        exp &&
+        exp.experiment_mode !== "offline" &&
+        excludeIds.length > 0
+      ) {
+        const { data: prior } = await adminClient
+          .from("bookings")
+          .select("id, participants!inner(phone, email)")
+          .in("experiment_id", excludeIds)
+          .in("status", ["confirmed", "running", "completed"])
+          .eq("participants.phone", phone)
+          .eq("participants.email", participant.email)
+          .limit(1);
+        if (prior && prior.length > 0) {
+          return NextResponse.json(
+            {
+              error:
+                "이 실험은 사전 지정된 다른 연구에 이미 참여하신 분께는 열려있지 않습니다.",
+            },
+            { status: 409 },
+          );
+        }
+      }
+    }
+
     let lastError: string | null = null;
 
     for (let attempt = 1; attempt <= BOOKING_RETRY.MAX_ATTEMPTS; attempt++) {

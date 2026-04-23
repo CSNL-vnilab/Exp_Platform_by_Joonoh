@@ -95,7 +95,7 @@ export default async function BookingsPage({
     const { data: progressRows } = await supabase
       .from("experiment_run_progress")
       .select(
-        "booking_id, blocks_submitted, completion_code, completion_code_issued_at, verified_at",
+        "booking_id, blocks_submitted, completion_code, completion_code_issued_at, verified_at, is_pilot, condition_assignment, attention_fail_count",
       )
       .in("booking_id", ids);
     const byBooking = new Map(
@@ -110,6 +110,9 @@ export default async function BookingsPage({
             completion_code_issued_at:
               byBooking.get(r.id)!.completion_code_issued_at,
             verified_at: byBooking.get(r.id)!.verified_at,
+            is_pilot: byBooking.get(r.id)!.is_pilot ?? false,
+            condition_assignment: byBooking.get(r.id)!.condition_assignment ?? null,
+            attention_fail_count: byBooking.get(r.id)!.attention_fail_count ?? 0,
           }
         : null,
     }));

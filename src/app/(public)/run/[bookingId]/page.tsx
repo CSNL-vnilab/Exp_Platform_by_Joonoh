@@ -52,7 +52,7 @@ export default async function RunPage({ params, searchParams }: PageProps) {
   const { data: progress } = await supabase
     .from("experiment_run_progress")
     .select(
-      "token_hash, token_revoked_at, blocks_submitted, completion_code, completion_code_issued_at",
+      "token_hash, token_revoked_at, blocks_submitted, completion_code, completion_code_issued_at, is_pilot, condition_assignment",
     )
     .eq("booking_id", bookingId)
     .maybeSingle();
@@ -114,6 +114,25 @@ export default async function RunPage({ params, searchParams }: PageProps) {
     );
   }
 
+  // Fetch online screeners + prior passed/failed responses. Shell uses these
+  // to render the screening step.
+  const { data: screenerRows } = await supabase
+    .from("experiment_online_screeners")
+    .select("id, position, kind, question, help_text, validation_config, required")
+    .eq("experiment_id", exp.id)
+    .order("position", { ascending: true });
+
+  const { data: screenerResponses } = await supabase
+    .from("experiment_online_screener_responses")
+    .select("screener_id, passed")
+    .eq("booking_id", booking.id);
+
+  const passedScreenerIds = new Set(
+    (screenerResponses ?? [])
+      .filter((r) => r.passed)
+      .map((r) => r.screener_id),
+  );
+
   return (
     <RunErrorBoundary>
       <RunShell
@@ -121,6 +140,8 @@ export default async function RunPage({ params, searchParams }: PageProps) {
         booking={{
           id: booking.id,
           subject_number: booking.subject_number ?? 0,
+          is_pilot: progress.is_pilot ?? false,
+          condition: progress.condition_assignment ?? null,
         }}
         experiment={{
           id: exp.id,
@@ -135,6 +156,17 @@ export default async function RunPage({ params, searchParams }: PageProps) {
         progress={{
           blocks_submitted: progress.blocks_submitted,
           completion_code: progress.completion_code,
+        }}
+        screeners={{
+          questions: (screenerRows ?? []).map((s) => ({
+            id: s.id,
+            kind: s.kind as "yes_no" | "numeric" | "single_choice" | "multi_choice",
+            question: s.question,
+            help_text: s.help_text,
+            required: s.required,
+            validation_config: (s.validation_config ?? {}) as Record<string, unknown>,
+          })),
+          passed_ids: Array.from(passedScreenerIds),
         }}
       />
     </RunErrorBoundary>
