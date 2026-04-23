@@ -85,6 +85,9 @@ export function ExperimentForm({
   const [autoLock, setAutoLock] = useState<boolean>(experiment?.auto_lock ?? true);
   const [subjectStartNumber, setSubjectStartNumber] = useState<number>(experiment?.subject_start_number ?? 1);
   const [projectName, setProjectName] = useState<string>(experiment?.project_name ?? "");
+  const [protocolVersion, setProtocolVersion] = useState<string>(
+    experiment?.protocol_version ?? "",
+  );
 
   // Reminder schedule (defaults: day-before 18:00 KST + day-of 09:00 KST)
   const [reminderDayBeforeEnabled, setReminderDayBeforeEnabled] = useState<boolean>(
@@ -217,6 +220,7 @@ export function ExperimentForm({
     parameter_schema: parameterSchema,
     pre_experiment_checklist: checklist,
     project_name: projectName || null,
+    protocol_version: protocolVersion || null,
     location_id: locationId || null,
     google_calendar_id: googleCalendarId || null,
     irb_document_url: irbDocumentUrl || null,
@@ -424,6 +428,7 @@ export function ExperimentForm({
       auto_lock: autoLock,
       subject_start_number: subjectStartNumber,
       project_name: projectName || null,
+    protocol_version: protocolVersion || null,
       reminder_day_before_enabled: reminderDayBeforeEnabled,
       reminder_day_before_time: reminderDayBeforeTime,
       reminder_day_of_enabled: reminderDayOfEnabled,
@@ -561,6 +566,7 @@ export function ExperimentForm({
       auto_lock: autoLock,
       subject_start_number: subjectStartNumber,
       project_name: projectName || null,
+    protocol_version: protocolVersion || null,
       reminder_day_before_enabled: reminderDayBeforeEnabled,
       reminder_day_before_time: reminderDayBeforeTime,
       reminder_day_of_enabled: reminderDayOfEnabled,
@@ -1557,6 +1563,22 @@ export function ExperimentForm({
                   error={errors.subject_start_number}
                 />
                 <p className="mt-1 text-xs text-muted">첫 참여자에게 할당되는 Sbj 번호입니다. 이후는 자동 증가.</p>
+              </div>
+              <div className="sm:col-span-2">
+                <Input
+                  id="protocol_version"
+                  label="프로토콜 버전 (Notion 버전넘버 컬럼에 기록)"
+                  value={protocolVersion}
+                  onChange={(e) => setProtocolVersion(e.target.value)}
+                  placeholder="예: v1.0, 2026-03-rev2"
+                  maxLength={64}
+                  error={errors.protocol_version}
+                />
+                <p className="mt-1 text-xs text-muted">
+                  자유 형식 (최대 64자). 변경 이후의 모든 새 예약 Notion 행의{" "}
+                  <code>버전넘버</code> 컬럼에 이 값이 기록됩니다. 기존 예약은
+                  건드리지 않습니다.
+                </p>
               </div>
             </div>
           </CardContent>

@@ -67,6 +67,7 @@ const DEMO_EXPERIMENT: Experiment = {
   notion_experiment_page_id: null,
   notion_experiment_sync_attempted_at: null,
   protocol_version: null,
+  notion_project_page_id: null,
   experiment_mode: "offline",
   online_runtime_config: null,
   data_consent_required: false,

@@ -105,7 +105,7 @@ export async function POST(
       try {
         const { data: profile } = await admin
           .from("profiles")
-          .select("display_name")
+          .select("display_name, notion_member_page_id")
           .eq("id", user.id)
           .maybeSingle();
 
@@ -120,6 +120,11 @@ export async function POST(
           endDate: updated.end_date,
           researcherName: profile?.display_name ?? null,
           status: "확정",
+          protocolVersion: updated.protocol_version ?? null,
+          researcherMemberPageId:
+            (profile as { notion_member_page_id?: string | null } | null)
+              ?.notion_member_page_id ?? null,
+          projectPageId: updated.notion_project_page_id ?? null,
         });
 
         if (pageId) {

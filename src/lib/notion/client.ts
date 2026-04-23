@@ -25,6 +25,15 @@ export interface BookingNotionData {
   // Experiment protocol version (migration 00042). Free-form string,
   // e.g. "v1.2", "2026-03-rev2". Null/absent → 버전넘버 column blank.
   protocolVersion?: string | null;
+  // Relation → CSNL Members DB page id for the researcher who owns the
+  // experiment (migration 00043). Populates 실험자 relation. Optional —
+  // if absent the relation cell is left empty (no fallback text column
+  // because we already have rich_text 참여자 for the participant).
+  researcherMemberPageId?: string | null;
+  // Relation → Projects & Chores DB page id. Populates 프로젝트 (관련)
+  // relation. Optional — rich_text 프로젝트 still carries the project
+  // name string so legacy views keep working.
+  projectPageId?: string | null;
 }
 
 // Property names match the Notion database template in
@@ -51,11 +60,9 @@ export async function createBookingPage(data: BookingNotionData): Promise<string
     },
     회차: { number: data.sessionNumber },
     참여자: { rich_text: [{ text: { content: data.participantName } }] },
-    // Session owner (researcher). Separate column from 참여자 so external
-    // sharing can show who ran the session without revealing participant PII.
-    "실험자": {
-      rich_text: [{ text: { content: data.researcherName ?? "" } }],
-    },
+    // NOTE: 실험자 is now a Relation column (type changed via Notion API
+    // 2026-04-23). It's populated below only when researcherMemberPageId
+    // is known. Writing rich_text here would 400.
     상태: { select: { name: data.status } },
     // Pseudonymous lab-scoped code. Populated when Stream B's identity row
     // exists; otherwise left empty. This column is the preferred external
@@ -68,6 +75,18 @@ export async function createBookingPage(data: BookingNotionData): Promise<string
       rich_text: [{ text: { content: data.protocolVersion ?? "" } }],
     },
   };
+  // Optional Relation arrays (migration 00043). Only emit when we have an
+  // id — Notion accepts empty [] but we'd rather not clutter the payload.
+  if (data.researcherMemberPageId) {
+    properties["실험자"] = {
+      relation: [{ id: data.researcherMemberPageId }],
+    };
+  }
+  if (data.projectPageId) {
+    properties["프로젝트 (관련)"] = {
+      relation: [{ id: data.projectPageId }],
+    };
+  }
 
   const response = await fetchNotion<{ id: string }>("/v1/pages", {
     method: "POST",
@@ -110,6 +129,9 @@ export interface ExperimentNotionData {
   status: string;
   // Experiment protocol version label (migration 00042).
   protocolVersion?: string | null;
+  // Relation page ids (migration 00043). See BookingNotionData above.
+  researcherMemberPageId?: string | null;
+  projectPageId?: string | null;
 }
 
 // Mirrors an experiment (not a booking) into Notion on draft → active.
@@ -153,11 +175,9 @@ export async function createExperimentPage(
     "피험자 ID": { rich_text: [{ text: { content: "실험 마스터" } }] },
     회차: { number: 0 },
     // 참여자 is blank on the experiment-master row — there's no specific
-    // person tied to it. The researcher goes in the 실험자 column.
+    // person tied to it. The researcher goes in the 실험자 Relation
+    // column populated below (only when researcherMemberPageId is set).
     참여자: { rich_text: [{ text: { content: "" } }] },
-    "실험자": {
-      rich_text: [{ text: { content: data.researcherName ?? "" } }],
-    },
     상태: { select: { name: data.status } },
     // Notion Text column accepts both URLs and raw paths, so we standardise on
     // rich_text rather than branching on url/text. This matches the documented
@@ -176,6 +196,17 @@ export async function createExperimentPage(
       ],
     },
   };
+  // Relations (migration 00043) — only emit when we have the id.
+  if (data.researcherMemberPageId) {
+    properties["실험자"] = {
+      relation: [{ id: data.researcherMemberPageId }],
+    };
+  }
+  if (data.projectPageId) {
+    properties["프로젝트 (관련)"] = {
+      relation: [{ id: data.projectPageId }],
+    };
+  }
 
   const response = await fetchNotion<{ id: string }>("/v1/pages", {
     method: "POST",
@@ -292,9 +323,8 @@ export async function upsertObservationPage(
     // avoid synthesising fake PII. Leave 참여자 blank; the 공개 ID below is
     // the canonical reference. Researchers can manually relink if needed.
     참여자: { rich_text: [{ text: { content: "" } }] },
-    "실험자": {
-      rich_text: [{ text: { content: data.researcherName ?? "" } }],
-    },
+    // 실험자 is a Relation column — we don't have a member page id in
+    // this fallback path, so it stays empty.
     상태: { select: { name: "완료" } },
     ...observationProps,
   };

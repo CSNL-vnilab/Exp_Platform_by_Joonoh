@@ -79,7 +79,7 @@ export async function runBookingNotionRetry(
         "participant_id",
         "experiment_id",
         "participants(name, phone, email)",
-        "experiments(title, project_name, participation_fee, lab_id)",
+        "experiments(title, project_name, participation_fee, lab_id, notion_project_page_id, created_by, protocol_version)",
       ].join(", "),
     )
     .eq("id", claim.booking_id)
@@ -105,6 +105,9 @@ export async function runBookingNotionRetry(
       project_name: string | null;
       participation_fee: number;
       lab_id: string;
+      notion_project_page_id: string | null;
+      created_by: string | null;
+      protocol_version: string | null;
     } | null;
   };
 
@@ -140,6 +143,19 @@ export async function runBookingNotionRetry(
     publicCode = identity?.public_code ?? null;
   }
 
+  // Relation page ids (migration 00043). Member via experiment.created_by.
+  let researcherMemberPageId: string | null = null;
+  if (experiment.created_by) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("notion_member_page_id")
+      .eq("id", experiment.created_by)
+      .maybeSingle();
+    researcherMemberPageId =
+      (prof as { notion_member_page_id?: string | null } | null)
+        ?.notion_member_page_id ?? null;
+  }
+
   try {
     const pageId = await createBookingPage({
       experimentTitle: experiment.title,
@@ -156,6 +172,9 @@ export async function runBookingNotionRetry(
       fee: experiment.participation_fee,
       researcherName: null,
       publicCode,
+      protocolVersion: experiment.protocol_version ?? null,
+      researcherMemberPageId,
+      projectPageId: experiment.notion_project_page_id ?? null,
     });
 
     // O2 — guard the update with `notion_page_id IS NULL` so a concurrent

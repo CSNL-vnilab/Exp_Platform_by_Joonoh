@@ -383,15 +383,28 @@ async function runNotion(supabase: Supabase, rows: BookingRow[]) {
   // blank — researchers can re-sync via the retry path without blocking
   // the booking.
   let publicCode: string | null = null;
+  // Migration 00043 — Notion Relations to Members / Projects. Both are
+  // optional; unset → relation cell stays empty.
+  let researcherMemberPageId: string | null = null;
+  let projectPageId: string | null = null;
   const firstBookingId = rows[0]?.id;
   if (firstBookingId) {
     const { data: bookingMeta } = await supabase
       .from("bookings")
-      .select("participant_id, experiments(lab_id)")
+      .select(
+        "participant_id, experiments(lab_id, notion_project_page_id, created_by)",
+      )
       .eq("id", firstBookingId)
       .maybeSingle();
     const meta = bookingMeta as unknown as
-      | { participant_id: string; experiments: { lab_id: string } | null }
+      | {
+          participant_id: string;
+          experiments: {
+            lab_id: string;
+            notion_project_page_id: string | null;
+            created_by: string | null;
+          } | null;
+        }
       | null;
     if (meta?.participant_id && meta.experiments?.lab_id) {
       const { data: identity } = await supabase
@@ -401,6 +414,17 @@ async function runNotion(supabase: Supabase, rows: BookingRow[]) {
         .eq("lab_id", meta.experiments.lab_id)
         .maybeSingle();
       publicCode = identity?.public_code ?? null;
+    }
+    projectPageId = meta?.experiments?.notion_project_page_id ?? null;
+    if (meta?.experiments?.created_by) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("notion_member_page_id")
+        .eq("id", meta.experiments.created_by)
+        .maybeSingle();
+      researcherMemberPageId =
+        (prof as { notion_member_page_id?: string | null } | null)
+          ?.notion_member_page_id ?? null;
     }
   }
 
@@ -421,6 +445,8 @@ async function runNotion(supabase: Supabase, rows: BookingRow[]) {
         fee: booking.experiments.participation_fee,
         researcherName: null,
         publicCode,
+        researcherMemberPageId,
+        projectPageId,
       });
       await supabase.from("bookings").update({ notion_page_id: pageId }).eq("id", booking.id);
       await markIntegration(supabase, booking.id, "notion", {

@@ -109,6 +109,7 @@ export interface Database {
           disabled: boolean;
           phone: string;
           contact_email: string;
+          notion_member_page_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -120,6 +121,7 @@ export interface Database {
           disabled?: boolean;
           phone?: string;
           contact_email?: string;
+          notion_member_page_id?: string | null;
         };
         Update: {
           email?: string;
@@ -128,6 +130,7 @@ export interface Database {
           disabled?: boolean;
           phone?: string;
           contact_email?: string;
+          notion_member_page_id?: string | null;
         };
         Relationships: [
           {
@@ -328,6 +331,7 @@ export interface Database {
           checklist_completed_at: string | null;
           notion_experiment_page_id: string | null;
           notion_experiment_sync_attempted_at: string | null;
+          notion_project_page_id: string | null;
           protocol_version: string | null;
           experiment_mode: ExperimentMode;
           online_runtime_config: OnlineRuntimeConfig | null;
@@ -374,6 +378,7 @@ export interface Database {
           checklist_completed_at?: string | null;
           notion_experiment_page_id?: string | null;
           notion_experiment_sync_attempted_at?: string | null;
+          notion_project_page_id?: string | null;
           protocol_version?: string | null;
           experiment_mode?: ExperimentMode;
           online_runtime_config?: OnlineRuntimeConfig | null;
@@ -420,6 +425,7 @@ export interface Database {
           checklist_completed_at?: string | null;
           notion_experiment_page_id?: string | null;
           notion_experiment_sync_attempted_at?: string | null;
+          notion_project_page_id?: string | null;
           protocol_version?: string | null;
           experiment_mode?: ExperimentMode;
           online_runtime_config?: OnlineRuntimeConfig | null;
