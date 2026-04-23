@@ -168,6 +168,23 @@ export function ExperimentForm({
     (experiment?.online_runtime_config?.exclude_experiment_ids ?? []).join("\n"),
   );
 
+  type AttentionDraft = {
+    question: string;
+    kind: "yes_no" | "single_choice";
+    options: string;
+    correct_answer: string;
+    position: string; // "after_block:N" | "random"
+  };
+  const [attentionChecks, setAttentionChecks] = useState<AttentionDraft[]>(
+    (experiment?.online_runtime_config?.attention_checks ?? []).map((c) => ({
+      question: c.question,
+      kind: c.kind,
+      options: (c.options ?? []).join(","),
+      correct_answer: c.correct_answer,
+      position: c.position,
+    })),
+  );
+
   const [previewOpen, setPreviewOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [previewConfig, setPreviewConfig] = useState<Record<string, any> | null>(null);
@@ -301,6 +318,13 @@ export function ExperimentForm({
         | { kind: "block_rotation"; conditions: string[]; block_size?: number }
         | { kind: "random"; conditions: string[]; seed?: string };
       exclude_experiment_ids?: string[];
+      attention_checks?: Array<{
+        question: string;
+        kind: "yes_no" | "single_choice";
+        options?: string[];
+        correct_answer: string;
+        position: `after_block:${number}` | "random";
+      }>;
     } = { entry_url: onlineEntryUrl.trim() };
     if (typeof onlineTrialCount === "number") cfg.trial_count = onlineTrialCount;
     if (typeof onlineBlockCount === "number") cfg.block_count = onlineBlockCount;
@@ -324,6 +348,25 @@ export function ExperimentForm({
       .map((s) => s.trim())
       .filter((s) => uuidRe.test(s));
     if (excludeIds.length > 0) cfg.exclude_experiment_ids = excludeIds;
+
+    const checks = attentionChecks
+      .filter((c) => c.question.trim() && c.correct_answer.trim())
+      .map((c) => {
+        const pos = c.position === "random"
+          ? ("random" as const)
+          : (c.position as `after_block:${number}`);
+        return {
+          question: c.question.trim(),
+          kind: c.kind,
+          options:
+            c.kind === "single_choice"
+              ? c.options.split(",").map((o) => o.trim()).filter(Boolean)
+              : undefined,
+          correct_answer: c.correct_answer.trim(),
+          position: pos,
+        };
+      });
+    if (checks.length > 0) cfg.attention_checks = checks;
 
     if (counterbalanceKind) {
       const conds = counterbalanceConditions
@@ -1019,6 +1062,152 @@ export function ExperimentForm({
                   placeholder="ex: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
                   className="mt-2 w-full rounded-lg border border-border bg-white px-3 py-2 font-mono text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
+              </div>
+            )}
+
+            {/* Attention checks — overlay between blocks */}
+            {experimentMode !== "offline" && (
+              <div className="mt-4 rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">주의 체크</h3>
+                    <p className="mt-0.5 text-xs text-muted">
+                      참여자가 지정된 블록을 마친 뒤 오버레이로 질문이 표시됩니다. 오답 시
+                      attention_fail_count 가 증가합니다.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAttentionChecks((cs) => [
+                        ...cs,
+                        {
+                          question: "",
+                          kind: "yes_no",
+                          options: "",
+                          correct_answer: "yes",
+                          position: "after_block:0",
+                        },
+                      ])
+                    }
+                    className="text-xs font-medium text-primary hover:text-primary-hover"
+                  >
+                    + 체크 추가
+                  </button>
+                </div>
+                {attentionChecks.length === 0 ? (
+                  <p className="mt-3 rounded-lg border border-dashed border-border py-3 text-center text-xs text-muted">
+                    주의 체크 없음
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    {attentionChecks.map((c, i) => (
+                      <div
+                        key={i}
+                        className="rounded-lg border border-border bg-white p-3"
+                      >
+                        <div className="flex gap-2">
+                          <div className="flex-1 space-y-2">
+                            <input
+                              value={c.question}
+                              onChange={(e) =>
+                                setAttentionChecks((cs) =>
+                                  cs.map((x, j) =>
+                                    j === i ? { ...x, question: e.target.value } : x,
+                                  ),
+                                )
+                              }
+                              placeholder="질문"
+                              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                            />
+                            <div className="grid gap-2 sm:grid-cols-3">
+                              <select
+                                value={c.kind}
+                                onChange={(e) =>
+                                  setAttentionChecks((cs) =>
+                                    cs.map((x, j) =>
+                                      j === i
+                                        ? {
+                                            ...x,
+                                            kind: e.target.value as
+                                              | "yes_no"
+                                              | "single_choice",
+                                          }
+                                        : x,
+                                    ),
+                                  )
+                                }
+                                className="rounded-lg border border-border px-3 py-1.5 text-sm"
+                              >
+                                <option value="yes_no">예/아니오</option>
+                                <option value="single_choice">단일선택</option>
+                              </select>
+                              <select
+                                value={c.position}
+                                onChange={(e) =>
+                                  setAttentionChecks((cs) =>
+                                    cs.map((x, j) =>
+                                      j === i ? { ...x, position: e.target.value } : x,
+                                    ),
+                                  )
+                                }
+                                className="rounded-lg border border-border px-3 py-1.5 text-sm"
+                              >
+                                <option value="random">랜덤 (아무 블록 후)</option>
+                                {Array.from(
+                                  { length: typeof onlineBlockCount === "number" ? onlineBlockCount : 5 },
+                                  (_, n) => (
+                                    <option key={n} value={`after_block:${n}`}>
+                                      블록 {n + 1} 이후
+                                    </option>
+                                  ),
+                                )}
+                              </select>
+                              <input
+                                value={c.correct_answer}
+                                onChange={(e) =>
+                                  setAttentionChecks((cs) =>
+                                    cs.map((x, j) =>
+                                      j === i
+                                        ? { ...x, correct_answer: e.target.value }
+                                        : x,
+                                    ),
+                                  )
+                                }
+                                placeholder={c.kind === "yes_no" ? "yes 또는 no" : "정답"}
+                                className="rounded-lg border border-border px-3 py-1.5 text-sm"
+                              />
+                            </div>
+                            {c.kind === "single_choice" && (
+                              <input
+                                value={c.options}
+                                onChange={(e) =>
+                                  setAttentionChecks((cs) =>
+                                    cs.map((x, j) =>
+                                      j === i ? { ...x, options: e.target.value } : x,
+                                    ),
+                                  )
+                                }
+                                placeholder="선택지 (쉼표 구분)"
+                                className="w-full rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-mono"
+                              />
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setAttentionChecks((cs) => cs.filter((_, j) => j !== i))
+                            }
+                            className="text-muted hover:text-danger"
+                            aria-label="제거"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
