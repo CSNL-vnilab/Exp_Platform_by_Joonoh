@@ -15,6 +15,10 @@ import {
   runSMSRetry,
   type SMSClaimedRow,
 } from "@/lib/services/sms-retry.service";
+import {
+  runEmailRetry,
+  type EmailClaimedRow,
+} from "@/lib/services/email-retry.service";
 
 // Unified outbox retry cron — D6 sprint.
 //
@@ -42,9 +46,9 @@ const MAX_ROWS_PER_SWEEP = 30;
 const MIN_DELAY_MS = 400;
 const MIN_SECRET_LENGTH = 32;
 
-// Integration types this cron will claim. Email intentionally excluded
-// until the HTML template is extracted from runEmail().
-const ENABLED_TYPES = ["notion", "notion_survey", "gcal", "sms"] as const;
+// Integration types this cron will claim. Email was added after the
+// confirmation-email HTML was extracted into booking-email-template.ts.
+const ENABLED_TYPES = ["notion", "notion_survey", "gcal", "sms", "email"] as const;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -83,7 +87,7 @@ interface Outcome {
 type ClaimRow = {
   id: string;
   booking_id: string;
-  integration_type: "notion" | "notion_survey" | "gcal" | "sms";
+  integration_type: "notion" | "notion_survey" | "gcal" | "sms" | "email";
   attempts: number;
 };
 
@@ -119,6 +123,10 @@ async function runOne(
   }
   if (claim.integration_type === "sms") {
     const r = await runSMSRetry(supabase, claim as SMSClaimedRow);
+    return { ...r, integration_type: claim.integration_type };
+  }
+  if (claim.integration_type === "email") {
+    const r = await runEmailRetry(supabase, claim as EmailClaimedRow);
     return { ...r, integration_type: claim.integration_type };
   }
   // L1 fix — if the RPC allowlist gets widened to a type we don't yet

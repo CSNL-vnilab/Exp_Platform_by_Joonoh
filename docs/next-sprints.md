@@ -25,27 +25,40 @@ on main).
 
 ## D6 — Outbox retry generalisation (high leverage)
 
-**Status:** partially shipped. Foundation (migration 00037, generic
-claim RPC) landed earlier. gcal-retry + sms-retry services + unified
-`/api/cron/outbox-retry` route shipped in commit e39dd8c… follow-up.
-**email-retry deferred** — the confirmation-email HTML currently lives
-inside `booking.service.runEmail()` and replay requires refactoring the
-HTML build into a pure `buildConfirmationEmail(bookingRow)` helper.
+**Status:** shipped — all four integration types (notion, gcal, sms,
+email) have symmetric retry semantics under `/api/cron/outbox-retry`.
 
-**Still TODO:**
-- Extract confirmation-email HTML into a pure helper. Write
-  `email-retry.service.ts` that re-fetches the booking, calls the
-  helper, and sends via `sendEmail()`. Add `"email"` to `ENABLED_TYPES`
-  in the outbox-retry route.
-- Dashboard pending-work RPC (`get_researcher_pending_work`) gains
-  `gcal_stuck`, `email_stuck`, `sms_stuck` counters so the Pending Work
-  card covers all retries, not just Notion.
-- Replace the Vercel cron for `notion-retry` with one for
-  `outbox-retry` once the cutover is confirmed safe (both routes share
-  auth + secret length + 400ms pacing).
+**What landed:**
+- Foundation: migration 00037 (generic `claim_next_outbox_retry` RPC).
+- Services: `notion-retry.service.ts` (pre-existing), `gcal-retry.service.ts`,
+  `sms-retry.service.ts`, `email-retry.service.ts`.
+- Route: `/api/cron/outbox-retry` dispatches on `integration_type`.
+- Template extract: `buildConfirmationEmail` in `booking-email-template.ts`
+  — pure helper shared by runtime pipeline AND the email retry.
+- Review-fix migration: 00044 adds `outbox_retry_sweep` to the health
+  enum so sweep summaries land.
+- Health card: merged Notion/outbox sweep display.
 
-**Exit:** every integration_type has symmetric retry semantics;
-dashboard surfaces all four; `notion-retry` route deleted.
+**Retry semantics per type:**
+
+| Type | Dedup guard | Replay token behaviour |
+|---|---|---|
+| notion / notion_survey | `bookings.notion_page_id IS NULL` | N/A |
+| gcal | `bookings.google_event_id IS NULL` (best-effort; see M1 comment) | N/A |
+| sms | no dedup (accepted — Solapi double-sends are a nuisance, not a disaster) | N/A |
+| email | implicit via Gmail message-id history | runLinks + paymentLink omitted; preface explains why |
+
+**Still TODO (not blocking):**
+- Dashboard pending-work RPC gains `gcal_stuck`, `email_stuck`,
+  `sms_stuck` counters so PendingWorkCard covers all retries, not just
+  Notion. Small migration.
+- Replace Vercel cron entry `notion-retry` → `outbox-retry` once the
+  cutover is confirmed safe. Both routes share auth contract + pacing;
+  the dashboard shows the more-recent sweep already.
+- `notion-retry` route kept for backward compat; delete once cron
+  flipped.
+
+**Exit:** done except for the cron-config cutover.
 
 ## D7 — Multi-lab plumbing preparation
 
