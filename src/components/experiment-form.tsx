@@ -1052,24 +1052,44 @@ export function ExperimentForm({
             </label>
 
             {/* Cross-study exclusion list */}
-            {experimentMode !== "offline" && (
-              <div className="mt-4 rounded-xl border border-border bg-card p-4">
-                <h3 className="text-sm font-semibold text-foreground">
-                  교차 연구 제외
-                </h3>
-                <p className="mt-0.5 text-xs text-muted">
-                  아래 실험에 이미 참여한 분은 이 연구에 예약할 수 없습니다. 실험 UUID 를 한
-                  줄에 하나씩 입력하세요. UUID 가 아닌 줄은 무시됩니다.
-                </p>
-                <textarea
-                  value={excludeExperimentIds}
-                  onChange={(e) => setExcludeExperimentIds(e.target.value)}
-                  rows={3}
-                  placeholder="ex: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                  className="mt-2 w-full rounded-lg border border-border bg-white px-3 py-2 font-mono text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-            )}
+            {experimentMode !== "offline" && (() => {
+              const uuidRe =
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+              const entered = excludeExperimentIds
+                .split(/[\n,]/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+              const valid = entered.filter((s) => uuidRe.test(s));
+              const dropped = entered.length - valid.length;
+              return (
+                <div className="mt-4 rounded-xl border border-border bg-card p-4">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    교차 연구 제외
+                  </h3>
+                  <p className="mt-0.5 text-xs text-muted">
+                    아래 실험에 이미 참여한 분은 이 연구에 예약할 수 없습니다. 실험 UUID 를 한
+                    줄에 하나씩 입력하세요. UUID 가 아닌 줄은 무시됩니다.
+                  </p>
+                  <textarea
+                    value={excludeExperimentIds}
+                    onChange={(e) => setExcludeExperimentIds(e.target.value)}
+                    rows={3}
+                    placeholder="ex: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+                    className="mt-2 w-full rounded-lg border border-border bg-white px-3 py-2 font-mono text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                  {entered.length > 0 && (
+                    <p className="mt-1 text-[11px] text-muted">
+                      {valid.length}개 인식됨
+                      {dropped > 0 && (
+                        <span className="ml-1 text-amber-700">
+                          · {dropped}개는 UUID 형식이 아니어서 저장되지 않습니다
+                        </span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Attention checks — overlay between blocks */}
             {experimentMode !== "offline" && (
