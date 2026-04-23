@@ -8,14 +8,6 @@
     {
       "path": "/api/cron/auto-complete-bookings",
       "schedule": "15 17 * * *"
-    },
-    {
-      "path": "/api/cron/notion-health",
-      "schedule": "0 16 * * *"
-    },
-    {
-      "path": "/api/cron/notion-retry",
-      "schedule": "*/30 * * * *"
     }
   ]
 }
