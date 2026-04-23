@@ -1083,7 +1083,7 @@ export interface Database {
       notion_health_state: {
         Row: {
           id: string;
-          check_type: "schema_drift" | "retry_sweep";
+          check_type: "schema_drift" | "retry_sweep" | "outbox_retry_sweep";
           healthy: boolean;
           schema_hash: string | null;
           report: Json;
@@ -1092,7 +1092,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          check_type: "schema_drift" | "retry_sweep";
+          check_type: "schema_drift" | "retry_sweep" | "outbox_retry_sweep";
           healthy: boolean;
           schema_hash?: string | null;
           report?: Json;
@@ -1135,7 +1135,7 @@ export interface Database {
       notion_health_current: {
         Row: {
           id: string;
-          check_type: "schema_drift" | "retry_sweep";
+          check_type: "schema_drift" | "retry_sweep" | "outbox_retry_sweep";
           healthy: boolean;
           schema_hash: string | null;
           report: Json;
@@ -1282,6 +1282,46 @@ export interface Database {
         }>;
       };
       finalize_notion_retry: {
+        Args: {
+          p_integration_id: string;
+          p_status: "completed" | "failed" | "skipped";
+          p_external_id: string | null;
+          p_last_error: string | null;
+        };
+        Returns: void;
+      };
+      // Migration 00037 — generic version. `p_types` is the integration_type
+      // filter array (e.g. ['notion', 'notion_survey', 'gcal', 'sms']).
+      claim_next_outbox_retry: {
+        Args: {
+          p_types: Array<
+            | "gcal"
+            | "notion"
+            | "email"
+            | "sms"
+            | "notion_experiment"
+            | "notion_survey"
+          >;
+        };
+        Returns: Array<{
+          id: string;
+          booking_id: string;
+          integration_type:
+            | "gcal"
+            | "notion"
+            | "email"
+            | "sms"
+            | "notion_experiment"
+            | "notion_survey";
+          status: "pending" | "completed" | "failed" | "skipped";
+          attempts: number;
+          last_error: string | null;
+          external_id: string | null;
+          created_at: string;
+          processed_at: string | null;
+        }>;
+      };
+      finalize_outbox_retry: {
         Args: {
           p_integration_id: string;
           p_status: "completed" | "failed" | "skipped";

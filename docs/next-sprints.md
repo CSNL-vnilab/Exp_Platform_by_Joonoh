@@ -25,26 +25,27 @@ on main).
 
 ## D6 — Outbox retry generalisation (high leverage)
 
-**Problem:** Today only `notion` / `notion_survey` integration types have
-an atomic claim + retry cron. `gcal`, `email`, `sms` failures in
-`booking_integrations` sit in `failed` status forever — no worker. Real
-impact: if Gmail refuses a confirmation send once (transient rate limit,
-Greylisting, etc.), the participant never gets the email.
+**Status:** partially shipped. Foundation (migration 00037, generic
+claim RPC) landed earlier. gcal-retry + sms-retry services + unified
+`/api/cron/outbox-retry` route shipped in commit e39dd8c… follow-up.
+**email-retry deferred** — the confirmation-email HTML currently lives
+inside `booking.service.runEmail()` and replay requires refactoring the
+HTML build into a pure `buildConfirmationEmail(bookingRow)` helper.
 
-**Plan:**
-- Generalise `claim_next_notion_retry` → `claim_next_outbox_retry(p_types integration_type[])`
-  with the same FOR UPDATE SKIP LOCKED pattern. New migration 00037.
-- Extract integration-specific retry services: gcal-retry.service.ts,
-  email-retry.service.ts, sms-retry.service.ts — each with its own
-  dedupe guard (e.g. GCal: check `bookings.google_event_id` not null
-  before creating).
-- `/api/cron/outbox-retry` replaces `/api/cron/notion-retry`, dispatches
-  to the right service based on integration_type.
-- Dashboard pending-work RPC gains `gcal_stuck`, `email_stuck`, `sms_stuck`
-  counters. Rename tiles on PendingWorkCard accordingly.
+**Still TODO:**
+- Extract confirmation-email HTML into a pure helper. Write
+  `email-retry.service.ts` that re-fetches the booking, calls the
+  helper, and sends via `sendEmail()`. Add `"email"` to `ENABLED_TYPES`
+  in the outbox-retry route.
+- Dashboard pending-work RPC (`get_researcher_pending_work`) gains
+  `gcal_stuck`, `email_stuck`, `sms_stuck` counters so the Pending Work
+  card covers all retries, not just Notion.
+- Replace the Vercel cron for `notion-retry` with one for
+  `outbox-retry` once the cutover is confirmed safe (both routes share
+  auth + secret length + 400ms pacing).
 
-**Exit:** every integration_type has symmetric retry semantics; dashboard
-surfaces all four.
+**Exit:** every integration_type has symmetric retry semantics;
+dashboard surfaces all four; `notion-retry` route deleted.
 
 ## D7 — Multi-lab plumbing preparation
 
