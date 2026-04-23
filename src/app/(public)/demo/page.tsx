@@ -66,6 +66,7 @@ const DEMO_EXPERIMENT: Experiment = {
   checklist_completed_at: new Date().toISOString(),
   notion_experiment_page_id: null,
   notion_experiment_sync_attempted_at: null,
+  protocol_version: null,
   experiment_mode: "offline",
   online_runtime_config: null,
   data_consent_required: false,

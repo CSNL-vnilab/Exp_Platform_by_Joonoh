@@ -115,8 +115,17 @@ async function main() {
   const today = new Date();
   const inTwoWeeks = new Date(today.getTime() + 14 * 86_400_000);
   const ENTRY_URL = APP + "/demo-exp/number-task.js";
+  // Stream 1 added experiments.lab_id NOT NULL. Resolve an existing lab.
+  const { data: labs } = await admin.from("labs").select("id").limit(1);
+  const labId = labs?.[0]?.id;
+  if (!labId) {
+    phase("find lab row", false, { note: "no lab — migration 00025+ unapplied?" });
+    return finalize(admin);
+  }
+
   const { error: expErr } = await admin.from("experiments").insert({
     id: expId,
+    lab_id: labId,
     title: "[E2E] Online number-task",
     description: "Automated E2E test — should be cleaned up on completion.",
     start_date: today.toISOString().slice(0, 10),

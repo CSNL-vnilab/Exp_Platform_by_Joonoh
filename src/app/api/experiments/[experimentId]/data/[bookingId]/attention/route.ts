@@ -73,7 +73,7 @@ export async function POST(
   const admin = createAdminClient();
   const { data: progress } = await admin
     .from("experiment_run_progress")
-    .select("token_hash")
+    .select("token_hash, token_revoked_at, completion_code")
     .eq("booking_id", bookingId)
     .maybeSingle();
   if (!progress) {
@@ -81,6 +81,14 @@ export async function POST(
   }
   if (progress.token_hash !== hashToken(token)) {
     return NextResponse.json({ error: "Token hash mismatch" }, { status: 401 });
+  }
+  // Reject post-completion / revoked tokens so the integrity counters
+  // don't accept forever-running increments from a stale link (review H4).
+  if (progress.token_revoked_at) {
+    return NextResponse.json({ error: "Token revoked" }, { status: 401 });
+  }
+  if (progress.completion_code) {
+    return NextResponse.json({ error: "Run already completed" }, { status: 409 });
   }
 
   // Verify the URL's experimentId matches the booking's — BEFORE any

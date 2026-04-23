@@ -328,6 +328,7 @@ export interface Database {
           checklist_completed_at: string | null;
           notion_experiment_page_id: string | null;
           notion_experiment_sync_attempted_at: string | null;
+          protocol_version: string | null;
           experiment_mode: ExperimentMode;
           online_runtime_config: OnlineRuntimeConfig | null;
           data_consent_required: boolean;
@@ -373,6 +374,7 @@ export interface Database {
           checklist_completed_at?: string | null;
           notion_experiment_page_id?: string | null;
           notion_experiment_sync_attempted_at?: string | null;
+          protocol_version?: string | null;
           experiment_mode?: ExperimentMode;
           online_runtime_config?: OnlineRuntimeConfig | null;
           data_consent_required?: boolean;
@@ -418,6 +420,7 @@ export interface Database {
           checklist_completed_at?: string | null;
           notion_experiment_page_id?: string | null;
           notion_experiment_sync_attempted_at?: string | null;
+          protocol_version?: string | null;
           experiment_mode?: ExperimentMode;
           online_runtime_config?: OnlineRuntimeConfig | null;
           data_consent_required?: boolean;

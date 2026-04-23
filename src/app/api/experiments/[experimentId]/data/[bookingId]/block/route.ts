@@ -31,8 +31,11 @@ const blockSchema = z.object({
   is_last: z.boolean().optional(),
 });
 
+// Unambiguous PII keys. Historical list included "name" but researchers
+// legitimately encode stimulus / condition names in trial metadata
+// (stim.name, condition_name, …) — stripping there corrupts data.
+// "name" is no longer in the strip list; the researcher owns the contract.
 const PII_KEYS = new Set([
-  "name",
   "email",
   "phone",
   "birthdate",

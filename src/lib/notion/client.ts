@@ -22,6 +22,9 @@ export interface BookingNotionData {
   // Optional so legacy callers don't break; if null/absent, the 공개 ID
   // column is left blank.
   publicCode?: string | null;
+  // Experiment protocol version (migration 00042). Free-form string,
+  // e.g. "v1.2", "2026-03-rev2". Null/absent → 버전넘버 column blank.
+  protocolVersion?: string | null;
 }
 
 // Property names match the Notion database template in
@@ -48,12 +51,21 @@ export async function createBookingPage(data: BookingNotionData): Promise<string
     },
     회차: { number: data.sessionNumber },
     참여자: { rich_text: [{ text: { content: data.participantName } }] },
+    // Session owner (researcher). Separate column from 참여자 so external
+    // sharing can show who ran the session without revealing participant PII.
+    "실험자": {
+      rich_text: [{ text: { content: data.researcherName ?? "" } }],
+    },
     상태: { select: { name: data.status } },
     // Pseudonymous lab-scoped code. Populated when Stream B's identity row
     // exists; otherwise left empty. This column is the preferred external
     // reference (see docs/notion-db-template.md §7 PII note).
     "공개 ID": {
       rich_text: [{ text: { content: data.publicCode ?? "" } }],
+    },
+    // Experiment protocol version label (migration 00042).
+    "버전넘버": {
+      rich_text: [{ text: { content: data.protocolVersion ?? "" } }],
     },
   };
 
@@ -96,6 +108,8 @@ export interface ExperimentNotionData {
   endDate: string; // YYYY-MM-DD
   researcherName: string | null;
   status: string;
+  // Experiment protocol version label (migration 00042).
+  protocolVersion?: string | null;
 }
 
 // Mirrors an experiment (not a booking) into Notion on draft → active.
@@ -129,13 +143,19 @@ export async function createExperimentPage(
     프로젝트: {
       rich_text: [{ text: { content: data.projectName ?? "" } }],
     },
+    "버전넘버": {
+      rich_text: [{ text: { content: data.protocolVersion ?? "" } }],
+    },
     실험날짜: { date: { start: data.startDate, end: data.endDate } },
     시간: {
       rich_text: [{ text: { content: `${data.startDate} ~ ${data.endDate}` } }],
     },
     "피험자 ID": { rich_text: [{ text: { content: "실험 마스터" } }] },
     회차: { number: 0 },
-    참여자: {
+    // 참여자 is blank on the experiment-master row — there's no specific
+    // person tied to it. The researcher goes in the 실험자 column.
+    참여자: { rich_text: [{ text: { content: "" } }] },
+    "실험자": {
       rich_text: [{ text: { content: data.researcherName ?? "" } }],
     },
     상태: { select: { name: data.status } },
@@ -272,6 +292,9 @@ export async function upsertObservationPage(
     // avoid synthesising fake PII. Leave 참여자 blank; the 공개 ID below is
     // the canonical reference. Researchers can manually relink if needed.
     참여자: { rich_text: [{ text: { content: "" } }] },
+    "실험자": {
+      rich_text: [{ text: { content: data.researcherName ?? "" } }],
+    },
     상태: { select: { name: "완료" } },
     ...observationProps,
   };

@@ -221,6 +221,13 @@ export function RunShell({
   };
   var loading = document.getElementById('__shim_loading');
   var script = document.createElement('script');
+  // Runtime guard against javascript:/data: payloads even if the DB + form
+  // validators are bypassed (defence in depth, review C1).
+  if (!/^https?:\\/\\//i.test(${safeEntry})) {
+    document.body.innerHTML = '<pre class="shim-error">entry_url is not http(s) — refusing to load.</pre>';
+    parent.postMessage({ __exp: true, type: 'load_error' }, '*');
+    return;
+  }
   script.src = "${safeEntry}";
   ${entrySri ? `script.setAttribute('integrity', ${scriptSafe(entrySri)}); script.setAttribute('crossorigin', 'anonymous');` : ""}
   script.onload = function(){ if (loading) loading.remove(); parent.postMessage({ __exp: true, type: 'loaded' }, '*'); };

@@ -20,17 +20,27 @@ export type NotionPropertySpec =
 
 export const NOTION_TITLE_COLUMN = "실험명";
 
-// Non-title columns, in the order they should appear in the Notion UI.
-// Adding a column here + rerunning `node scripts/notion-setup.mjs` is the
-// supported way to extend the DB schema.
+// Non-title columns, in the desired display order for the default view.
+// Researcher convenience: 실험명 → 실험날짜 → 시간 → 프로젝트 → 버전넘버 →
+// 피험자 ID → 회차 → (rest free). New columns added via notion-setup.mjs
+// land in this order; EXISTING columns keep their current UI order and
+// need a one-time drag in the Notion UI (API doesn't support re-ordering
+// existing database-level properties; view-level reorder is possible
+// via /v1/views but requires creating a named view). See
+// docs/notion-db-template.md §9.
 export const NOTION_REQUIRED_PROPERTIES: NotionPropertySpec[] = [
   { name: "실험명", type: "title" },
-  { name: "프로젝트", type: "rich_text" },
   { name: "실험날짜", type: "date" },
   { name: "시간", type: "rich_text" },
+  { name: "프로젝트", type: "rich_text" },
+  { name: "버전넘버", type: "rich_text" },
   { name: "피험자 ID", type: "rich_text" },
   { name: "회차", type: "number" },
   { name: "참여자", type: "rich_text" },
+  // 실험자: researcher running the session. Separated from 참여자 so
+  // the Notion column reflects session ownership clearly and so we can
+  // later upgrade to a People/Relation link (CSNL members DB).
+  { name: "실험자", type: "rich_text" },
   { name: "공개 ID", type: "rich_text" },
   {
     name: "상태",
