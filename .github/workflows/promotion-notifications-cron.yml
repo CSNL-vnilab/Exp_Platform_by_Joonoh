@@ -1,0 +1,33 @@
+name: Promotion notification emails
+on:
+  schedule:
+    # Every 30 minutes. Most promotions happen immediately after a
+    # researcher submits a post-survey that auto-completes the 15th
+    # booking; we don't need sub-minute latency but a daily digest
+    # would feel stale.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-promotion-notifications:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger promotion-notifications endpoint
+        env:
+          URL: https://lab-reservation-seven.vercel.app/api/cron/promotion-notifications
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is missing"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $status"
+          cat /tmp/resp || true
+          echo
+          if [ "$status" != "200" ]; then
+            echo "::error::promotion-notifications returned HTTP $status"
+            exit 1
+          fi

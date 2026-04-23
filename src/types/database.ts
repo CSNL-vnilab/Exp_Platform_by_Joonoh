@@ -1098,6 +1098,29 @@ export interface Database {
         };
         Relationships: [];
       };
+      class_promotion_notifications: {
+        Row: {
+          id: string;
+          audit_id: string;
+          researcher_user_id: string;
+          sent_at: string;
+          email_to: string;
+          error_message: string | null;
+        };
+        Insert: {
+          id?: string;
+          audit_id: string;
+          researcher_user_id: string;
+          sent_at?: string;
+          email_to: string;
+          error_message?: string | null;
+        };
+        Update: {
+          sent_at?: string;
+          error_message?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       notion_health_current: {
@@ -1257,6 +1280,22 @@ export interface Database {
           p_last_error: string | null;
         };
         Returns: void;
+      };
+      pending_promotion_notifications: {
+        Args: Record<string, never>;
+        Returns: Array<{
+          audit_id: string;
+          participant_id: string;
+          lab_id: string;
+          lab_code: string | null;
+          new_class: "newbie" | "royal" | "blacklist" | "vip";
+          previous_class: "newbie" | "royal" | "blacklist" | "vip" | null;
+          audit_created_at: string;
+          researcher_user_id: string;
+          researcher_contact_email: string | null;
+          researcher_display_name: string | null;
+          public_code: string | null;
+        }>;
       };
       get_researcher_pending_work: {
         // D2-1 hardening (migration 00035): arg removed, function now
