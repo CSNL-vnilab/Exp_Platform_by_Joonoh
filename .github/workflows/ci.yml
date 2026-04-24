@@ -1,0 +1,52 @@
+name: CI
+
+# Fast static checks that don't need secrets or a live deploy.
+# Heavier checks (cron-auth smoke, phase-2 E2E) run post-deploy because
+# they need a reachable prod/preview URL and the CRON_SECRET, which
+# CI shouldn't touch.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches local dev (node 22). Vercel builds on 24 but CI
+          # stays aligned with the dev environment to avoid cases
+          # where a change passes CI on a newer runtime than the
+          # author tested.
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        # Install only what the checks need. `npm ci` pulls the full
+        # lockfile; cheaper than --legacy-peer-deps variants and matches
+        # the dev env.
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Guide ↔ bridge surface sync
+        # Guards docs/online-experiment-designer-guide.md against drift
+        # from src/components/run/run-shell.tsx's expPlatform surface.
+        # Also checks every stub in public/demo-exp/ actually calls
+        # submitBlock.
+        run: node scripts/test-guide-bridge-sync.mjs
+
+      - name: Migration-status (flags stale sidecar mentions)
+        # Non-fatal for PRs that don't touch migrations; fatal if a
+        # new .sql lands without a matching ops-playbook.md marker
+        # bump, or if improvement-roadmap / next-sprints / stream2-notes
+        # still describe a migration the playbook says is applied.
+        run: node scripts/migration-status.mjs
