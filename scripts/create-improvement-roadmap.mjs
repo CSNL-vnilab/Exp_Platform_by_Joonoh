@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// One-off: create a Notion Projects & Chores page with the Notion UX +
-// Research Project DB + pre/post-experiment data organization roadmap
-// synthesized from the 2026-04-24 benchmark report.
+// Create / replace the Notion Projects & Chores page with the 2026-04-24
+// benchmark-driven improvement roadmap. Visual-hierarchy-focused layout:
+// callouts per section · toggle groups to hide dense content · table
+// blocks for gap analysis · to-do blocks for each recommendation.
 //
-// Page lives in the Projects & Chores DB as a Lab Chore with
-// 담당자 = 박준오 (jy061100/JOP). Content is ~20 structured blocks.
+// Idempotency: if an existing page with the same title prefix is found,
+// it gets ARCHIVED first, then a fresh page is created. This lets the
+// script double as "republish after edits."
 //
 // Run: `node scripts/create-improvement-roadmap.mjs`
-// Idempotent via title match: re-running finds the existing page by
-// title prefix and short-circuits (prints the URL).
 
 import { readFile } from "node:fs/promises";
 
@@ -41,230 +41,371 @@ async function notion(path, body, method = "POST") {
   return jbody;
 }
 
-const TITLE = "[로드맵] Notion UX · 연구 프로젝트 DB · 실험 전후 데이터 정리 개선안 (2026-04-24)";
+const TITLE = "📋 연구 플랫폼 개선 로드맵 — Notion · 연구 DB · 실험 전후 데이터 정리 (2026-04-24)";
+const OLD_TITLE_PREFIX = "[로드맵] Notion UX";
 
-// Idempotency: search Projects DB for an existing page with this title.
-const existing = await notion(`/databases/${PROJECTS_DB}/query`, {
-  filter: {
-    property: "항목명",
-    title: { contains: TITLE.slice(0, 40) },
-  },
-  page_size: 5,
-});
-if ((existing.results ?? []).length > 0) {
-  console.log(
-    "Page already exists, skipping:",
-    existing.results[0].url ?? existing.results[0].id,
-  );
-  process.exit(0);
+// ── idempotency: archive any prior roadmap pages (old or new title) ──
+async function findExisting(prefix) {
+  const res = await notion(`/databases/${PROJECTS_DB}/query`, {
+    filter: { property: "항목명", title: { contains: prefix } },
+    page_size: 5,
+  });
+  return res.results ?? [];
+}
+for (const p of [
+  ...(await findExisting(TITLE.slice(0, 25))),
+  ...(await findExisting(OLD_TITLE_PREFIX)),
+]) {
+  console.log(`Archiving existing: ${p.id}`);
+  await notion(`/pages/${p.id}`, { archived: true }, "PATCH");
 }
 
-// Find 박준오's Members page_id (researcher whose initial is JOP).
-// Members DB title property is "이름", not "항목명".
+// ── Members 이름 lookup (title prop is 이름, not 항목명) ──
 const members = await notion(`/databases/${MEMBERS_DB}/query`, {
   filter: { property: "이름", title: { equals: "JOP" } },
   page_size: 5,
 });
 const ownerPageId = members.results?.[0]?.id ?? null;
 
-// ── helpers ──
-const p = (text) => ({
+// ── block helpers ──
+const rt = (content, opts = {}) => ({
+  type: "text",
+  text: { content },
+  annotations: opts,
+});
+const rtBold = (content) => rt(content, { bold: true });
+const rtCode = (content) => rt(content, { code: true });
+const rtLink = (content, url) => ({
+  type: "text",
+  text: { content, link: { url } },
+});
+const p = (...rtArr) => ({
   object: "block",
   type: "paragraph",
-  paragraph: { rich_text: [{ type: "text", text: { content: text } }] },
+  paragraph: {
+    rich_text: rtArr.flat().map((x) => (typeof x === "string" ? rt(x) : x)),
+  },
 });
-const h1 = (text) => ({
-  object: "block",
-  type: "heading_1",
-  heading_1: { rich_text: [{ type: "text", text: { content: text } }] },
-});
-const h2 = (text) => ({
+const h2 = (content) => ({
   object: "block",
   type: "heading_2",
-  heading_2: { rich_text: [{ type: "text", text: { content: text } }] },
+  heading_2: { rich_text: [rt(content)] },
 });
-const h3 = (text) => ({
+const h3 = (content) => ({
   object: "block",
   type: "heading_3",
-  heading_3: { rich_text: [{ type: "text", text: { content: text } }] },
+  heading_3: { rich_text: [rt(content)] },
 });
-const b = (text) => ({
+const bullet = (...rtArr) => ({
   object: "block",
   type: "bulleted_list_item",
   bulleted_list_item: {
-    rich_text: [{ type: "text", text: { content: text } }],
+    rich_text: rtArr.flat().map((x) => (typeof x === "string" ? rt(x) : x)),
   },
 });
-const code = (text, lang = "plain text") => ({
+const todo = (content, children = []) => ({
   object: "block",
-  type: "code",
-  code: {
-    language: lang,
-    rich_text: [{ type: "text", text: { content: text } }],
+  type: "to_do",
+  to_do: {
+    rich_text: [rt(content)],
+    checked: false,
+    children: children.length > 0 ? children : undefined,
   },
 });
-const callout = (text, emoji = "💡") => ({
+const callout = (content, emoji = "💡", color = "gray_background") => ({
   object: "block",
   type: "callout",
   callout: {
     icon: { type: "emoji", emoji },
-    rich_text: [{ type: "text", text: { content: text } }],
+    rich_text: [rt(content)],
+    color,
+  },
+});
+const toggle = (content, children = []) => ({
+  object: "block",
+  type: "toggle",
+  toggle: {
+    rich_text: [rt(content)],
+    children,
   },
 });
 const divider = () => ({ object: "block", type: "divider", divider: {} });
-const to_do = (text) => ({
+const quote = (content) => ({
   object: "block",
-  type: "to_do",
-  to_do: { rich_text: [{ type: "text", text: { content: text } }], checked: false },
+  type: "quote",
+  quote: { rich_text: [rt(content)] },
 });
 
+// Table — Notion API expects a table block with children of type table_row.
+function table(headers, rows) {
+  const rowBlock = (cells) => ({
+    object: "block",
+    type: "table_row",
+    table_row: {
+      cells: cells.map((c) =>
+        typeof c === "string" ? [rt(c)] : c.map((x) => (typeof x === "string" ? rt(x) : x)),
+      ),
+    },
+  });
+  return {
+    object: "block",
+    type: "table",
+    table: {
+      table_width: headers.length,
+      has_column_header: true,
+      has_row_header: false,
+      children: [rowBlock(headers), ...rows.map(rowBlock)],
+    },
+  };
+}
+
+// Column list for side-by-side current-vs-target.
+function twoColumns(leftChildren, rightChildren) {
+  return {
+    object: "block",
+    type: "column_list",
+    column_list: {
+      children: [
+        { object: "block", type: "column", column: { children: leftChildren } },
+        { object: "block", type: "column", column: { children: rightChildren } },
+      ],
+    },
+  };
+}
+
+// ── content ──
 const children = [
   callout(
-    "2026-04-24 외부 벤치마크 + 내부 감사 기반. 연구자와의 협의 없이 agent가 자동 생성 — 착수 전 우선순위 / 범위 재확인 필요.",
-    "📌",
+    "2026-04-24 외부 벤치마크 + 내부 감사. P0 항목 4개만으로도 2년 뒤 재분석 가능한 수준의 재현성 확보. 연구자 확인 후 착수 순서 조정 권장.",
+    "🎯",
+    "blue_background",
   ),
 
-  h2("요약"),
-  p(
-    "SLab 플랫폼은 예약 · 관찰 기록 · Notion 연동의 기본 축은 잘 갖춰져 있으나, 2년 뒤 재분석이 가능한 수준의 메타데이터(git commit, 환경 digest, raw/derivatives 분리, prereg 링크 등)는 수집하지 않음. BIDS / Psych-DS / DataLad / OSF 표준을 기준으로 보면 '공유 가능한 데이터셋'까지의 거리는 중간 정도. 아래 P0 항목만 완료해도 연구 기록의 재현성이 크게 올라가며, P1~P2 는 표준 호환성 + UX 다듬기.",
-  ),
-
-  h2("A. 현재 상태 (내부 감사)"),
-  h3("Notion 구조"),
-  b("SLab DB — 세션 한 행. 실험명/실험날짜/시간/프로젝트/버전넘버/피험자ID/회차/참여자/실험자(Relation)/공개ID/프로젝트(관련)/상태/Pre-Survey/Post-Survey/특이사항/Code Directory/Data Directory/Parameter/Notes."),
-  b("Projects & Chores DB — 프로젝트·업무 한 행. 항목명/분류/상태/기간/담당자(Relation)/우선순위/코드 디렉토리/참여자 수."),
-  b("CSNL Members DB — 연구원 한 행. 이니셜을 타이틀로 사용."),
-  h3("Supabase 측"),
-  b("experiments.code_repo_url / data_path / pre_experiment_checklist / protocol_version / online_runtime_config(counterbalance / attention_checks / screeners / exclude_experiment_ids) / notion_project_page_id"),
-  b("bookings, participants, booking_observations, participant_classes(newbie/royal/vip/blacklist), participant_lab_identity(HMAC 가명)"),
-  h3("웹 UI"),
-  b("/dashboard — 기록이 누락된 실험 메타데이터 배너 + 오늘 처리할 일 7-tile 그리드"),
-  b("/experiments/[id] — 완성도 사이드바 + Notion Projects & Chores 연결 편집"),
-  b("/schedule, /participants, /bookings — 기본 테이블 뷰"),
-
-  h2("B. 벤치마크 요약"),
-  p(
-    "표준: BIDS(신경영상) / Psych-DS(행동) / NWB(전기생리) / DataJoint(관계형 파이프라인) / DataLad+git-annex(데이터 버전 관리) / ReproNim / OSF / FAIR / The Turing Way / Cookiecutter Data Science.",
-  ),
-  p(
-    "랩: Poldrack Lab(Stanford, BIDS 주도) · Saxe Lab(MIT, OpenNeuro 공개) · Niv Lab(Princeton, NivTurk) · Kording Lab(Penn).",
-  ),
-  p(
-    "실험 플랫폼: jsPsych+Pavlovia(자동 git commit) · PsychoPy(psydat/csv/log 트리오) · Experiment Factory(Docker 컨테이너 단위).",
-  ),
-  p(
-    "참여자 풀: Sona Systems(disqualifier-studies, 3-strike 자동 비활성) · Prolific(reputation filter).",
-  ),
-
-  h2("C. 갭 분석"),
-  b("세션 메타데이터 — duration / hardware_id / room_id / stimulus_set_version / instructions snapshot 부재."),
-  b("코드 provenance — code_repo_url 은 있으나 git commit SHA, env lockfile hash, container digest 없음. 2년 후 재실행 불가."),
-  b("데이터 provenance — data_path 단일. raw vs derivatives 분리 없음, checksum 없음."),
-  b("실험 전 체크 — IRB protocol ID/version, 장비 캘리브레이션, 참여비 수금 상태, 금기사항 필드 부재."),
-  b("실험 후 정리 — 분석 노트북 URL, 제외 플래그, 제외 사유, publication DOI, preregistration 링크 부재."),
-  b("참여자 class — 자동 승급/블랙리스트는 있으나 class 전환의 근거 evidence 로그(on-time rate, attention-check 통과율) 미기록."),
-  b("표준 호환 — BIDS / Psych-DS export 경로 없음. OSF/OpenNeuro 공유 시 수동 재포맷 필요."),
-  b("참여자 스키마 — handedness / 시력교정 / 모국어 미기록."),
-  b("감사 로그 — 세션 행의 이력(누가 언제 실험자 Relation 을 바꿨나) 없음."),
-
-  h2("D. 개선 제안"),
-  h3("P0 — 재현성 최소 확보"),
-  to_do(
-    "C1 · experiments 또는 bookings 에 experiment_git_sha / env_lockfile_hash / container_image_digest 컬럼 추가. /run 셸과 PsychoPy expInfo 가 세션 시작 시점에 자동 기록.",
-  ),
-  to_do(
-    "C2 · data_path 를 raw_data_path / derivatives_path / analysis_notebook_url / figures_path 로 분리. Dashboard 에 'raw 있고 derivatives 비어 있음 N일 경과' 배너.",
-  ),
-  to_do(
-    "C3 · Projects DB 에 preregistration_url / irb_protocol_id / irb_version 컬럼 추가. 실험 → 프로젝트 Relation 을 타고 세션 행에 자동 노출.",
-  ),
-  to_do(
-    "C4 · bookings 에 exclusion_flag / exclusion_reason / data_quality(good/flag/exclude) 추가. 필수 필드가 아니면 분석 단계에서 제외 세션을 구분 불가.",
-  ),
-
-  h3("P1 — 표준 호환"),
-  to_do(
-    "C5 · 프로젝트 단위 Psych-DS JSON sidecar export 버튼. dataset_description.json + participants.tsv + sessions.tsv 생성 → OSF/OpenNeuro 공유 즉시 가능.",
-  ),
-  to_do(
-    "C6 · pre_experiment_checklist 를 구조화: consent_signed_at(타임스탬프 + 문서 URL), irb_protocol_verified, eligibility_confirmed(스크리너 버전), equipment_calibrated(eye-tracker/monitor/audio/EEG), payment_info_collected, contraindications_checked, attention_check_pretest_passed. 상태=완료 전 dashboard gate.",
-  ),
-  to_do(
-    "C7 · 상태=완료 전 필수 필드: actual_duration_min, participant_exit_questionnaire_complete, researcher_notes 비어 있지 않음, data_file_count > 0, raw_data_path 또는 derivatives_path 중 최소 하나.",
-  ),
-  to_do(
-    "C8 · 예약 UI 에서 교차 연구 제외 발동 시 사유 표시 ('participant 가 2026-02-03 에 실험 X 완료 · 본 실험 Y 는 X 참여자 제외'). 현재 book_slot RPC 에 규칙만 있고 UI 공개 없음.",
-  ),
-  to_do(
-    "C9 · 세션 행에 device_id / room_id / stimulus_set_version 추가. 장비 교체·룸 이동·자극 세트 버전 변경이 재현성에 치명적.",
-  ),
-  to_do(
-    "C10 · participants 스키마에 handedness / vision_correction / native_language 컬럼. 행동 연구는 이 변수들로 자주 stratify 함.",
-  ),
-
-  h3("P2 — 워크플로 다듬기"),
-  to_do(
-    "C11 · bookings / experiments 행 감사 로그 테이블 (append-only): {field, old, new, who, when}. Notion row-history 는 해상도 부족.",
-  ),
-  to_do(
-    "C12 · Notion vs native 결정 규칙 문서화. Notion: 특이사항 자유 텍스트/프로젝트 wiki/프로토콜 PDF/회의록/랩 chore. Native: 검증 필요한 데이터/cross-row 제약/감사 로그/계산 필드/BIDS export.",
-  ),
-  to_do(
-    "C13 · 'Reanalysis-readiness' 0~100 점수. commit SHA / env / raw / derivatives / exclusion 로그 / prereg / DOI 항목 가중. /experiments detail + /dashboard 에 표시.",
-  ),
-  to_do(
-    "C14 · 실험별 osf_project_url / datalad_dataset_id / openneuro_accession / publication_doi. 세션 → 아카이브 → 논문 루프 닫기.",
-  ),
-  to_do(
-    "C15 · 세션 완료 시점 QC 메트릭 자동 기록: attention_check_pass_rate / total_response_time_s / bot_screener_result. 저품질 세션 자동 data_quality=flag.",
-  ),
-  to_do(
-    "C16 · participant_class 전환 evidence 로그: 단순 '승급'이 아니라 근거(세션 수, on-time 비율, attention 통과율, researcher 평가)까지 audit 에 남김.",
-  ),
-
-  h2("E. 구현 로드맵 (스프린트 단위)"),
-  h3("Sprint A · P0 재현성 (1-2 주)"),
-  b("migration: bookings.git_sha / env_digest / container_digest, bookings.exclusion_flag / reason / data_quality"),
-  b("/run 셸에 환경 캡처 훅 추가, PsychoPy expInfo 템플릿 업데이트 가이드"),
-  b("experiments.data_path 를 4-필드로 확장하고 기존 데이터 마이그레이션"),
-  h3("Sprint B · IRB / prereg (1 주)"),
-  b("Projects DB preregistration_url / irb_protocol_id / irb_version 스키마 확장"),
-  b("experiment-form.tsx 에 입력 UI 추가, SLab DB 에 읽어오기"),
-  h3("Sprint C · 표준 export (2 주)"),
-  b("scripts/export-psych-ds.mjs — 프로젝트 지정 시 dataset_description.json + participants.tsv + sessions.tsv 생성"),
-  b("UI: /experiments/[id] 에 Download Psych-DS 버튼"),
-  h3("Sprint D · 체크리스트 + 감사 (1 주)"),
-  b("pre_experiment_checklist 를 JSON schema 로 구조화"),
-  b("bookings_audit 테이블 + trigger (append-only)"),
-  h3("Sprint E · QC + Readiness score (1 주)"),
-  b("Online 실험의 attention_check_pass_rate 집계 자동화"),
-  b("/dashboard 에 'reanalysis-readiness' 도넛 차트"),
-
-  h2("F. 참고 링크"),
-  b("BIDS · https://bids.neuroimaging.io/"),
-  b("Psych-DS · https://psych-ds.github.io/"),
-  b("NWB · https://nwb.org/"),
-  b("DataLad · https://www.datalad.org/ · 핸드북 https://handbook.datalad.org/"),
-  b("DataJoint · https://www.datajoint.com/"),
-  b("ReproNim · https://repronim.org/"),
-  b("OSF Preregistration · https://help.osf.io/article/330-welcome-to-registrations"),
-  b("FAIR Principles · https://www.go-fair.org/fair-principles/"),
-  b("The Turing Way · https://book.the-turing-way.org/"),
-  b("Cookiecutter Data Science · https://cookiecutter-data-science.drivendata.org/"),
-  b("Poldrack Lab · https://www.poldracklab.org/"),
-  b("Niv Lab · https://nivlab.princeton.edu/"),
-  b("Saxe Lab · https://saxelab.mit.edu/resources/"),
-  b("jsPsych + Pavlovia · https://pavlovia.org/docs/experiments/overview"),
-  b("Sona Disqualifier-Studies · https://www.sona-systems.com/"),
-  b("Prolific data quality · https://www.prolific.com/resources/data-quality-of-platforms-and-panels-for-online-behavioral-research"),
+  quote("Agent 가 자동 생성 · 재실행 시 동일 제목 페이지는 archive 후 새 페이지로 교체"),
 
   divider(),
+
+  // ── Executive Summary ──
+  h2("🧭 한눈에 보기"),
+  twoColumns(
+    [
+      callout("현재 강점", "✅", "green_background"),
+      bullet("예약 · 관찰 기록 · Notion 연동 자동화 축 견고"),
+      bullet("세션 당 Notion 페이지 1:1 대응 유지"),
+      bullet("참여자 class 자동 승급 / 블랙리스트"),
+      bullet("Projects & Chores · Members · SLab 3-DB Relation 구조"),
+      bullet("실험 활성화 게이트 (code_repo_url / data_path 강제)"),
+    ],
+    [
+      callout("핵심 갭", "⚠️", "orange_background"),
+      bullet("git commit SHA · env digest · container digest 미기록 (재실행 불가능)"),
+      bullet("raw / derivatives 데이터 경로 분리 없음"),
+      bullet("preregistration · IRB protocol ID 링크 없음"),
+      bullet("제외 세션 flag · 사유 · data_quality 필드 없음"),
+      bullet("BIDS / Psych-DS export 경로 없음"),
+    ],
+  ),
+
+  divider(),
+
+  // ── Audit ──
+  h2("🔍 내부 감사"),
+  toggle("Notion 구조 (3-DB Relation)", [
+    bullet(
+      rtBold("SLab DB"),
+      " — 세션 한 행. 실험명 · 실험날짜 · 시간 · 프로젝트 · 버전넘버 · 피험자 ID · 회차 · 참여자 · ",
+      rtCode("실험자 (Relation → Members)"),
+      " · ",
+      rtCode("공개 ID"),
+      " · ",
+      rtCode("프로젝트 (관련) (Relation → Projects)"),
+      " · 상태 · Pre/Post-Survey · 특이사항 · Code/Data Directory · Parameter · Notes.",
+    ),
+    bullet(
+      rtBold("Projects & Chores DB"),
+      " — 프로젝트·업무 한 행. 항목명 · 분류 · 상태 · 기간 · 담당자 (Relation) · 우선순위 · 코드 디렉토리 · 참여자 수.",
+    ),
+    bullet(
+      rtBold("CSNL Members DB"),
+      " — 연구원 한 행. 이니셜을 타이틀로 사용 (JOP · BYL · SMJ · …).",
+    ),
+  ]),
+  toggle("Supabase 측", [
+    bullet(
+      rtCode("experiments"),
+      " · code_repo_url / data_path / pre_experiment_checklist / protocol_version / online_runtime_config / notion_project_page_id",
+    ),
+    bullet(
+      rtCode("bookings · participants · booking_observations · participant_classes · participant_lab_identity"),
+    ),
+  ]),
+  toggle("웹 UI 현황", [
+    bullet(
+      rtCode("/dashboard"),
+      " — 기록이 누락된 실험 메타데이터 배너 · 오늘 처리할 일 7-tile 그리드",
+    ),
+    bullet(
+      rtCode("/experiments/[id]"),
+      " — 완성도 사이드바 · Notion Projects & Chores 연결 편집",
+    ),
+    bullet(rtCode("/schedule · /participants · /bookings"), " — 기본 테이블 뷰"),
+  ]),
+
+  divider(),
+
+  // ── Benchmarks ──
+  h2("🌐 외부 벤치마크"),
   callout(
-    "갱신 방법: scripts/create-improvement-roadmap.mjs 가 동일 제목의 기존 페이지를 감지하면 재실행 시 no-op. 제목 변경 또는 기존 페이지 삭제 후 재실행으로 새 버전 생성.",
-    "🔁",
+    "표준 · 랩 · 실험 플랫폼 · 참여자 풀 4개 축. 자세한 참고 링크는 최하단 섹션 F.",
+    "📚",
+    "gray_background",
+  ),
+  toggle("표준 · 프레임워크", [
+    bullet(rtBold("BIDS"), " — Poldrack 그룹 주도 신경영상 표준. sub-/ses-/ 디렉토리 + sidecar JSON 규약."),
+    bullet(rtBold("Psych-DS"), " — 행동 과학 버전 BIDS. 2025-04 최신 spec. OSF · OpenNeuro 호환."),
+    bullet(rtBold("NWB"), " — 전기생리 표준. Session-invariant vs session-varying 필드 구분."),
+    bullet(rtBold("DataJoint"), " — 관계형 실험 파이프라인. Subject → Session → Recording → Preprocessing → Analysis 를 SQL 테이블 + FK 로 모델링."),
+    bullet(rtBold("DataLad / git-annex"), " — 데이터 버전 관리. `datalad rerun <sha>` 가 재현성의 gold standard."),
+    bullet(rtBold("ReproNim"), " — 컨테이너 + 스크립트 + 데이터 → 재실행 가능 체크리스트."),
+    bullet(rtBold("OSF"), " — 프로젝트 단위 preregistration + DOI + GitHub/Dropbox 연동."),
+    bullet(rtBold("FAIR / Turing Way / Cookiecutter Data Science"), " — 디렉토리 규약 · 메타데이터 · 재사용 가능한 데이터셋."),
+  ]),
+  toggle("공개 방법론을 문서화한 연구실", [
+    bullet(
+      rtBold("Poldrack Lab (Stanford)"),
+      " — BIDS 저자. OpenNeuro 운영. ",
+      rtLink("poldracklab.org", "https://www.poldracklab.org/"),
+    ),
+    bullet(
+      rtBold("Saxe Lab (MIT)"),
+      " — fMRI · 공개 파이프라인. ",
+      rtLink("saxelab.mit.edu/resources", "https://saxelab.mit.edu/resources/"),
+    ),
+    bullet(
+      rtBold("Niv Lab (Princeton)"),
+      " — NivTurk 온라인 실험 플랫폼. ",
+      rtLink("github.com/nivlab", "https://github.com/nivlab"),
+    ),
+    bullet(
+      rtBold("Kording Lab (Penn)"),
+      " — 오픈 퍼블리싱 · Neuromatch / C4R. ",
+      rtLink("kordinglab.com", "https://kordinglab.com/resources/"),
+    ),
+  ]),
+  toggle("실험 플랫폼 · 참여자 풀", [
+    bullet(rtBold("jsPsych + Pavlovia"), " — 세션 단위 git commit 자동. `jsPsych.data.addProperties({git_commit: ...})` 관례."),
+    bullet(rtBold("PsychoPy / Pavlovia"), " — `expInfo` dict + psydat/csv/log 트리오 자동 생성. PsychoPy 버전 자동 로그."),
+    bullet(rtBold("Experiment Factory"), " — Poldrack/Sochat. Docker 이미지 + config.json 단위로 실험 배포."),
+    bullet(rtBold("Sona Systems"), " — disqualifier-studies 필드 · 3-strike 자동 비활성 · 완료 기반 크레딧."),
+    bullet(rtBold("Prolific"), " — 300+ prescreener. Peer et al. 2021: approval-rating 단독은 품질 약한 predictor — *사용 빈도 + 목적* 이 더 중요."),
+  ]),
+
+  divider(),
+
+  // ── Gap analysis — table ──
+  h2("📊 갭 분석"),
+  callout("SLab 플랫폼 현재 상태 vs 표준 기대치 · 9개 영역", "🧩", "purple_background"),
+  table(
+    ["영역", "현재", "표준 기대", "갭"],
+    [
+      ["세션 메타", "date·time·sbj·round·참여자·실험자·notes", "BIDS/Psych-DS: duration·hw_id·room·stim_ver·instructions", "⚠️ 장비·환경 미기록"],
+      ["코드 provenance", "code_repo_url · Code Dir", "ReproNim: git SHA · env hash · container digest", "❌ 2년 후 재실행 불가"],
+      ["데이터 provenance", "data_path (단일)", "BIDS: raw · derivatives · checksum", "⚠️ raw/파생 구분 없음"],
+      ["실험 전 체크", "Pre-Survey done/info", "IRB: 동의·장비 캘리·지급정보·금기·IRB 버전", "⚠️ 구조화 없음"],
+      ["실험 후", "Post-Survey · Data Dir", "분석 노트북·제외 flag/사유·DOI·prereg", "❌ 핵심 3-4 필드 부재"],
+      ["참여자 class", "auto 승급/블랙리스트", "Sona disqualifier · 근거 evidence 로그", "⚠️ evidence 비노출"],
+      ["표준 호환", "없음", "BIDS/Psych-DS export", "❌ OpenNeuro/OSF 수동 포맷"],
+      ["참여자 스키마", "name·phone·email·gender·birthdate", "BIDS: handedness·vision·L1 language", "⚠️ stratify 필드 부재"],
+      ["감사 로그", "Notion row-history (coarse)", "ELN append-only 편집 로그", "⚠️ 해상도 부족"],
+    ],
+  ),
+
+  divider(),
+
+  // ── Recommendations ──
+  h2("🛠️ 개선 제안"),
+
+  callout("각 항목은 to-do 블록 — Notion 에서 직접 체크 처리 가능.", "☑️", "gray_background"),
+
+  h3("P0 · 재현성 최소 확보 (즉시 · 1-2주)"),
+  todo("C1 · git_sha / env_lockfile_hash / container_image_digest 를 bookings 에 기록 — /run 셸과 PsychoPy expInfo 가 세션 시작 시 자동 기록"),
+  todo("C2 · data_path → raw_data_path / derivatives_path / analysis_notebook_url / figures_path 분리. 'raw 있고 derivatives 없음 N일' dashboard 배너"),
+  todo("C3 · Projects DB 에 preregistration_url / irb_protocol_id / irb_version 컬럼. 실험 → 프로젝트 Relation 타고 세션 행 자동 노출"),
+  todo("C4 · bookings 에 exclusion_flag / exclusion_reason / data_quality (good/flag/exclude) — 분석 단계 제외 세션 구분 가능"),
+
+  h3("P1 · 표준 호환 (2-4주)"),
+  todo("C5 · 프로젝트 단위 Psych-DS JSON sidecar export. dataset_description.json + participants.tsv + sessions.tsv 생성 → OSF/OpenNeuro 즉시 공유 가능"),
+  todo("C6 · pre_experiment_checklist 구조화: consent_signed_at · irb_protocol_verified · eligibility_confirmed · equipment_calibrated · payment_info_collected · contraindications_checked · attention_check_pretest_passed"),
+  todo("C7 · 상태=완료 전 필수 필드: actual_duration_min · exit_questionnaire_complete · researcher_notes 비어 있지 않음 · data_file_count > 0 · raw 또는 derivatives 중 하나"),
+  todo("C8 · 예약 UI 에 교차 연구 제외 사유 표시 (이미 book_slot RPC 에 규칙 존재; UI 에만 공개)"),
+  todo("C9 · 세션 행에 device_id / room_id / stimulus_set_version — 장비 교체 · 룸 이동 · 자극 세트 버전 변경 추적"),
+  todo("C10 · participants 에 handedness / vision_correction / native_language"),
+
+  h3("P2 · 워크플로 다듬기 (배경 작업)"),
+  todo("C11 · bookings / experiments 감사 로그 테이블 (append-only): {field, old, new, who, when}"),
+  todo("C12 · Notion vs native 결정 규칙 문서화 — Notion: 특이사항/wiki/프로토콜/회의록, Native: 검증·cross-row·감사·export"),
+  todo("C13 · Reanalysis-readiness 0~100 점수 (git SHA · env · raw · derivatives · exclusion · prereg · DOI 가중). /experiments + /dashboard 에 도넛 차트"),
+  todo("C14 · 실험별 osf_project_url / datalad_dataset_id / openneuro_accession / publication_doi — 세션→아카이브→논문 루프 닫기"),
+  todo("C15 · 세션 완료 시 QC 자동 기록: attention_check_pass_rate · total_response_time_s · bot_screener_result → 저품질은 data_quality=flag 로 자동 이관"),
+  todo("C16 · participant_class 전환 evidence 로그 (세션 수 · on-time 비율 · attention 통과율 · researcher 평가)"),
+
+  divider(),
+
+  // ── Sprint roadmap ──
+  h2("📅 구현 로드맵"),
+  callout("총 5 스프린트 · 약 6주. P0 완료 후 P1 병렬, P2 는 배경.", "🗺️", "blue_background"),
+  table(
+    ["스프린트", "기간", "범위", "산출물"],
+    [
+      ["Sprint A", "1-2주", "P0 재현성", "migration: bookings git/env/container · exclusion · data_quality · /run 환경 캡처 훅 · data_path 4-필드 확장"],
+      ["Sprint B", "1주", "IRB / prereg", "Projects DB preregistration_url / irb_protocol_id / irb_version · experiment-form UI · SLab 자동 복사"],
+      ["Sprint C", "2주", "표준 export", "scripts/export-psych-ds.mjs · /experiments/[id] Download 버튼"],
+      ["Sprint D", "1주", "체크리스트 + 감사", "pre_experiment_checklist JSON schema · bookings_audit 테이블 + trigger"],
+      ["Sprint E", "1주", "QC + Readiness", "attention-check 집계 자동 · /dashboard reanalysis-readiness 도넛"],
+    ],
+  ),
+
+  divider(),
+
+  // ── References ──
+  h2("🔗 참고 링크"),
+  toggle("표준 · 프레임워크", [
+    bullet(rtLink("BIDS", "https://bids.neuroimaging.io/")),
+    bullet(rtLink("Psych-DS", "https://psych-ds.github.io/")),
+    bullet(rtLink("NWB", "https://nwb.org/")),
+    bullet(rtLink("DataLad", "https://www.datalad.org/"), " · ", rtLink("Handbook", "https://handbook.datalad.org/")),
+    bullet(rtLink("DataJoint", "https://www.datajoint.com/")),
+    bullet(rtLink("ReproNim", "https://repronim.org/")),
+    bullet(rtLink("OSF Preregistration", "https://help.osf.io/article/330-welcome-to-registrations")),
+    bullet(rtLink("FAIR Principles", "https://www.go-fair.org/fair-principles/")),
+    bullet(rtLink("The Turing Way", "https://book.the-turing-way.org/")),
+    bullet(rtLink("Cookiecutter Data Science", "https://cookiecutter-data-science.drivendata.org/")),
+  ]),
+  toggle("랩 & 플랫폼", [
+    bullet(rtLink("Poldrack Lab", "https://www.poldracklab.org/")),
+    bullet(rtLink("Niv Lab", "https://nivlab.princeton.edu/")),
+    bullet(rtLink("Saxe Lab Resources", "https://saxelab.mit.edu/resources/")),
+    bullet(rtLink("Kording Lab Resources", "https://kordinglab.com/resources/")),
+    bullet(rtLink("jsPsych + Pavlovia", "https://pavlovia.org/docs/experiments/overview")),
+    bullet(rtLink("Sona Systems", "https://www.sona-systems.com/")),
+    bullet(
+      rtLink(
+        "Prolific Data Quality Report",
+        "https://www.prolific.com/resources/data-quality-of-platforms-and-panels-for-online-behavioral-research",
+      ),
+    ),
+  ]),
+
+  divider(),
+
+  callout(
+    "Agent 핸드오프 요약: repo 최상위 docs/improvement-roadmap.md. 체크박스 상태는 이 Notion 페이지에서 체크하시면 됩니다.",
+    "🤝",
+    "green_background",
   ),
 ];
 
+// ── properties ──
 const properties = {
   항목명: { title: [{ text: { content: TITLE } }] },
   분류: { select: { name: "Lab Chore" } },
@@ -277,9 +418,8 @@ if (ownerPageId) {
 
 console.log(`Creating page: ${TITLE}`);
 console.log(`  owner=${ownerPageId?.slice(0, 8) ?? "(unlinked)"}`);
-console.log(`  ${children.length} blocks`);
+console.log(`  ${children.length} blocks (top-level)`);
 
-// Notion API allows up to 100 children in a single create; we have ~60, fine.
 const page = await notion("/pages", {
   parent: { database_id: PROJECTS_DB },
   properties,
