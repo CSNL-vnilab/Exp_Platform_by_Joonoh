@@ -402,14 +402,32 @@ const checks = [
   ["Outbox dead letter", checkFailedOutboxAccumulation],
 ];
 
+// Transient-network patterns — a DNS blip or Supabase Management API
+// brief outage shouldn't be surfaced as CRITICAL (it's not a data
+// invariant violation, just a check that couldn't run). Re-categorise
+// those as WARNING so the 0-critical signal stays meaningful.
+function isTransientError(err) {
+  const m = err?.message ?? String(err);
+  return (
+    /fetch failed|ECONNRESET|ENOTFOUND|ETIMEDOUT|socket hang up|ECONNREFUSED|EAI_AGAIN|getaddrinfo/i.test(
+      m,
+    ) || /\b5\d\d\b/.test(m)
+  );
+}
+
 for (const [name, fn] of checks) {
   try {
     process.stdout.write(`[${name}] … `);
     await fn();
     process.stdout.write("done\n");
   } catch (err) {
-    critical("CHECK_CRASHED", `${name}: ${err.message}`);
-    process.stdout.write("CRASH\n");
+    if (isTransientError(err)) {
+      warning("CHECK_TRANSIENT", `${name}: ${err.message}`);
+      process.stdout.write("transient\n");
+    } else {
+      critical("CHECK_CRASHED", `${name}: ${err.message}`);
+      process.stdout.write("CRASH\n");
+    }
   }
 }
 
