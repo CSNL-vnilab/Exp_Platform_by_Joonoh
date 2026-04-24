@@ -91,6 +91,14 @@ expPlatform.submitBlock({
 });
 expPlatform.reportAttentionFailure();  // increments server counter
 expPlatform.log("any string");         // debug trace; server-side no-op
+
+// Clock — use these for timing-critical RT / latency measurements.
+// See §11 for why this matters.
+expPlatform.clock.now();               // performance.now() — sub-ms
+expPlatform.clock.nextFrame();         // Promise<DOMHighResTimeStamp>
+                                       //   resolves at the start of
+                                       //   the next paint so stimulus
+                                       //   onset is frame-aligned
 ```
 
 Minimal working example:
@@ -206,15 +214,25 @@ does not auto-abort) researchers decide post-hoc via the dashboard
 
 ## 7. Behavior signals (automatic)
 
-The shell captures these transparently — no action on your side:
+The shell captures these transparently — no action on your side.
+Counters sum additively server-side, per booking, on every block
+submit:
 
-- `focus_loss` — blur events on the iframe.
-- `tab_switch` — `document.hidden` transitions.
-- `paste_count` — paste events inside the iframe.
-- `frame_jitter_ms` / `frame_samples` — frame-timing deviation from
-  60 Hz (for detecting throttled tabs).
+| Field | Meaning |
+|---|---|
+| `focus_loss` | `blur` events on the iframe (participant tab-clicked away). |
+| `tab_switch` | `visibilitychange` → `document.hidden` transitions. |
+| `paste_count` | `paste` events inside the iframe. |
+| `frame_jitter_ms` / `frame_samples` | RAF deviation from 16.67 ms (60 Hz). Divide sum by samples for mean jitter per session — a proxy for throttled devices. |
+| `key_count` / `key_iki_sum_ms` / `key_iki_sumsq_ms2` | Keystroke count + inter-keystroke interval (IKI) sum + sum-of-squares. Post-hoc mean = sum/count; variance = (sumSq − sum²/count) / count. Only `isTrusted` events counted — synthetic (bot) keystrokes are filtered. |
+| `pointer_count` | `pointerdown` + `touchstart` count (again `isTrusted` only). |
 
-Flushed to `behavior_signals` after every block submit.
+Flushed to `behavior_signals` after every block submit. To surface in
+your analysis, `SELECT behavior_signals FROM experiment_run_progress
+WHERE booking_id = $1` or export via the researcher UI.
+
+All listeners attach in the **capture phase**, so researcher-JS that
+calls `stopPropagation()` during bubbling still gets counted.
 
 ## 8. Online screeners
 
@@ -273,6 +291,50 @@ anti-bot machinery:
   shell wraps in.
 - Don't assume same-origin. The script runs in a different origin
   from the shell; `postMessage` is the only channel.
+
+## 11b. Internal validity — what the platform does and doesn't defend
+
+Web experiments trade laboratory control for scale. These are the
+failure modes the platform actively detects, and the ones you as the
+designer must still handle.
+
+### Platform-provided defenses
+
+| Threat | Mechanism | Where |
+|---|---|---|
+| Tab switch / focus loss | `visibilitychange` + `blur` counters in `behavior_signals` | shell, per-booking |
+| Copy-paste bot | `paste` event counter + honeypot word in hidden aria element | shell + screener route |
+| Fresh condition on reload | Condition assigned once per booking, locked in `experiment_run_progress.condition_assignment` | `/session` RPC |
+| Resume after refresh | `blocksSubmitted` restored from server on page reload | `/session` GET |
+| Synthetic input events | All keystroke / pointer counters require `isTrusted` | shell capture listeners |
+| Frame-rate throttling | `frame_jitter_ms` / `frame_samples` sampled via RAF every frame | shell |
+| Keystroke cadence | IKI sum + sum-of-squares (compute mean + variance post-hoc) | shell capture listeners |
+| Cross-study carryover | `exclude_experiment_ids` enforced in `book_slot` RPC (migration 00045) | DB |
+
+### Things you still have to defend against
+
+| Threat | What you should do |
+|---|---|
+| **Display latency → RT drift** | Start timing with `await expPlatform.clock.nextFrame()` at stimulus-render time, not at the `setTimeout` call. Frame-lock your start and end marks. |
+| **Browser zoom / DPR** | Query `window.devicePixelRatio` on load and either (a) force a fixed-pixel canvas, or (b) log the value and exclude post-hoc. Preflight records window size but not DPR. |
+| **Audio autoplay policy** | Modern browsers (Safari, Chrome mobile) block `<audio>` playback until a user gesture. Gate your first audio trial behind a "준비됐습니다" button that calls `audio.play()` in its click handler. Call `audioContext.resume()` on the same gesture if using Web Audio. |
+| **Fullscreen** | The iframe sandbox does **not** grant `allow-fullscreen`. If your paradigm needs it, don't rely on it — design around windowed presentation. |
+| **Devtools / breakpoints** | No first-party detection (false-positive rate is too high). Accept some participants will snoop; honeypot + reCAPTCHA-free design is the current posture. If you suspect a study is targeted, run a small pilot and screen behavior_signals for outliers. |
+| **Multi-session ordering** | Condition assignment is per-booking — it does **not** track whether the same participant saw Cond A before B in a prior session. If you care about within-subject carryover across sessions, write it into `blockMetadata` yourself (`expPlatform.bookingId` is stable; correlate across sessions via the lab's participant-identity system). |
+| **Multi-monitor / extended display** | Not detected. `screen.isExtended` is available in modern browsers — call it in your own JS if you need to know. |
+| **Network-throttled devices** | No client-side latency probe. If response-time accuracy matters, record `performance.timing.domContentLoadedEventEnd - performance.timing.navigationStart` as a trial covariate. |
+| **Mid-trial device switch** | Not detected. If a participant switches from trackpad to mouse mid-block, you won't know. |
+| **LLM participants** | Honeypot word + paste-count + keystroke cadence give you triangulating signals. Nothing is foolproof. A fast, mostly-zero-variance IKI stream with zero pastes is suspicious; so is a study completed with no pointer events at all. |
+
+### Recommended trial-level covariates to log in `trials[n]`
+
+- `stim_onset_ms` — from `expPlatform.clock.nextFrame()` at render time.
+- `response_ms` — from `expPlatform.clock.now()` at response time, minus `stim_onset_ms`.
+- `dpr` — `window.devicePixelRatio` at session start.
+- `inner_w` / `inner_h` — `window.innerWidth` / `innerHeight` at session start (re-log on resize).
+- `trial_isTrusted` — `event.isTrusted` on the response event.
+
+These are free to log and save you from having to exclude data post-hoc when you realize a covariate was missing.
 
 ## 12. Validation failure modes
 

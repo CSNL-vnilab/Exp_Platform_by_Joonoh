@@ -30,8 +30,12 @@ const EXPECTED_PROPS = [
   "blocksSubmitted",
   "condition",
   "isPilot",
+  "clock",
 ];
 const EXPECTED_METHODS = ["submitBlock", "reportAttentionFailure", "log"];
+// Namespaced methods under expPlatform.clock. Keep in the same grammar
+// as EXPECTED_METHODS (checked as a name token in both bridge + guide).
+const EXPECTED_CLOCK_METHODS = ["now", "nextFrame"];
 const SUBMIT_KEYS_SHIM_ACCEPTS = [
   "blockIndex",
   "block_index",
@@ -70,6 +74,19 @@ for (const prop of [...EXPECTED_PROPS, ...EXPECTED_METHODS]) {
   const inGuide = new RegExp(`(expPlatform\\.)?${prop}\\b`).test(guideSrc);
   if (!inGuide) fail(`guide doesn't document: ${prop}`);
   else pass(`guide documents .${prop}`);
+}
+
+// 2b. Clock sub-surface — the iframe bridge exposes expPlatform.clock
+// as a namespace. Both bridge + guide must mention each method by its
+// `clock.<name>` path; a bare `.now` token would be ambiguous so we
+// scan for the dotted form.
+for (const m of EXPECTED_CLOCK_METHODS) {
+  const inBridge = new RegExp(`\\b${m}\\b\\s*:\\s*function`).test(bridgeSrc);
+  if (!inBridge) fail(`bridge clock missing: ${m}`);
+  else pass(`bridge exposes clock.${m}`);
+  const inGuide = new RegExp(`clock\\.${m}\\b`).test(guideSrc);
+  if (!inGuide) fail(`guide doesn't document clock.${m}`);
+  else pass(`guide documents clock.${m}`);
 }
 
 // 3. submitBlock payload keys the guide teaches must all be recognized

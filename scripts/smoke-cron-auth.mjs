@@ -41,7 +41,9 @@ await loadEnv();
 const CRON_PATHS = [
   "/api/notifications/reminders",
   "/api/cron/auto-complete-bookings",
-  "/api/cron/notion-retry",
+  // notion-retry retired 2026-04-24 — superseded by outbox-retry.
+  // `git log --diff-filter=D -- src/app/api/cron/notion-retry/route.ts`
+  // to recover if needed.
   "/api/cron/notion-health",
   "/api/cron/outbox-retry",
   "/api/cron/promotion-notifications",

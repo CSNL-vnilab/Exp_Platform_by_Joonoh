@@ -23,11 +23,14 @@
   status.textContent = "안녕하세요, Sbj" + EP.subject + "님. 과제를 준비하는 중입니다…";
   document.body.appendChild(status);
 
-  // Pretend to run three trials. Real experiments put stimuli + timers here.
+  // Pretend to run three trials. Real experiments put stimuli + timers
+  // here — use EP.clock.nextFrame() at stimulus onset and EP.clock.now()
+  // at response time to get frame-locked RT. Also log event.isTrusted on
+  // every response so synthetic/bot events are distinguishable post-hoc.
   var trials = [
-    { trial_index: 0, stim: "red",   response: "R", rt_ms: 320, correct: true },
-    { trial_index: 1, stim: "green", response: "G", rt_ms: 295, correct: true },
-    { trial_index: 2, stim: "blue",  response: "R", rt_ms: 410, correct: false },
+    { trial_index: 0, stim: "red",   response: "R", rt_ms: 320, correct: true,  response_isTrusted: true },
+    { trial_index: 1, stim: "green", response: "G", rt_ms: 295, correct: true,  response_isTrusted: true },
+    { trial_index: 2, stim: "blue",  response: "R", rt_ms: 410, correct: false, response_isTrusted: true },
   ];
 
   EP.submitBlock({

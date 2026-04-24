@@ -109,8 +109,7 @@ route.
 | Daily 00:30 UTC (09:30 KST) | `/api/notifications/reminders` | `.github/workflows/reminders-cron.yml` every 15 min |
 | Daily 17:15 UTC (02:15 KST+1d) | `/api/cron/auto-complete-bookings` | `.github/workflows/auto-complete-cron.yml` daily |
 | Daily 16:00 UTC | `/api/cron/notion-health` | `.github/workflows/notion-health-cron.yml` daily |
-| Every 30 min | `/api/cron/notion-retry` | `.github/workflows/notion-retry-cron.yml` every 30 min — **legacy, kept for rollback; disable schedule after outbox-retry cutover** |
-| Every 30 min | `/api/cron/outbox-retry` | `.github/workflows/outbox-retry-cron.yml` every 30 min — unified retry cron covering notion/gcal/sms/email (D6). 00044 enum extension live on prod (2026-04-24); safe to enable. |
+| Every 30 min | `/api/cron/outbox-retry` | `.github/workflows/outbox-retry-cron.yml` every 30 min — unified retry cron covering notion/gcal/sms/email (D6). 00044 enum extension live on prod (2026-04-24). Succeeded the legacy `/api/cron/notion-retry` on 2026-04-24; recover deleted route via `git log --diff-filter=D -- src/app/api/cron/notion-retry/route.ts`. |
 | Every 30 min | `/api/cron/promotion-notifications` | `.github/workflows/promotion-notifications-cron.yml` every 30 min — sends Royal-promotion emails to experiment owners (D8, migration 00038) |
 | Weekly Mon 00:00 UTC (09:00 KST) | `/api/cron/metadata-reminders` | `.github/workflows/metadata-reminders-cron.yml` weekly — emails each researcher whose draft/active experiments are missing code_repo_url / data_path / pre_experiment_checklist. Dedup'd via `metadata_reminder_log` (migration 00048): at-most-one email per researcher per 7 days. |
 
@@ -125,13 +124,8 @@ All endpoints use `timingSafeEqual` on CRON_SECRET with `MIN_SECRET_LENGTH=32`.
 - Each booking gets four outbox rows on create (`gcal`, `notion`,
   `email`, `sms`). Initial attempt fires inline during the booking
   pipeline; failures leave `status='failed'` with `attempts=1`.
-- `/api/cron/notion-retry` polls for `notion`/`notion_survey` rows via
-  the atomic `claim_next_notion_retry()` RPC (SELECT … FOR UPDATE SKIP
-  LOCKED). Backoff: 5m / 30m / 120m / 480m per attempt count. After
-  `attempts=5` rows stop retrying and surface as "Notion 재시도 한계"
-  on the researcher dashboard (migration 00036). **Kept for backward
-  compatibility until outbox-retry cutover.**
-- `/api/cron/outbox-retry` (D6) handles **all four** integration types
+- `/api/cron/outbox-retry` (D6, supersedes the deleted `/api/cron/notion-retry`
+  route as of 2026-04-24) handles **all four** integration types
   (notion / notion_survey / gcal / sms / email) via the generic
   `claim_next_outbox_retry(p_types[])` RPC (migration 00037) + service
   layer (`src/lib/services/{gcal,sms,email}-retry.service.ts`). Same
@@ -224,22 +218,24 @@ Full list: `ls supabase/migrations/`.
 Stream 2's `00024_participant_payment_info.sql` is still on disk but
 NOT applied to prod. Stream 2 owner runs their own migration.
 
-## Cron cutover checklist (notion-retry → outbox-retry)
+## Cron cutover log — notion-retry → outbox-retry (completed 2026-04-24)
 
-Prereqs (met on 2026-04-24): migrations 00044 + 00046 live on prod,
-outbox-retry route deployed. `.github/workflows/outbox-retry-cron.yml`
-exists with schedule commented. Execute in order:
+Historical record; preserved so rollback ordering is obvious.
 
-1. Verify outbox-retry serves 401 on the deployed URL.
-2. Manually fire once with the real secret and inspect
-   `notion_health_state.check_type='outbox_retry_sweep'` for the
-   expected shape.
-3. Uncomment the `schedule:` block in
-   `.github/workflows/outbox-retry-cron.yml` and push.
-4. Disable the notion-retry GH Actions workflow (keep the file for
-   rollback; comment out the `schedule:` in
-   `.github/workflows/notion-retry-cron.yml`). This is what prevents
-   the two `*/30` sweeps from double-loading Notion's 3 rps cap.
-5. After 24h of clean outbox sweeps, delete
-   `src/app/api/cron/notion-retry/route.ts`. The service file
-   (`notion-retry.service.ts`) stays — outbox-retry imports from it.
+Prereqs (met): migrations 00044 + 00046 on prod, outbox-retry route
+deployed. Steps executed in order:
+
+1. ✅ outbox-retry served 401 on the deployed URL.
+2. ✅ Manual fire with the real secret wrote a
+   `notion_health_state.check_type='outbox_retry_sweep'` row with the
+   expected summary shape.
+3. ✅ Uncommented `schedule:` in `.github/workflows/outbox-retry-cron.yml`.
+4. ✅ Commented out `schedule:` in `.github/workflows/notion-retry-cron.yml`
+   (later deleted with the route — step 5).
+5. ✅ Deleted `src/app/api/cron/notion-retry/route.ts` + the legacy
+   workflow file. The service file (`notion-retry.service.ts`) stays —
+   outbox-retry imports from it.
+
+**Rollback** if outbox-retry regresses: `git revert` the deletion commit
+and the workflow cutover commit, or cherry-pick the route back from
+`git log --diff-filter=D -- src/app/api/cron/notion-retry/route.ts`.

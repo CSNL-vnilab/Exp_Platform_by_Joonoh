@@ -162,12 +162,57 @@ export function RunShell({
     if (msg.error) p.reject(new Error(msg.error));
     else p.resolve(msg.result);
   });
-  var behaviorBuf = { focus_loss: 0, paste_count: 0, tab_switch: 0, frame_jitter_ms: 0, frame_samples: 0 };
+  // Fresh buffer template — kept in a helper so reset at flush time is
+  // identical to init state. Extending this object is additive from the
+  // server's perspective (rpc_merge_behavior_signals sums numeric keys
+  // irrespective of schema) — safe to append new counters.
+  function emptyBehaviorBuf() {
+    return {
+      focus_loss: 0,
+      paste_count: 0,
+      tab_switch: 0,
+      frame_jitter_ms: 0,
+      frame_samples: 0,
+      // Keystroke cadence. Captured at document-capture phase so
+      // researcher code that stopPropagation()s can't hide it.
+      // Only counts isTrusted events (synthetic/bot clicks filtered).
+      // Server sums each key additively so researchers can reconstruct
+      // mean (sum/count), variance ((sumSq - sum²/count) / count), min,
+      // max of inter-keystroke intervals per booking post-hoc.
+      key_count: 0,
+      key_iki_sum_ms: 0,
+      key_iki_sumsq_ms2: 0,
+      // Similar idea for pointer (mousedown + pointerdown + touchstart
+      // fire once per distinct press; summing them lets researchers see
+      // gross input rate without needing trial-level data).
+      pointer_count: 0,
+    };
+  }
+  var behaviorBuf = emptyBehaviorBuf();
   window.addEventListener('blur', function(){ behaviorBuf.focus_loss++; });
   window.addEventListener('paste', function(){ behaviorBuf.paste_count++; });
   document.addEventListener('visibilitychange', function(){
     if (document.hidden) behaviorBuf.tab_switch++;
   });
+  var lastKeyT = 0;
+  document.addEventListener('keydown', function(e) {
+    if (!e.isTrusted) return;
+    var t = performance.now();
+    if (lastKeyT > 0) {
+      var iki = t - lastKeyT;
+      if (iki > 0 && iki < 60000) {
+        behaviorBuf.key_count += 1;
+        behaviorBuf.key_iki_sum_ms += iki;
+        behaviorBuf.key_iki_sumsq_ms2 += iki * iki;
+      }
+    }
+    lastKeyT = t;
+  }, { capture: true, passive: true });
+  function bumpPointer(e) {
+    if (e.isTrusted) behaviorBuf.pointer_count += 1;
+  }
+  document.addEventListener('pointerdown', bumpPointer, { capture: true, passive: true });
+  document.addEventListener('touchstart', bumpPointer, { capture: true, passive: true });
   // requestAnimationFrame jitter — background device-health signal (2026
   // benchmark item 1c). Samples frame deltas, aggregates the absolute
   // deviation from 16.67 ms (60 Hz). Drops device throttling / tab-
@@ -212,12 +257,27 @@ export function RunShell({
       });
       // Flush buffered behavior signals after each block submit.
       var delta = Object.assign({}, behaviorBuf);
-      behaviorBuf = { focus_loss: 0, paste_count: 0, tab_switch: 0, frame_jitter_ms: 0, frame_samples: 0 };
+      behaviorBuf = emptyBehaviorBuf();
       send('behavior', delta).catch(function(){});
       return out;
     },
     reportAttentionFailure: function() { return send('attention_failure', null); },
     log: function(message) { return send('log', String(message || '')); },
+    // High-precision clock helpers. Researchers comparing response
+    // times across participants should use clock.nextFrame() at
+    // stimulus-onset — it returns the DOMHighResTimeStamp at the start
+    // of the next paint so RT measurements align to display refresh
+    // (16.67 ms @ 60 Hz) instead of drifting by sub-frame jitter.
+    // clock.now() is performance.now() — kept as a named surface so
+    // the guide can cite it.
+    clock: {
+      now: function() { return performance.now(); },
+      nextFrame: function() {
+        return new Promise(function(resolve) {
+          requestAnimationFrame(function(ts) { resolve(ts); });
+        });
+      },
+    },
   };
   var loading = document.getElementById('__shim_loading');
   var script = document.createElement('script');
