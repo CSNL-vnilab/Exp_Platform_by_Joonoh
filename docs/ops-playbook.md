@@ -182,6 +182,11 @@ edit flow; sidebar shows "활성화 전 필수" tiles until they're set.
 
 ## Migration log (current prod state)
 
+Run `node scripts/migration-status.mjs` before each deploy to see
+which migrations on disk are newer than the marker below. The script
+parses THIS doc's "Last applied" line and "NOT applied" blocks, so
+keep those sections in sync when you apply a migration to prod.
+
 Last applied to prod: `00043_notion_member_project_links.sql` on
 2026-04-23.
 
