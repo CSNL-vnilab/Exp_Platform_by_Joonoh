@@ -1,0 +1,35 @@
+name: Researcher metadata reminder (weekly)
+# Weekly email push — Monday 09:00 KST = Sunday 00:00 UTC — pinging
+# each researcher whose experiments still have missing code_repo_url /
+# data_path / pre_experiment_checklist. The cron route rate-limits to
+# at most 1 email per researcher per 7 days, so running this on a
+# different cadence won't over-send; the weekly cycle just matches the
+# internal dedup window.
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+jobs:
+  ping-metadata-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger metadata-reminders endpoint
+        env:
+          URL: https://lab-reservation-seven.vercel.app/api/cron/metadata-reminders
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is missing"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $status"
+          cat /tmp/resp || true
+          echo
+          if [ "$status" != "200" ]; then
+            echo "::error::metadata-reminders returned HTTP $status"
+            exit 1
+          fi

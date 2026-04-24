@@ -91,14 +91,15 @@ for p in /api/notifications/reminders \
          /api/cron/notion-retry \
          /api/cron/notion-health \
          /api/cron/outbox-retry \
-         /api/cron/promotion-notifications; do
+         /api/cron/promotion-notifications \
+         /api/cron/metadata-reminders; do
   curl -sS -o /dev/null -w "%{http_code} $p\n" -X POST \
     "https://lab-reservation-seven.vercel.app$p" \
     -H "x-cron-secret: $CRON_SECRET"
 done
 ```
 
-All six must be `200` or `401` — a `404` means the deploy missed that
+All seven must be `200` or `401` — a `404` means the deploy missed that
 route.
 
 ## Cron inventory
@@ -111,6 +112,7 @@ route.
 | Every 30 min | `/api/cron/notion-retry` | `.github/workflows/notion-retry-cron.yml` every 30 min — **legacy, kept for rollback; disable schedule after outbox-retry cutover** |
 | Every 30 min | `/api/cron/outbox-retry` | `.github/workflows/outbox-retry-cron.yml` every 30 min — unified retry cron covering notion/gcal/sms/email (D6). 00044 enum extension live on prod (2026-04-24); safe to enable. |
 | Every 30 min | `/api/cron/promotion-notifications` | `.github/workflows/promotion-notifications-cron.yml` every 30 min — sends Royal-promotion emails to experiment owners (D8, migration 00038) |
+| Weekly Mon 00:00 UTC (09:00 KST) | `/api/cron/metadata-reminders` | `.github/workflows/metadata-reminders-cron.yml` weekly — emails each researcher whose draft/active experiments are missing code_repo_url / data_path / pre_experiment_checklist. Dedup'd via `metadata_reminder_log` (migration 00048): at-most-one email per researcher per 7 days. |
 
 Only the first two are declared in `vercel.json` (Vercel Hobby caps at
 2 crons per project). Notion / outbox / promotion crons run exclusively
@@ -210,6 +212,12 @@ keep those sections in sync when you apply a migration to prod.
 
 Last applied to prod: `00046_pending_work_outbox_coverage.sql` on
 2026-04-24.
+
+Staged for next deploy (apply after push):
+- `00047_booking_exclusion_data_quality.sql` — roadmap C4 (exclusion
+  flag + reason + data_quality enum on bookings).
+- `00048_metadata_reminder_log.sql` — rate-limit + audit log for the
+  new `/api/cron/metadata-reminders` weekly push.
 
 Full list: `ls supabase/migrations/`.
 

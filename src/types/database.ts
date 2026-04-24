@@ -1141,6 +1141,33 @@ export interface Database {
         };
         Relationships: [];
       };
+      // Migration 00048. Rate-limit + audit log for the weekly
+      // metadata-reminder cron (/api/cron/metadata-reminders).
+      metadata_reminder_log: {
+        Row: {
+          id: string;
+          researcher_user_id: string;
+          sent_at: string;
+          email_to: string;
+          experiment_count: number;
+          gap_summary: Json;
+        };
+        Insert: {
+          id?: string;
+          researcher_user_id: string;
+          sent_at?: string;
+          email_to: string;
+          experiment_count: number;
+          gap_summary: Json;
+        };
+        Update: {
+          sent_at?: string;
+          email_to?: string;
+          experiment_count?: number;
+          gap_summary?: Json;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       notion_health_current: {
