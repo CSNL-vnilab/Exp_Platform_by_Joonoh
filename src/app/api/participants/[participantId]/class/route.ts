@@ -7,6 +7,8 @@ import {
   isValidUUID,
 } from "@/lib/utils/validation";
 import type { ParticipantClassRow } from "@/types/database";
+import { deleteEvent } from "@/lib/google/calendar";
+import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -169,8 +171,80 @@ export async function POST(
       );
     }
 
+    // P2-3: cascade cancellation on blacklist transitions.
+    // When an admin blacklists a participant, they almost always want
+    // future confirmed/running bookings cancelled too — otherwise the
+    // calendar and the participant dashboard still show them as active.
+    // Cancellation here is best-effort: the class change has already
+    // committed; we cancel what we can and surface the count to the UI
+    // so the admin can manually chase anything that slipped through.
+    // Email/SMS/Notion notifications are intentionally NOT sent here —
+    // blacklisting is an adversarial action and we don't notify the
+    // participant that their bookings were cancelled. Researchers owning
+    // the affected experiments can be re-notified via a manual sweep if
+    // needed (tracked in docs/next-sprints.md).
+    let cascadeCancelled = 0;
+    if (nextClass === "blacklist") {
+      const nowIso = new Date().toISOString();
+      const { data: futureBookings } = await admin
+        .from("bookings")
+        .select(
+          "id, google_event_id, experiment_id, experiments(google_calendar_id)",
+        )
+        .eq("participant_id", participantId)
+        .in("status", ["confirmed", "running"])
+        .gt("slot_start", nowIso);
+
+      for (const b of futureBookings ?? []) {
+        const { error: cancelErr } = await admin
+          .from("bookings")
+          .update({ status: "cancelled" })
+          .eq("id", b.id)
+          // CAS: don't flip a booking that raced to 'completed' or was
+          // cancelled by another admin in the gap between SELECT and UPDATE.
+          .in("status", ["confirmed", "running"]);
+        if (cancelErr) {
+          console.error(
+            "[Participant class POST] cancel booking failed:",
+            b.id,
+            cancelErr.message,
+          );
+          continue;
+        }
+        cascadeCancelled += 1;
+
+        if (b.google_event_id) {
+          const exp = b.experiments as unknown as {
+            google_calendar_id: string | null;
+          } | null;
+          const calId = (
+            exp?.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
+          ).trim();
+          if (calId) {
+            try {
+              await deleteEvent(calId, b.google_event_id);
+              await admin
+                .from("bookings")
+                .update({ google_event_id: null })
+                .eq("id", b.id);
+              await invalidateCalendarCache(calId).catch(() => {});
+            } catch (err) {
+              console.error(
+                "[Participant class POST] deleteEvent failed:",
+                b.id,
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+        }
+      }
+    }
+
     return NextResponse.json(
-      { class: inserted as unknown as ParticipantClassRow },
+      {
+        class: inserted as unknown as ParticipantClassRow,
+        cascade_cancelled_bookings: cascadeCancelled,
+      },
       { status: 201 },
     );
   } catch (err) {

@@ -475,6 +475,19 @@ function ClassEditModal({
         return;
       }
 
+      // Surface the blacklist → future-booking cascade count so the admin
+      // knows how many active invitations were cancelled as part of this
+      // action.
+      const payload = (await res.json().catch(() => ({}))) as {
+        cascade_cancelled_bookings?: number;
+      };
+      if ((payload.cascade_cancelled_bookings ?? 0) > 0) {
+        toast(
+          `향후 예약 ${payload.cascade_cancelled_bookings}건이 자동 취소되었습니다.`,
+          "info",
+        );
+      }
+
       setReason("");
       setValidUntil("");
       onSaved();
