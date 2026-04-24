@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { authorizeCronRequest } from "@/lib/auth/cron-secret";
 import {
   runBookingNotionRetry,
   runObservationNotionRetry,
@@ -44,7 +44,6 @@ const MAX_ROWS_PER_SWEEP = 30;
 // 400ms between claims stays under the tightest upstream (Notion 3 rps);
 // GCal/Solapi are more generous but we keep one shared pacing.
 const MIN_DELAY_MS = 400;
-const MIN_SECRET_LENGTH = 32;
 
 // Integration types this cron will claim. Email was added after the
 // confirmation-email HTML was extracted into booking-email-template.ts.
@@ -52,26 +51,6 @@ const ENABLED_TYPES = ["notion", "notion_survey", "gcal", "sms", "email"] as con
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
-}
-
-function authorize(request: NextRequest): boolean {
-  const expected = (process.env.CRON_SECRET ?? "").trim();
-  if (!expected || expected.length < MIN_SECRET_LENGTH) return false;
-  const custom = request.headers.get("x-cron-secret") ?? "";
-  if (custom && safeCompare(custom, expected)) return true;
-  const auth = request.headers.get("authorization") ?? "";
-  if (auth.startsWith("Bearer ")) {
-    const token = auth.slice(7).trim();
-    if (token && safeCompare(token, expected)) return true;
-  }
-  return false;
 }
 
 interface Outcome {
@@ -151,7 +130,7 @@ async function runOne(
 async function handle(request: NextRequest) {
   const started = Date.now();
   try {
-    if (!authorize(request)) {
+    if (!authorizeCronRequest(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { authorizeCronRequest } from "@/lib/auth/cron-secret";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,36 +15,9 @@ export const dynamic = "force-dynamic";
 // which would set completed explicitly (attested) and bypass the auto path.
 // `auto_completed_at` lets analytics distinguish attested vs auto.
 
-function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
-}
-
-// Minimum CRON_SECRET entropy — 32 hex = 128 bits. timingSafeEqual on
-// a 1-byte secret is degenerate; enforce a floor.
-const MIN_SECRET_LENGTH = 32;
-
-function authorize(request: NextRequest): boolean {
-  const expected = (process.env.CRON_SECRET ?? "").trim();
-  if (!expected || expected.length < MIN_SECRET_LENGTH) return false;
-
-  const custom = request.headers.get("x-cron-secret") ?? "";
-  if (custom && safeCompare(custom, expected)) return true;
-
-  const auth = request.headers.get("authorization") ?? "";
-  if (auth.startsWith("Bearer ")) {
-    const token = auth.slice(7).trim();
-    if (token && safeCompare(token, expected)) return true;
-  }
-
-  return false;
-}
-
 async function handle(request: NextRequest) {
   try {
-    if (!authorize(request)) {
+    if (!authorizeCronRequest(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

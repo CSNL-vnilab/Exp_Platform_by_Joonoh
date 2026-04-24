@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { authorizeCronRequest } from "@/lib/auth/cron-secret";
 import { sendEmail } from "@/lib/google/gmail";
 import { BRAND_NAME } from "@/lib/branding";
 import { escapeHtml } from "@/lib/utils/validation";
@@ -25,29 +25,8 @@ import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MIN_SECRET_LENGTH = 32;
 const MAX_SENDS_PER_SWEEP = 30; // guard against stampede
 const MIN_GMAIL_DELAY_MS = 250; // Gmail quota ≪ 3rps; this is plenty
-
-function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
-}
-
-function authorize(request: NextRequest): boolean {
-  const expected = (process.env.CRON_SECRET ?? "").trim();
-  if (!expected || expected.length < MIN_SECRET_LENGTH) return false;
-  const custom = request.headers.get("x-cron-secret") ?? "";
-  if (custom && safeCompare(custom, expected)) return true;
-  const auth = request.headers.get("authorization") ?? "";
-  if (auth.startsWith("Bearer ")) {
-    const token = auth.slice(7).trim();
-    if (token && safeCompare(token, expected)) return true;
-  }
-  return false;
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -122,7 +101,7 @@ function buildEmailHtml(c: Candidate): string {
 async function handle(request: NextRequest) {
   const started = Date.now();
   try {
-    if (!authorize(request)) {
+    if (!authorizeCronRequest(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -198,16 +177,24 @@ async function handle(request: NextRequest) {
           ok: true,
         });
       } else {
-        // Classify the error. Terminal errors (bad recipient, 5.x.x
-        // SMTP permanent) SHOULD be recorded so we don't spin on them.
-        // Transient (429 / 5xx / network / quota) SHOULD NOT so we retry.
+        // Classify the error. Per RFC 5321, SMTP 4xx is transient (mail
+        // server should retry) and 5xx is permanent (give up). Nodemailer
+        // surfaces the SMTP reply in err.message. Transient patterns:
+        // - SMTP 4xx codes (4\d\d as a word)
+        // - HTTP 429 (rate limit, sometimes surfaced by Gmail API paths)
+        // - Quota / greylisting / temporary wording
+        // - Network errors (ETIMEDOUT/ECONNRESET/ENOTFOUND/ECONNABORTED)
+        // 5xx is deliberately excluded so 550 "user unknown" and 553
+        // "invalid mailbox" don't spin forever. 552 (over quota) often
+        // recovers next day, but leaving it permanent is safer than an
+        // infinite loop against a mis-addressed recipient.
         const err = result.error ?? "unknown";
         // Scrub recipient email from error body (L6 reviewer concern).
         const scrubbed = err
           .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "<email>")
           .slice(0, 500);
         const isTransient =
-          /429|rate|quota|5\d\d|ETIMEDOUT|ECONNRESET|ENOTFOUND|temporar/i.test(
+          /\b4\d\d\b|\b429\b|ETIMEDOUT|ECONNRESET|ENOTFOUND|ECONNABORTED|rate[ _-]?limit|quota|temporar|greylist|try again|busy/i.test(
             err,
           );
         if (!isTransient) {

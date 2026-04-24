@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { authorizeCronRequest } from "@/lib/auth/cron-secret";
 import {
   claimNextRetry,
   runBookingNotionRetry,
@@ -35,33 +35,11 @@ const MAX_ROWS_PER_SWEEP = 30;
 // requests; an observation PATCH makes 1. 400ms between claims stays
 // safely under the threshold even when we burst.
 const MIN_DELAY_MS = 400;
-// Conservative lower bound on CRON_SECRET entropy. 32 chars ≈ 128 bits.
-const MIN_SECRET_LENGTH = 32;
-
-function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
-}
-
-function authorize(request: NextRequest): boolean {
-  const expected = (process.env.CRON_SECRET ?? "").trim();
-  if (!expected || expected.length < MIN_SECRET_LENGTH) return false;
-  const custom = request.headers.get("x-cron-secret") ?? "";
-  if (custom && safeCompare(custom, expected)) return true;
-  const auth = request.headers.get("authorization") ?? "";
-  if (auth.startsWith("Bearer ")) {
-    const token = auth.slice(7).trim();
-    if (token && safeCompare(token, expected)) return true;
-  }
-  return false;
-}
 
 async function handle(request: NextRequest) {
   const started = Date.now();
   try {
-    if (!authorize(request)) {
+    if (!authorizeCronRequest(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
