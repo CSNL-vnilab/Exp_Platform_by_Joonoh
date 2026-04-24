@@ -1,0 +1,21 @@
+{
+  "_note": "Final synthesis preset. Consumes only structured findings (no raw code), so ctx can be smaller.",
+  "model": "qwen3.6:latest",
+  "options": {
+    "temperature": 0.15,
+    "top_p": 0.9,
+    "top_k": 40,
+    "repeat_penalty": 1.05,
+    "num_ctx": 16384,
+    "num_predict": 3072,
+    "seed": 7
+  },
+  "budget": {
+    "maxInputChars": 40000
+  },
+  "think": false,
+  "timeouts": {
+    "requestMs": 900000,
+    "firstTokenMs": 300000
+  }
+}

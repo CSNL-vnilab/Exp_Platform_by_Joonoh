@@ -1,0 +1,24 @@
+{
+  "_note": "Per-slice adversarial review preset. num_ctx is deliberately bounded well below qwen3.6's 262K max to protect VRAM on M-series Macs. maxInputChars leaves ~25% of num_ctx for the persona+briefing prompt and ~15% for output.",
+  "model": "qwen3.6:latest",
+  "options": {
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "top_k": 40,
+    "repeat_penalty": 1.05,
+    "num_ctx": 32768,
+    "num_predict": 4096,
+    "seed": 7
+  },
+  "budget": {
+    "maxInputChars": 80000,
+    "maxFilesPerSlice": 18,
+    "perFileHeadChars": 12000,
+    "perFileTailChars": 2000
+  },
+  "think": false,
+  "timeouts": {
+    "requestMs": 900000,
+    "firstTokenMs": 420000
+  }
+}
