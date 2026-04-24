@@ -7,7 +7,10 @@ import { isValidUUID, normalizeToISO } from "@/lib/utils/validation";
 import { getFreeBusy, deleteEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { intervalsOverlap } from "@/lib/utils/date";
-import { runReschedulePipeline } from "@/lib/services/booking.service";
+import {
+  createReschedGCalEvent,
+  runReschedulePipeline,
+} from "@/lib/services/booking.service";
 
 // Valid status transitions: prevents going back from terminal states.
 // 'running' is set automatically when /run mints a completion code —
@@ -315,20 +318,62 @@ export async function PATCH(
   const oldSlotEnd = booking.slot_end;
   const oldEventId = booking.google_event_id;
 
+  const normalizedStart = normalizeToISO(newStart.toISOString());
+  const normalizedEnd = normalizeToISO(newEnd.toISOString());
+
+  // Atomicity (P2-1): create the new GCal event BEFORE touching the DB.
+  // If GCal fails synchronously, DB and calendar both stay on the old slot
+  // so the researcher can retry without being in an in-between state. Worst
+  // case is a spare calendar event (if the DB update later fails), which is
+  // preferable to a missing one.
+  let newEventId: string | null = null;
+  try {
+    const { eventId } = await createReschedGCalEvent(
+      bookingId,
+      normalizedStart,
+      normalizedEnd,
+    );
+    newEventId = eventId;
+  } catch (err) {
+    console.error(
+      "[Reschedule] pre-create GCal failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return NextResponse.json(
+      {
+        error:
+          "캘린더 업데이트에 실패해 예약이 변경되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      },
+      { status: 502 },
+    );
+  }
+
   const update: {
     slot_start: string;
     slot_end: string;
     session_number?: number;
+    google_event_id?: string | null;
   } = {
-    slot_start: normalizeToISO(newStart.toISOString()),
-    slot_end: normalizeToISO(newEnd.toISOString()),
+    slot_start: normalizedStart,
+    slot_end: normalizedEnd,
   };
   if (parsed.data.session_number !== undefined) {
     update.session_number = parsed.data.session_number;
   }
+  if (newEventId) {
+    update.google_event_id = newEventId;
+  }
 
   const { error: updateErr } = await admin.from("bookings").update(update).eq("id", bookingId);
   if (updateErr) {
+    // DB update failed AFTER new GCal event created. Best we can do is log
+    // the orphan id and return the error — next outbox sweep or a manual
+    // cleanup has to fix it. Participant sees old time (DB unchanged);
+    // orphan event on calendar is the lesser evil.
+    console.error(
+      "[Reschedule] DB update failed after GCal create, orphan event:",
+      newEventId,
+    );
     return NextResponse.json({ error: "예약 변경에 실패했습니다" }, { status: 500 });
   }
 
@@ -337,6 +382,7 @@ export async function PATCH(
     oldSlotStart,
     oldSlotEnd,
     oldEventId,
+    newEventId,
   }).catch((err) => {
     console.error("[Reschedule] pipeline failed:", err);
   });

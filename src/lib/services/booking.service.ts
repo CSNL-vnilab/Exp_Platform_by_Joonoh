@@ -573,6 +573,72 @@ interface ReschedulePipelineParams {
   oldSlotStart: string;
   oldSlotEnd: string;
   oldEventId: string | null;
+  /**
+   * If the caller pre-created the new GCal event synchronously (to make the
+   * reschedule atomic with the DB update), pass the new event id here. The
+   * pipeline will skip the GCal create step and only delete the old event.
+   * If null, the pipeline creates the new event itself (legacy best-effort
+   * path; drift window exists between DB update and new event creation).
+   */
+  newEventId?: string | null;
+}
+
+/**
+ * Pre-create the new GCal event for a reschedule BEFORE the DB slot is
+ * updated. On success returns the new event id (caller should store it
+ * with the slot update in one DB write). On failure throws — caller
+ * should abort the reschedule so the DB and calendar stay in sync.
+ *
+ * Idempotency caveat: if the DB update fails after this returns, the
+ * orphan event stays on the calendar. A spare event is preferable to a
+ * missing one; the weekly outbox sweep doesn't clean these up yet.
+ */
+export async function createReschedGCalEvent(
+  bookingId: string,
+  newSlotStart: string,
+  newSlotEnd: string,
+): Promise<{ eventId: string | null; usedCalendar: boolean }> {
+  const supabase = createAdminClient();
+  const { data: fresh } = await supabase
+    .from("bookings")
+    .select(
+      "id, slot_start, slot_end, session_number, subject_number, google_event_id, notion_page_id, participants(name, phone, email), experiments(title, project_name, participation_fee, google_calendar_id, created_by, precautions, location_id, experiment_mode, online_runtime_config)",
+    )
+    .eq("id", bookingId)
+    .single();
+  if (!fresh) return { eventId: null, usedCalendar: false };
+
+  const baseRow = fresh as unknown as BookingRow;
+  // Use the NEW slot values for title/description — the row in DB still
+  // has the old slot at this point.
+  const row: BookingRow = {
+    ...baseRow,
+    slot_start: newSlotStart,
+    slot_end: newSlotEnd,
+  };
+
+  const calendarId = (
+    row.experiments.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
+  ).trim() || null;
+  if (!calendarId) return { eventId: null, usedCalendar: false };
+
+  let creator: CreatorProfile | null = null;
+  if (row.experiments.created_by) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("email, display_name, phone, contact_email")
+      .eq("id", row.experiments.created_by)
+      .maybeSingle();
+    creator = (data as CreatorProfile | null) ?? null;
+  }
+
+  const eventId = await createEvent(calendarId, {
+    summary: calendarTitle(row, creator),
+    description: calendarDescription(row),
+    start: new Date(newSlotStart),
+    end: new Date(newSlotEnd),
+  });
+  return { eventId, usedCalendar: true };
 }
 
 export async function runReschedulePipeline(params: ReschedulePipelineParams) {
@@ -604,7 +670,9 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
     row.experiments.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
   ).trim() || null;
 
-  // Delete old GCal event (if any)
+  // Delete old GCal event (if any). Best-effort: if the PATCH handler
+  // pre-created the new event, the old one is an orphan we want gone,
+  // but the reschedule is already "correct" from the participant's POV.
   if (calendarId && params.oldEventId) {
     try {
       await deleteEvent(calendarId, params.oldEventId);
@@ -613,11 +681,18 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
     }
   }
 
-  // Create new GCal event with updated time + correct title
-  let newEventId: string | null = null;
-  if (calendarId) {
+  // If caller pre-created the new event (atomic path), just stamp the
+  // integration row and move on.
+  if (params.newEventId) {
+    await markIntegration(supabase, row.id, "gcal", {
+      status: "completed",
+      external_id: params.newEventId,
+    });
+    if (calendarId) await invalidateCalendarCache(calendarId).catch(() => {});
+  } else if (calendarId) {
+    // Legacy best-effort path: drift window exists (DB already updated).
     try {
-      newEventId = await createEvent(calendarId, {
+      const newEventId = await createEvent(calendarId, {
         summary: calendarTitle(row, creator),
         description: calendarDescription(row),
         start: new Date(row.slot_start),
