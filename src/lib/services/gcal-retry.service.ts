@@ -94,15 +94,11 @@ export async function runGCalRetry(
   // Dedup — if an event was already created (by another cron or runtime
   // pipeline), record and exit. Avoids double-creating a calendar event.
   //
-  // CAVEAT: this is best-effort. The runtime pipeline CAN write
-  // google_event_id between this read and the createEvent call below,
-  // producing a duplicate event on the shared calendar. The UPDATE at
-  // line ~170 uses `.is("google_event_id", null)` so our retry
-  // page_id won't clobber the first-write winner, but the duplicate
-  // event itself is already live in the GCal calendar. Accepted
-  // trade-off: alternative (pre-fetch via events.list filter) is heavier
-  // per retry and still not race-free. Operator cleans up duplicates in
-  // the UI if they occur.
+  // A second layer of dedup comes from the idempotencyKey=row.id passed
+  // to createEvent below: if the runtime pipeline wrote google_event_id
+  // AFTER our SELECT, Google returns 409 on insert and we recover the
+  // deterministic id, so no duplicate event ends up on the calendar
+  // even in the race window.
   if (row.google_event_id) {
     await finalize(supabase, claim.id, "completed", row.google_event_id, null);
     return { ...base, ok: true, external_id: row.google_event_id };
@@ -156,6 +152,11 @@ export async function runGCalRetry(
       ].join("\n"),
       start: new Date(row.slot_start),
       end: new Date(row.slot_end),
+      // Same idempotency key the runtime pipeline uses, so a retry after a
+      // lost response collapses onto the existing event (409 → return id)
+      // rather than creating a duplicate. Closes the race previously
+      // called out as an "accepted tradeoff" in the comment above.
+      idempotencyKey: row.id,
     });
 
     // Race guard — only write if still null, so a concurrent runtime

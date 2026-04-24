@@ -348,6 +348,9 @@ async function runGCal(
         description: calendarDescription(booking),
         start: new Date(booking.slot_start),
         end: new Date(booking.slot_end),
+        // Deterministic id so outbox retry after a lost response doesn't
+        // create a duplicate event on the shared calendar.
+        idempotencyKey: booking.id,
       });
 
       await supabase.from("bookings").update({ google_event_id: eventId }).eq("id", booking.id);

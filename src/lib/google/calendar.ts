@@ -60,23 +60,62 @@ export async function getFreeBusy(
   });
 }
 
+/**
+ * Normalise an arbitrary identifier (typically a booking UUID) into a
+ * valid Google Calendar event id. Per Calendar API docs the id must use
+ * base32hex charset (a-v + 0-9), 5-1024 chars. UUID hex (0-9a-f) is a
+ * subset of base32hex, so stripping the dashes is sufficient.
+ */
+function normaliseEventId(key: string): string {
+  return key.replace(/[^0-9a-v]/gi, "").toLowerCase().slice(0, 1024);
+}
+
 export async function createEvent(
   calendarId: string,
-  event: { summary: string; description?: string; start: Date; end: Date },
+  event: {
+    summary: string;
+    description?: string;
+    start: Date;
+    end: Date;
+    /**
+     * Deterministic id for server-side dedup. If the event already exists
+     * (e.g. a retry after a transient failure lost the response), Google
+     * returns 409 Conflict and we treat it as success — returning the
+     * derived id so the caller can persist it. Only pass this when the
+     * caller wants idempotency (initial booking create + outbox retry);
+     * don't pass for reschedule, where a deleted old event may still
+     * occupy the id briefly on Google's side and force a 409.
+     */
+    idempotencyKey?: string;
+  },
 ): Promise<string> {
+  const eventId = event.idempotencyKey
+    ? normaliseEventId(event.idempotencyKey)
+    : undefined;
   return withRetry(`events.insert(${calendarId})`, async () => {
     const auth = getGoogleAuth();
     const calendar = google.calendar({ version: "v3", auth });
-    const response = await calendar.events.insert({
-      calendarId: calendarId.trim(),
-      requestBody: {
-        summary: event.summary,
-        description: event.description,
-        start: { dateTime: event.start.toISOString(), timeZone: "Asia/Seoul" },
-        end: { dateTime: event.end.toISOString(), timeZone: "Asia/Seoul" },
-      },
-    });
-    return response.data.id as string;
+    try {
+      const response = await calendar.events.insert({
+        calendarId: calendarId.trim(),
+        requestBody: {
+          id: eventId,
+          summary: event.summary,
+          description: event.description,
+          start: { dateTime: event.start.toISOString(), timeZone: "Asia/Seoul" },
+          end: { dateTime: event.end.toISOString(), timeZone: "Asia/Seoul" },
+        },
+      });
+      return response.data.id as string;
+    } catch (err: unknown) {
+      // 409 Conflict on a deterministic id means a prior attempt already
+      // created this event. Return the id we passed — this is the whole
+      // point of passing an idempotency key.
+      const status = (err as { code?: number; status?: number })?.code
+        ?? (err as { status?: number })?.status;
+      if (status === 409 && eventId) return eventId;
+      throw err;
+    }
   });
 }
 
