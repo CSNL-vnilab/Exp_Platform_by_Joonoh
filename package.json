@@ -21,6 +21,7 @@
     "review:fast": "node scripts/review.mjs --fast",
     "review:adv": "node scripts/adv-review/run.mjs",
     "review:adv:list": "node scripts/adv-review/run.mjs --list",
+    "test:smtp": "node scripts/test-smtp-classification.mjs",
     "ai:health": "curl -s http://127.0.0.1:11434/api/tags | node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);console.log(j.models.map(m=>m.name).sort().join('\\n'));})\""
   },
   "dependencies": {

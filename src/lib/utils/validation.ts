@@ -163,7 +163,16 @@ export const experimentSchema = z.object({
       block_count: z.number().int().positive().max(999).optional(),
       estimated_minutes: z.number().int().positive().max(600).optional(),
       completion_token_format: z
-        .union([z.literal("uuid"), z.string().regex(/^alphanumeric:\d+$/)])
+        .union([
+          z.literal("uuid"),
+          z
+            .string()
+            .regex(/^alphanumeric:\d+$/)
+            .refine(
+              (s) => parseInt(s.split(":")[1], 10) >= 6,
+              "alphanumeric 코드는 최소 6자리 이상이어야 합니다",
+            ),
+        ])
         .optional(),
     })
     .nullable()

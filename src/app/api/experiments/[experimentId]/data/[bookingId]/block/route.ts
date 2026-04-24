@@ -67,7 +67,7 @@ function generateCompletionCode(format?: string): string {
   if (!format || format === "uuid") return crypto.randomUUID();
   const m = /^alphanumeric:(\d+)$/.exec(format);
   if (m) {
-    const len = Math.min(Math.max(parseInt(m[1], 10), 4), 32);
+    const len = Math.min(Math.max(parseInt(m[1], 10), 6), 32);
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     const bytes = new Uint8Array(len);
     crypto.getRandomValues(bytes);

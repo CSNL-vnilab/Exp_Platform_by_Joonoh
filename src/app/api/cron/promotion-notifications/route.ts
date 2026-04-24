@@ -3,6 +3,10 @@ import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authorizeCronRequest } from "@/lib/auth/cron-secret";
 import { sendEmail } from "@/lib/google/gmail";
+import {
+  isTransientSmtpError,
+  scrubEmailAndTruncate,
+} from "@/lib/google/smtp-classification";
 import { BRAND_NAME } from "@/lib/branding";
 import { escapeHtml } from "@/lib/utils/validation";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
@@ -177,26 +181,11 @@ async function handle(request: NextRequest) {
           ok: true,
         });
       } else {
-        // Classify the error. Per RFC 5321, SMTP 4xx is transient (mail
-        // server should retry) and 5xx is permanent (give up). Nodemailer
-        // surfaces the SMTP reply in err.message. Transient patterns:
-        // - SMTP 4xx codes (4\d\d as a word)
-        // - HTTP 429 (rate limit, sometimes surfaced by Gmail API paths)
-        // - Quota / greylisting / temporary wording
-        // - Network errors (ETIMEDOUT/ECONNRESET/ENOTFOUND/ECONNABORTED)
-        // 5xx is deliberately excluded so 550 "user unknown" and 553
-        // "invalid mailbox" don't spin forever. 552 (over quota) often
-        // recovers next day, but leaving it permanent is safer than an
-        // infinite loop against a mis-addressed recipient.
+        // Classification + scrubbing live in @/lib/google/smtp-classification
+        // (with unit tests); see that file for the RFC 5321 rationale.
         const err = result.error ?? "unknown";
-        // Scrub recipient email from error body (L6 reviewer concern).
-        const scrubbed = err
-          .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "<email>")
-          .slice(0, 500);
-        const isTransient =
-          /\b4\d\d\b|\b429\b|ETIMEDOUT|ECONNRESET|ENOTFOUND|ECONNABORTED|rate[ _-]?limit|quota|temporar|greylist|try again|busy/i.test(
-            err,
-          );
+        const scrubbed = scrubEmailAndTruncate(err);
+        const isTransient = isTransientSmtpError(err);
         if (!isTransient) {
           await admin.from("class_promotion_notifications").insert({
             audit_id: c.audit_id,
