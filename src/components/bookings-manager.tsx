@@ -19,6 +19,12 @@ export interface BookingRowView {
   status: string;
   created_at: string;
   subject_number: number | null;
+  // Roadmap C4 (migration 00047). Optional during rollout — pre-migration
+  // code paths render without the badge. Data_quality 'flag' vs 'exclude'
+  // distinguishes "surface for researcher review" vs "drop from analyses."
+  exclusion_flag?: boolean;
+  exclusion_reason?: string | null;
+  data_quality?: "good" | "flag" | "exclude";
   participants: {
     name: string;
     phone: string;
@@ -373,7 +379,19 @@ export function BookingsManager({
                             {format(new Date(b.slot_end), "HH:mm")}
                           </td>
                           <td className="px-4 py-3">
-                            <Badge variant={s.variant}>{s.label}</Badge>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge variant={s.variant}>{s.label}</Badge>
+                              {b.data_quality === "flag" && (
+                                <span title={b.exclusion_reason ?? "데이터 품질 확인 필요"}>
+                                  <Badge variant="warning">품질 확인</Badge>
+                                </span>
+                              )}
+                              {b.data_quality === "exclude" && (
+                                <span title={b.exclusion_reason ?? "분석 제외"}>
+                                  <Badge variant="danger">제외</Badge>
+                                </span>
+                              )}
+                            </div>
                           </td>
                           {showsOnlineCols && (
                             <td className="px-4 py-3 text-xs">
@@ -487,6 +505,12 @@ export function BookingsManager({
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <Badge variant={s.variant}>{s.label}</Badge>
+                        {b.data_quality === "flag" && (
+                          <Badge variant="warning">품질 확인</Badge>
+                        )}
+                        {b.data_quality === "exclude" && (
+                          <Badge variant="danger">제외</Badge>
+                        )}
                         <ClassBadge value={b.current_class ?? null} compact />
                       </div>
                     </div>

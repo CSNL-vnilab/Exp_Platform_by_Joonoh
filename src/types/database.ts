@@ -476,6 +476,11 @@ export interface Database {
           google_event_id: string | null;
           notion_page_id: string | null;
           auto_completed_at: string | null;
+          // Roadmap C4 (migration 00047). Default values pre-migration
+          // rollback: exclusion_flag=false, data_quality='good'.
+          exclusion_flag: boolean;
+          exclusion_reason: string | null;
+          data_quality: "good" | "flag" | "exclude";
           created_at: string;
           updated_at: string;
         };
@@ -492,6 +497,9 @@ export interface Database {
           google_event_id?: string | null;
           notion_page_id?: string | null;
           auto_completed_at?: string | null;
+          exclusion_flag?: boolean;
+          exclusion_reason?: string | null;
+          data_quality?: "good" | "flag" | "exclude";
         };
         Update: {
           slot_start?: string;
@@ -502,6 +510,9 @@ export interface Database {
           google_event_id?: string | null;
           notion_page_id?: string | null;
           auto_completed_at?: string | null;
+          exclusion_flag?: boolean;
+          exclusion_reason?: string | null;
+          data_quality?: "good" | "flag" | "exclude";
         };
         Relationships: [
           {

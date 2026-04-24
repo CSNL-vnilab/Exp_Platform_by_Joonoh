@@ -33,6 +33,7 @@ export default async function BookingsPage({
     .from("bookings")
     .select(
       `id, slot_start, slot_end, session_number, status, created_at, subject_number, participant_id,
+       exclusion_flag, exclusion_reason, data_quality,
        participants (name, phone, email, gender, birthdate)`,
     )
     .eq("experiment_id", experimentId)
