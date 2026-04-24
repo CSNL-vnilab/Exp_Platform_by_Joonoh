@@ -40,15 +40,6 @@ doesn't rediscover what's here.
 
 All migrations applied to remote Supabase. All E2E green on local.
 
-## Blockers (not ours)
-
-- **Vercel Hobby plan cron limit** blocks prod deploys whenever
-  `vercel.json` contains `*/30 * * * *` (currently Stream 1/3's
-  `/api/cron/notion-retry`). Manual deploys fail until the cron is
-  either moved to GitHub Actions (mirror reminders-cron.yml) or the
-  project upgrades to Pro. Migration + code is ready; only the alias
-  bump is stuck.
-
 ## Hard to implement now — deferred
 
 - **jsPsych first-class upload** (`experiment.zip` → Storage extract →

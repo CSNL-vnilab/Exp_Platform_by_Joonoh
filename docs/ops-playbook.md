@@ -187,17 +187,8 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00043_notion_member_project_links.sql` on
-2026-04-23.
-
-On disk but NOT applied (staged for next deploy):
-- `00044_notion_health_check_type_outbox.sql` — adds
-  `outbox_retry_sweep` to `notion_health_check_type` enum. Required
-  before `/api/cron/outbox-retry` can log its sweep summary (INSERT
-  would fail on enum mismatch otherwise).
-- `00045_book_slot_exclude_experiments.sql` — D9 cross-study exclusion
-  enforcement inside `book_slot`. Full CREATE OR REPLACE of the
-  function body; app-layer pre-check still active as a fast path.
+Last applied to prod: `00046_pending_work_outbox_coverage.sql` on
+2026-04-24.
 
 Full list: `ls supabase/migrations/`.
 
