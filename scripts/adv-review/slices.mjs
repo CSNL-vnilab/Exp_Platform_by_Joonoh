@@ -143,6 +143,11 @@ export const slices = [
       "src/lib/participants/classes.ts",
       "src/app/api/locations/route.ts",
       "src/app/api/locations/[locationId]/route.ts",
+      // Defense context: RLS + roles policy is the load-bearing guard for
+      // participant PII. Included here so the reviewer sees the full
+      // defense-in-depth (RLS + column filter + UI) before calling a
+      // findings CRITICAL.
+      "supabase/migrations/00010_update_rls_for_roles.sql",
     ],
   },
   {
@@ -182,12 +187,16 @@ export const slices = [
     files: [
       "src/app/api/cron/auto-complete-bookings/route.ts",
       "src/app/api/cron/notion-health/route.ts",
-      "src/app/api/cron/notion-retry/route.ts",
       "src/app/api/cron/outbox-retry/route.ts",
       "src/app/api/cron/promotion-notifications/route.ts",
       "src/app/api/notifications/reminders/route.ts",
       "src/app/api/google/calendar-health/route.ts",
       "src/app/api/google/calendars/route.ts",
+      // Defense context: shared cron auth + SMTP transient classifier.
+      // Reviewing cron routes without seeing these leads to false-positive
+      // "timing attack" / "infinite retry" flags.
+      "src/lib/auth/cron-secret.ts",
+      "src/lib/google/smtp-classification.ts",
     ],
   },
   {
