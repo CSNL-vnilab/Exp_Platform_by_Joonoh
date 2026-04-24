@@ -112,7 +112,11 @@ if (pending.length > 0) {
 }
 
 if (excluded.length > 0) {
-  console.log(`\nOlder than 'last applied' but docs flag as NOT applied (${excluded.length}):`);
+  // Explicitly deferred migrations — owner acknowledged them in the
+  // playbook's "NOT applied" block. Informational only; CI should
+  // not fail because someone else's migration is intentionally
+  // parked.
+  console.log(`\nExplicitly deferred (${excluded.length}, informational — not a failure):`);
   for (const f of excluded) console.log(`  · ${f}`);
 }
 
@@ -152,8 +156,15 @@ if (staleHits.length > 0) {
   }
 }
 
-if (pending.length === 0 && excluded.length === 0 && staleHits.length === 0) {
-  console.log("✓ All migrations on disk are applied (per docs/ops-playbook.md) and sidecar docs are in sync.");
+// `excluded` is informational only (see comment above). CI should fail
+// only on actual drift: a migration on disk that hasn't been acked, or a
+// sidecar doc that contradicts the playbook's "Last applied" marker.
+if (pending.length === 0 && staleHits.length === 0) {
+  if (excluded.length === 0) {
+    console.log("✓ All migrations on disk are applied (per docs/ops-playbook.md) and sidecar docs are in sync.");
+  } else {
+    console.log("\n✓ No unacknowledged pending migrations and no sidecar drift.");
+  }
   process.exit(0);
 }
 
