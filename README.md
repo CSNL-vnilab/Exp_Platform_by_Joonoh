@@ -39,6 +39,7 @@
 - **수동 블록** — 연구자가 특정 시간대를 예약 불가로 지정
 - **자동 잠금** — 정원이 모두 차면 실험 상태가 '완료'로 자동 전환
 - **Notion 연동 (선택)** — 실험 날짜·시간·피험자 ID·프로젝트·코드 경로·데이터 경로·파라미터·노트를 같은 DB에서 관리. 상세: [`docs/notion-db-template.md`](./docs/notion-db-template.md)
+- **온라인 실험 모드** — 참여자가 /run 페이지의 샌드박스 브라우저에서 과제를 수행. 연구자 JS는 `window.expPlatform.submitBlock()` 하나만 구현하면 됨. 카운터밸런싱·스크리너·주의 체크·pilot 모드·행동 신호 수집까지 플랫폼이 처리. 설계 가이드: [`docs/online-experiment-designer-guide.md`](./docs/online-experiment-designer-guide.md)
 
 ---
 
