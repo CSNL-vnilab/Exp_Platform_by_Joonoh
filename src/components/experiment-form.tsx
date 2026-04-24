@@ -830,6 +830,19 @@ export function ExperimentForm({
 
             {experimentMode !== "offline" && (
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-foreground">
+                  <strong>온라인 실험을 처음 설계하시나요?</strong>{" "}
+                  <a
+                    href="https://github.com/CSNL-vnilab/Exp_Platform_by_Joonoh/blob/main/docs/online-experiment-designer-guide.md"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2 hover:text-primary"
+                  >
+                    온라인 실험 설계자 가이드
+                  </a>
+                  에서 JS 계약, 블록 제출 프로토콜, 카운터밸런싱, 스크리너,
+                  주의 체크, 용량/속도 한계, PII 제거 규칙, 런치 전 체크리스트를 확인하세요.
+                </div>
                 <div className="sm:col-span-2">
                   <Input
                     id="online_entry_url"
