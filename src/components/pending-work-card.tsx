@@ -58,8 +58,9 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
 
   // D6 follow-up — aggregate gcal/email/sms across "actively retrying"
   // vs "dead letter". Keeping one tile per retryable kind would burst
-  // the grid from 5 to 11 tiles; instead we sum them into "기타 외부
-  // 연동 재시도" and expose the per-type breakdown via title tooltip.
+  // the grid from 5 to 11 tiles; instead we sum them into "외부 연동
+  // 재시도 / 한계" with per-type breakdown in title tooltip + inline
+  // dominant-type indicator (for mobile / no-hover contexts).
   const gcalStuck = work.gcal_stuck ?? 0;
   const emailStuck = work.email_stuck ?? 0;
   const smsStuck = work.sms_stuck ?? 0;
@@ -70,6 +71,15 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
   const otherDead = gcalDead + emailDead + smsDead;
   const otherStuckTooltip = `gcal ${gcalStuck} · email ${emailStuck} · sms ${smsStuck}`;
   const otherDeadTooltip = `gcal ${gcalDead} · email ${emailDead} · sms ${smsDead}`;
+  function dominantType(g: number, e: number, s: number): string | null {
+    const max = Math.max(g, e, s);
+    if (max === 0) return null;
+    if (g === max) return "gcal";
+    if (e === max) return "email";
+    return "sms";
+  }
+  const otherStuckDominant = dominantType(gcalStuck, emailStuck, smsStuck);
+  const otherDeadDominant = dominantType(gcalDead, emailDead, smsDead);
 
   const tiles: Array<{
     label: string;
@@ -77,6 +87,7 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
     tone: "default" | "danger" | "info" | "success" | "warning";
     href?: string;
     title?: string;
+    sub?: string | null;
   }> = [
     {
       label: "관찰 미입력",
@@ -98,12 +109,14 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
       value: otherStuck,
       tone: otherStuck > 0 ? "warning" : "success",
       title: otherStuckTooltip,
+      sub: otherStuckDominant,
     },
     {
       label: "외부 연동 한계",
       value: otherDead,
       tone: otherDead > 0 ? "danger" : "success",
       title: otherDeadTooltip,
+      sub: otherDeadDominant,
     },
     {
       label: "Royal 승급 대기",
@@ -128,7 +141,7 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
             실시간 · RPC get_researcher_pending_work
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
           {tiles.map((t) => (
             <div
               key={t.label}
@@ -139,6 +152,11 @@ export async function PendingWorkCard({ userId: _userId }: { userId: string }) {
               <div className={`mt-0.5 text-2xl font-bold ${toneText(t.tone)}`}>
                 {t.value}
               </div>
+              {t.sub && t.value > 0 && (
+                <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                  주로 {t.sub}
+                </div>
+              )}
             </div>
           ))}
         </div>
