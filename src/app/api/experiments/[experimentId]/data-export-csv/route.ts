@@ -144,29 +144,44 @@ export async function GET(
   const ordered = Array.from(dynamicKeys).sort();
   const header = [...FIXED_COLS, ...ordered];
 
-  const lines: string[] = [header.map(csvEscape).join(",")];
-  for (const b of blocks) {
-    for (const t of b.trials ?? []) {
-      const row: Record<string, unknown> = {
-        subject_number: b.subject_number,
-        block_index: b.block_index,
-        trial_index: (t as { trial_index?: unknown }).trial_index ?? "",
-        condition: b.condition_assignment ?? "",
-        is_pilot: b.is_pilot ? 1 : 0,
-        submitted_at: b.submitted_at,
-      };
-      for (const k of ordered) row[k] = (t as Record<string, unknown>)[k] ?? "";
-      lines.push(header.map((k) => csvEscape(row[k])).join(","));
-    }
-  }
-
-  // UTF-8 BOM so Excel reads Korean/unicode columns correctly.
-  const body = "﻿" + lines.join("\n") + "\n";
+  // Stream the output rows instead of materialising `lines: string[]` and
+  // then `lines.join("\n")` — for a 200-participant × 100-trial dataset the
+  // join creates a single ~20 MB string twice (once in the array, once in
+  // the joined body). Streaming keeps peak memory to O(1) per row.
+  // The blocks[] array is still fully in memory; true input-side streaming
+  // would require re-downloading block files in a second pass.
+  const encoder = new TextEncoder();
   const safeName = (exp.project_name ?? exp.title ?? "experiment").replace(
     /[\\/:*?"<>|]/g,
     "_",
   );
-  return new NextResponse(body, {
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      // UTF-8 BOM so Excel reads Korean/unicode columns correctly.
+      controller.enqueue(encoder.encode("﻿"));
+      controller.enqueue(encoder.encode(header.map(csvEscape).join(",") + "\n"));
+      for (const b of blocks) {
+        for (const t of b.trials ?? []) {
+          const row: Record<string, unknown> = {
+            subject_number: b.subject_number,
+            block_index: b.block_index,
+            trial_index: (t as { trial_index?: unknown }).trial_index ?? "",
+            condition: b.condition_assignment ?? "",
+            is_pilot: b.is_pilot ? 1 : 0,
+            submitted_at: b.submitted_at,
+          };
+          for (const k of ordered) row[k] = (t as Record<string, unknown>)[k] ?? "";
+          controller.enqueue(
+            encoder.encode(header.map((k) => csvEscape(row[k])).join(",") + "\n"),
+          );
+        }
+      }
+      controller.close();
+    },
+  });
+
+  return new NextResponse(stream, {
     status: 200,
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
