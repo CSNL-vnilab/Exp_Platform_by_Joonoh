@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
 import { createExperimentPage } from "@/lib/notion/client";
+import { sendExperimentPublishedEmail } from "@/lib/services/lab-notifications.service";
 
 const statusBodySchema = z.object({
   status: z.enum(["draft", "active", "completed", "cancelled"]),
@@ -137,6 +138,39 @@ export async function POST(
       } catch (err) {
         notionError = err instanceof Error ? err.message : "Notion sync failed";
       }
+    }
+
+    // Lab-wide announcement — fire only on the first activation so
+    // draft↔active toggles don't spam the lab. Fire-and-forget for the
+    // same reason the Notion sync is: we don't want a flaky SMTP step
+    // to undo a successful status change.
+    if (!wasActive && nextStatus === "active") {
+      const admin = createAdminClient();
+      sendExperimentPublishedEmail(admin, {
+        id: updated.id,
+        title: updated.title,
+        project_name: updated.project_name ?? null,
+        start_date: updated.start_date,
+        end_date: updated.end_date,
+        daily_start_time: updated.daily_start_time,
+        daily_end_time: updated.daily_end_time,
+        weekdays: updated.weekdays ?? null,
+        session_duration_minutes: updated.session_duration_minutes,
+        session_type: updated.session_type as "single" | "multi",
+        required_sessions: updated.required_sessions,
+        participation_fee: updated.participation_fee,
+        description: updated.description ?? null,
+        experiment_mode: updated.experiment_mode as
+          | "offline"
+          | "online"
+          | "hybrid",
+        created_by: updated.created_by ?? null,
+      }).catch((err) => {
+        console.error(
+          "[Status] experiment-published email fire-and-forget failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
     }
 
     return NextResponse.json({

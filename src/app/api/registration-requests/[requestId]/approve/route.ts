@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth/role";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptString } from "@/lib/crypto/symmetric";
 import { toInternalEmail } from "@/lib/auth/username";
+import { sendRegistrationApprovedEmail } from "@/lib/services/lab-notifications.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,6 +98,20 @@ export async function POST(
       password_tag: "",
     })
     .eq("id", requestId);
+
+  // Fire-and-forget: notify the requester that their account is live.
+  // Awaiting would stretch the approve-endpoint latency; a failed send
+  // doesn't undo the account creation so we intentionally don't await.
+  sendRegistrationApprovedEmail({
+    contact_email: req.contact_email,
+    display_name: req.display_name,
+    username: req.username,
+  }).catch((err) => {
+    console.error(
+      "[Approve] registration approval email fire-and-forget failed:",
+      err instanceof Error ? err.message : err,
+    );
+  });
 
   return NextResponse.json({ ok: true, userId: created.user.id });
 }

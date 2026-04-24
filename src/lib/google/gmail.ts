@@ -15,6 +15,7 @@ export interface SendEmailOptions {
   subject: string;
   html: string;
   cc?: string | string[];
+  bcc?: string | string[];
 }
 
 export async function sendEmail(
@@ -31,6 +32,7 @@ export async function sendEmail(
       from: `"${process.env.NEXT_PUBLIC_LAB_NAME || "LAB"}" <${process.env.GMAIL_USER}>`,
       to: opts.to,
       cc: opts.cc,
+      bcc: opts.bcc,
       subject: opts.subject,
       html: opts.html,
     });
