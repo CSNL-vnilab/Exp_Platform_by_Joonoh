@@ -854,7 +854,8 @@ export function ExperimentForm({
                   />
                   <p className="mt-1 text-xs text-muted">
                     참여자 브라우저가 /run 페이지의 샌드박스에서 로드합니다. HTTPS CDN 경로를
-                    권장합니다.
+                    권장합니다. <strong>ZIP 업로드는 미지원 — 단일 JS 파일 URL만 허용</strong>됩니다
+                    (<code>.js</code> 확장자 권장). SRI 해시는 다음 칸에 붙여넣으세요.
                   </p>
                 </div>
                 <Input

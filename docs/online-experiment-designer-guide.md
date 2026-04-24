@@ -119,6 +119,16 @@ else window.addEventListener("expplatform:ready", run, { once: true });
 </script>
 ```
 
+**Three reference implementations live under `public/demo-exp/`** and
+are served from the prod origin — point your experiment's `entry_url`
+at one of them to try the flow end-to-end before writing your own:
+
+| File | Entry URL | What it does |
+|---|---|---|
+| `hello-world.js` | `https://lab-reservation-seven.vercel.app/demo-exp/hello-world.js` | 3-trial single-block stub. Copy-paste starter. |
+| `number-task.js` | `https://lab-reservation-seven.vercel.app/demo-exp/number-task.js` | Digit-span paradigm, 3 blocks × 5 trials, tablet-friendly. |
+| `rating-task.js` | `https://lab-reservation-seven.vercel.app/demo-exp/rating-task.js` | Likert-rating paradigm with a slider UI. |
+
 ## 4. Counterbalancing
 
 Fill `online_runtime_config.counterbalance_spec`:
