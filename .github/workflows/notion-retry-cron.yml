@@ -1,8 +1,12 @@
-name: Notion outbox retry sweep
+name: Notion outbox retry sweep (legacy — disabled)
+# Superseded by outbox-retry-cron.yml on 2026-04-24. Schedule is
+# commented out to prevent the two `*/30` sweeps from double-loading
+# Notion's 3 rps cap. Keeping the file + workflow_dispatch for manual
+# rollback; route handler stays live per docs/ops-playbook.md cutover
+# checklist step 5 (delete after 24h of clean outbox sweeps).
 on:
-  schedule:
-    # Every 30 minutes.
-    - cron: "*/30 * * * *"
+  # schedule:
+  #   - cron: "*/30 * * * *"
   workflow_dispatch:
 
 jobs:

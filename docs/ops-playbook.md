@@ -1,7 +1,7 @@
 # Ops playbook
 
 Single-entry reference for operating the Exp_Platform deployment.
-Most recent update: 2026-04-23.
+Most recent update: 2026-04-24.
 
 ## Production surface
 
@@ -46,6 +46,16 @@ node scripts/salt-rotate.mjs --confirm   # execute
 new builds; production alias stuck ~2h behind HEAD. Root cause
 unconfirmed (GitHub → Vercel webhook likely out of sync).
 
+**Migration ordering rule (important):** apply any enum-extension or
+`CREATE OR REPLACE FUNCTION` migration to prod Supabase **before**
+deploying the code that depends on it. Deploying first opens a window
+where the new code can 500 against the old schema (e.g. INSERTs with a
+new enum value, RPCs with a new signature). Fast-path pre-checks at
+the route layer sometimes mask this, but never rely on it. Run
+`node scripts/migration-status.mjs` before every deploy; apply any
+pending rows with `node scripts/apply-migration-mgmt.mjs <file>` in
+filename order.
+
 **Preferred deploy path for now:**
 
 ```bash
@@ -63,6 +73,17 @@ npx vercel promote <deployment-url> --yes
 ```
 
 To verify prod matches local after a deploy:
+
+```bash
+NEXT_PUBLIC_APP_URL=https://lab-reservation-seven.vercel.app \
+  node scripts/smoke-cron-auth.mjs
+# All six cron endpoints must return 401 (auth active, route present).
+# Exits 1 on any 404/500/200 — that means the deploy dropped the
+# handler or auth regressed.
+```
+
+For a faster inline spot-check that also authenticates, keep the
+curl loop handy:
 
 ```bash
 for p in /api/notifications/reminders \
@@ -87,8 +108,8 @@ route.
 | Daily 00:30 UTC (09:30 KST) | `/api/notifications/reminders` | `.github/workflows/reminders-cron.yml` every 15 min |
 | Daily 17:15 UTC (02:15 KST+1d) | `/api/cron/auto-complete-bookings` | `.github/workflows/auto-complete-cron.yml` daily |
 | Daily 16:00 UTC | `/api/cron/notion-health` | `.github/workflows/notion-health-cron.yml` daily |
-| Every 30 min | `/api/cron/notion-retry` | `.github/workflows/notion-retry-cron.yml` every 30 min — **will be replaced by outbox-retry once the cutover lands** |
-| Every 30 min | `/api/cron/outbox-retry` | GH Actions workflow pending — new unified retry cron covering notion/gcal/sms/email (D6, commits 47e6312..05b6c7b) |
+| Every 30 min | `/api/cron/notion-retry` | `.github/workflows/notion-retry-cron.yml` every 30 min — **legacy, kept for rollback; disable schedule after outbox-retry cutover** |
+| Every 30 min | `/api/cron/outbox-retry` | `.github/workflows/outbox-retry-cron.yml` every 30 min — unified retry cron covering notion/gcal/sms/email (D6). 00044 enum extension live on prod (2026-04-24); safe to enable. |
 | Every 30 min | `/api/cron/promotion-notifications` | `.github/workflows/promotion-notifications-cron.yml` every 30 min — sends Royal-promotion emails to experiment owners (D8, migration 00038) |
 
 Only the first two are declared in `vercel.json` (Vercel Hobby caps at
@@ -197,17 +218,20 @@ NOT applied to prod. Stream 2 owner runs their own migration.
 
 ## Cron cutover checklist (notion-retry → outbox-retry)
 
-After migrations 00044 is applied and the outbox-retry route is
-deployed:
+Prereqs (met on 2026-04-24): migrations 00044 + 00046 live on prod,
+outbox-retry route deployed. `.github/workflows/outbox-retry-cron.yml`
+exists with schedule commented. Execute in order:
 
 1. Verify outbox-retry serves 401 on the deployed URL.
 2. Manually fire once with the real secret and inspect
    `notion_health_state.check_type='outbox_retry_sweep'` for the
    expected shape.
-3. Add a GH Actions workflow mirror of `notion-retry-cron.yml`
-   pointing at `/api/cron/outbox-retry`.
+3. Uncomment the `schedule:` block in
+   `.github/workflows/outbox-retry-cron.yml` and push.
 4. Disable the notion-retry GH Actions workflow (keep the file for
-   rollback; comment out the `schedule:`).
+   rollback; comment out the `schedule:` in
+   `.github/workflows/notion-retry-cron.yml`). This is what prevents
+   the two `*/30` sweeps from double-loading Notion's 3 rps cap.
 5. After 24h of clean outbox sweeps, delete
    `src/app/api/cron/notion-retry/route.ts`. The service file
    (`notion-retry.service.ts`) stays — outbox-retry imports from it.

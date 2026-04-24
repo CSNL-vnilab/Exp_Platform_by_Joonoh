@@ -62,6 +62,6 @@ Platform ships reservations + observations + Notion mirror cleanly. But 2 years 
 ## Current state snapshot (2026-04-24)
 
 - Repo: 20 commits ahead of origin/main covering calendar consistency · D6 retry services · D9 exclusion · parser tests · dashboard reminders.
-- Migrations on disk not yet applied to prod: `00044_notion_health_check_type_outbox` · `00045_book_slot_exclude_experiments` · `00046_pending_work_outbox_coverage`. Stream 2's `00024_participant_payment_info` deferred separately.
+- Migration head on prod Supabase: `00046_pending_work_outbox_coverage` (2026-04-24). Stream 2's `00024_participant_payment_info` deferred separately; Stream 2 owner applies their own.
 - Background QC green iter=58+ (~20h runtime).
 - No code references to: `git_sha` · `container_digest` · `preregistration` · `irb_protocol_id` · `raw_data_path` · `derivatives` · `exclusion_reason` · `data_quality`. Every P0/P1 gap listed above is a genuine greenfield addition.

@@ -1,15 +1,13 @@
 name: Outbox retry sweep (unified)
 # D6 unified retry cron covering notion / notion_survey / gcal / sms /
-# email integration types. Replaces notion-retry-cron.yml once the
-# cutover is verified — see docs/ops-playbook.md "Cron cutover checklist".
-#
-# Disabled by default (workflow_dispatch only) until operator has
-# verified the deploy + applied migration 00044
-# (notion_health_check_type enum extension). To enable the schedule,
-# uncomment the `schedule:` block below.
+# email integration types. Active since 2026-04-24 after migration
+# 00044 (notion_health_check_type enum extension) applied to prod.
+# notion-retry-cron.yml is the legacy predecessor — its schedule is
+# now commented out to avoid double-sweeping Notion's 3 rps cap.
+# Rollback: comment this schedule, uncomment notion-retry-cron.yml.
 on:
-  # schedule:
-  #   - cron: "*/30 * * * *"
+  schedule:
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 jobs:

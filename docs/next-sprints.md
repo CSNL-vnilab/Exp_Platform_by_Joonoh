@@ -55,14 +55,14 @@ email) have symmetric retry semantics under `/api/cron/outbox-retry`.
   tiles with per-type tooltip so the grid doesn't burst from 5 to 11).
 - Replace Vercel cron entry `notion-retry` → `outbox-retry` once the
   cutover is confirmed safe. Both routes share auth contract + pacing;
-  the dashboard shows the more-recent sweep already. GH Actions
-  workflow ready at `.github/workflows/outbox-retry-cron.yml` with
-  `schedule:` commented out; uncomment after migration 00044 + 00046
-  apply.
+  the dashboard shows the more-recent sweep already. 00044/00046 are
+  live on prod (2026-04-24); the outbox-retry GH Actions workflow is
+  now safe to enable. Cutover steps live in
+  `docs/ops-playbook.md` § "Cron cutover checklist".
 - `notion-retry` route kept for backward compat; delete once cron
   flipped.
 
-**Exit:** done except for the cron-config cutover + migration apply.
+**Exit:** done except for the cron-config cutover.
 
 ## D7 — Multi-lab plumbing preparation
 
@@ -101,9 +101,9 @@ check the dashboard. High-priority transitions should push.
 **Exit:** researchers don't need to check dashboard to know about
 state changes.
 
-## D9 — Cross-study exclusion enforcement (shipped pending migration apply)
+## D9 — Cross-study exclusion enforcement (shipped)
 
-**Status:** code landed. Migration 00045 ready but not yet applied.
+**Status:** code + migration 00045 live on prod (2026-04-24).
 
 **What landed:**
 - `supabase/migrations/00045_book_slot_exclude_experiments.sql` — DB-
@@ -119,10 +119,7 @@ state changes.
   existing app-layer pre-check now emits the same unified message
   (still there as a fast path ahead of the RPC).
 
-**Still TODO:**
-- Apply migration 00045 to prod Supabase.
-
-**Exit:** researcher-declared exclusion actually binds, even for
+**Exit (met):** researcher-declared exclusion actually binds, even for
 callers that bypass the API route (direct SQL / admin tooling).
 
 ## D10 — Consent + withdrawal (IRB deferred from original plan)

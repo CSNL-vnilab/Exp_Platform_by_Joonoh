@@ -40,6 +40,13 @@ doesn't rediscover what's here.
 
 All migrations applied to remote Supabase. All E2E green on local.
 
+Prod rollout landed 2026-04-24 (dpl_EAVGYJfpTo1o8wvjdsQfWTt1RStQ).
+The earlier Vercel Hobby-plan cron blocker was resolved by moving the
+`*/30` notion-retry (and later outbox-retry) sweep off `vercel.json`
+into `.github/workflows/` — keeps the project under Hobby's 2-cron
+cap without losing retry coverage. See
+`docs/ops-playbook.md` § "Cron cutover checklist" for the split.
+
 ## Hard to implement now — deferred
 
 - **jsPsych first-class upload** (`experiment.zip` → Storage extract →
