@@ -210,7 +210,7 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00046_pending_work_outbox_coverage.sql` on
+Last applied to prod: `00048_metadata_reminder_log.sql` on
 2026-04-24.
 
 Staged for next deploy (apply after push):

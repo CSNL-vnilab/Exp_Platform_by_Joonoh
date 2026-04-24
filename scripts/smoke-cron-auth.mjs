@@ -45,6 +45,7 @@ const CRON_PATHS = [
   "/api/cron/notion-health",
   "/api/cron/outbox-retry",
   "/api/cron/promotion-notifications",
+  "/api/cron/metadata-reminders",
 ];
 
 const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
