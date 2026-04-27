@@ -157,8 +157,22 @@ export function ParticipantDetail({ data, role }: Props) {
               </h2>
               <dl className="grid gap-3 text-sm">
                 <Row label="이름" value={data.participant.name} />
-                <Row label="전화번호" value={data.participant.phone} mono />
-                <Row label="이메일" value={data.participant.email} mono />
+                <Row
+                  label="전화번호"
+                  value={data.participant.phone || "(미입력)"}
+                  mono
+                />
+                <Row
+                  label="이메일"
+                  value={
+                    /@-$|@no-email\.local$|@imported\.invalid$/.test(
+                      data.participant.email ?? "",
+                    )
+                      ? "(미입력)"
+                      : data.participant.email
+                  }
+                  mono
+                />
                 <Row
                   label="성별"
                   value={
