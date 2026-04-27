@@ -70,52 +70,64 @@ function dedupFindings(findings) {
   return out;
 }
 
+// Brace-aware JSON object scan that respects quote state and `\`-escaped
+// quotes. Returns each top-level `{...}` substring that mentions "severity".
+// Used by both the fenced and brace-fallback paths since model output often
+// contains literal ``` inside `evidence` strings (which breaks naive fence
+// regex termination).
+function* scanJsonObjects(text) {
+  let i = 0;
+  while (i < text.length) {
+    const open = text.indexOf("{", i);
+    if (open < 0) break;
+    let depth = 0;
+    let close = -1;
+    let inStr = false;
+    let prev = "";
+    for (let j = open; j < text.length; j += 1) {
+      const c = text[j];
+      if (inStr) {
+        if (c === '"' && prev !== "\\") inStr = false;
+      } else if (c === '"') {
+        inStr = true;
+      } else if (c === "{") {
+        depth += 1;
+      } else if (c === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          close = j;
+          break;
+        }
+      }
+      prev = c;
+    }
+    if (close < 0) break;
+    const candidate = text.slice(open, close + 1);
+    if (/"severity"\s*:/.test(candidate)) {
+      yield candidate;
+    }
+    i = close + 1;
+  }
+}
+
 export function extractFindings(text) {
   const findings = [];
-  // Match ```json ... ``` blocks as well as bare { ... } that look like findings.
-  const fenceRe = /```json\s*([\s\S]*?)```/g;
+  // Pass 1 — fence-anchored matches. The close fence MUST be on its own
+  // line (^```), because `evidence` strings frequently contain literal
+  // ``` inline-code wrappers that would terminate a non-anchored regex.
+  const fenceRe = /^```json\s*\n([\s\S]*?)\n```\s*$/gm;
   let m;
   while ((m = fenceRe.exec(text)) !== null) {
     const obj = tryParseLenient(m[1].trim());
     if (obj && obj.severity) findings.push(obj);
   }
-  if (findings.length === 0) {
-    // Fallback: find top-level JSON objects with "severity". Use a
-    // brace-matching scan rather than a regex, since findings regularly
-    // contain nested braces inside `evidence` or `fix`.
-    let i = 0;
-    while (i < text.length) {
-      const open = text.indexOf("{", i);
-      if (open < 0) break;
-      let depth = 0;
-      let close = -1;
-      let inStr = false;
-      let prev = "";
-      for (let j = open; j < text.length; j += 1) {
-        const c = text[j];
-        if (inStr) {
-          if (c === '"' && prev !== "\\") inStr = false;
-        } else if (c === '"') {
-          inStr = true;
-        } else if (c === "{") {
-          depth += 1;
-        } else if (c === "}") {
-          depth -= 1;
-          if (depth === 0) {
-            close = j;
-            break;
-          }
-        }
-        prev = c;
-      }
-      if (close < 0) break;
-      const candidate = text.slice(open, close + 1);
-      if (/"severity"\s*:/.test(candidate)) {
-        const obj = tryParseLenient(candidate);
-        if (obj && obj.severity) findings.push(obj);
-      }
-      i = close + 1;
-    }
+  // Pass 2 — brace walker over the whole text. Catches blocks where the
+  // closing fence wasn't anchored cleanly (model emitted trailing spaces,
+  // unbalanced fences, etc). Dedup at the end collapses overlap with
+  // pass 1.
+  for (const candidate of scanJsonObjects(text)) {
+    const obj = tryParseLenient(candidate);
+    if (obj && obj.severity) findings.push(obj);
   }
   return dedupFindings(findings);
 }
