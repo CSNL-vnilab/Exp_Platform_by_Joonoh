@@ -27,6 +27,22 @@ function keyEnvName(version: number): string {
   return `PAYMENT_INFO_KEY_V${version}`;
 }
 
+// Minimum entropy guard for the env-var source. SHA-256 derivation is fine
+// for high-entropy inputs but leaves a low-entropy operator-typed value
+// (e.g. "supersecret") trivially brute-forceable. Reject anything under 32
+// chars at startup so the misconfiguration fails fast in deploy logs
+// instead of silently producing a weak key.
+const MIN_KEY_SOURCE_LENGTH = 32;
+
+function deriveKey(source: string, envName: string): Buffer {
+  if (source.length < MIN_KEY_SOURCE_LENGTH) {
+    throw new Error(
+      `${envName} is too short (${source.length} chars; need ≥${MIN_KEY_SOURCE_LENGTH}) — pick a high-entropy random string`,
+    );
+  }
+  return createHash("sha256").update(source).digest();
+}
+
 function getKey(version: number): Buffer {
   const envName = keyEnvName(version);
   const source = process.env[envName];
@@ -34,13 +50,13 @@ function getKey(version: number): Buffer {
     // Fall back to the generic PAYMENT_INFO_KEY so local dev and the first
     // deploy don't require per-version vars. Rotation requires explicit V2.
     if (version === 1 && process.env.PAYMENT_INFO_KEY) {
-      return createHash("sha256").update(process.env.PAYMENT_INFO_KEY).digest();
+      return deriveKey(process.env.PAYMENT_INFO_KEY, "PAYMENT_INFO_KEY");
     }
     throw new Error(
       `${envName} must be set to encrypt/decrypt RRN at key version ${version}`,
     );
   }
-  return createHash("sha256").update(source).digest();
+  return deriveKey(source, envName);
 }
 
 export interface EncryptedRrn {

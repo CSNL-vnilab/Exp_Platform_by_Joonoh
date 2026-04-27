@@ -83,8 +83,30 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (updateError || !profile) {
+    // Atomicity: the auth.users row already exists (createUser succeeded)
+    // but the profile update failed, so the account is in a half-built
+    // state — login would work but role/contact_email/phone would be
+    // wrong or null. Roll back by deleting the auth user so the operator
+    // can retry cleanly. If THIS fails too (very rare), fall through to
+    // the original error response so the operator sees both problems.
+    const { error: rollbackErr } = await admin.auth.admin.deleteUser(
+      data.user.id,
+    );
+    if (rollbackErr) {
+      console.error(
+        "[users.POST] profile update + auth rollback both failed",
+        { profileError: updateError?.message, rollbackError: rollbackErr.message },
+      );
+      return NextResponse.json(
+        {
+          error:
+            "계정 생성 후 프로필 동기화에 실패했고, 자동 롤백도 실패했습니다. 관리자가 사용자 목록에서 직접 정리해야 합니다.",
+        },
+        { status: 500 },
+      );
+    }
     return NextResponse.json(
-      { error: "프로필 동기화에 실패했습니다. 사용자 목록에서 역할을 확인하세요." },
+      { error: "프로필 동기화에 실패했습니다. 다시 시도해 주세요." },
       { status: 500 },
     );
   }

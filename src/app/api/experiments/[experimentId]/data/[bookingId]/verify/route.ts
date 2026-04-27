@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod/v4";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -89,9 +90,15 @@ export async function POST(
 
   // Normalize case + whitespace to reduce friction. Codes are UUIDs or
   // [A-Z0-9]+ by construction so ASCII-only uppercase is safe.
+  // Compare via SHA-256 digest + timingSafeEqual so the per-character
+  // timing channel can't whittle down the keyspace. The 10-attempts /
+  // 10-min lockout already makes brute-force impractical, but constant-
+  // time comparison removes the side-channel even within the burst.
   const got = parsed.data.completion_code.trim().toUpperCase();
   const expected = progress.completion_code.trim().toUpperCase();
-  if (got !== expected) {
+  const gotHash = createHash("sha256").update(got, "utf8").digest();
+  const expectedHash = createHash("sha256").update(expected, "utf8").digest();
+  if (!timingSafeEqual(gotHash, expectedHash)) {
     const nextAttempts = (progress.verify_attempts ?? 0) + 1;
     const lockedUntil =
       nextAttempts >= 10
