@@ -19,6 +19,7 @@
 import { readFile } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
+import { sendGmailOAuth, getOAuthSenderEmail } from "./lib/gmail-oauth.mjs";
 
 const env = await readFile(".env.local", "utf8");
 for (const l of env.split("\n")) {
@@ -27,11 +28,15 @@ for (const l of env.split("\n")) {
 }
 
 const APPLY = process.argv.includes("--apply");
+// Transport: --oauth uses ~/.gmail-mcp credentials (gongrzhe MCP OAuth);
+// default falls back to GMAIL_USER + GMAIL_APP_PASSWORD via nodemailer.
+const TRANSPORT = process.argv.includes("--oauth") ? "oauth" : "smtp";
 const APP_BASE =
   process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
   "https://lab-reservation-seven.vercel.app";
 const LAB_NAME = process.env.NEXT_PUBLIC_LAB_NAME || "VNI Lab";
-const FROM = `"${LAB_NAME} 운영" <${process.env.GMAIL_USER}>`;
+const FROM_NAME = `${LAB_NAME} 운영`;
+const FROM = `"${FROM_NAME}" <${process.env.GMAIL_USER}>`;
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -39,7 +44,17 @@ const sb = createClient(
   { auth: { persistSession: false } },
 );
 
-console.log(APPLY ? "MODE: APPLY (will send)" : "MODE: DRY-RUN");
+console.log(APPLY ? `MODE: APPLY (will send via ${TRANSPORT})` : "MODE: DRY-RUN");
+if (APPLY && TRANSPORT === "oauth") {
+  try {
+    const senderEmail = await getOAuthSenderEmail();
+    console.log(`OAuth sender: ${senderEmail}`);
+    if (!process.env.GMAIL_USER) process.env.GMAIL_USER = senderEmail;
+  } catch (err) {
+    console.error("OAuth init failed:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
+}
 
 // ── 1. find backfill experiments grouped by owner ─────────────────────
 const { data: exps, error } = await sb
@@ -78,11 +93,11 @@ async function bookingCount(expId) {
   return count ?? 0;
 }
 
-// ── 3. transport ──────────────────────────────────────────────────────
+// ── 3. transport (only for --apply + --transport=smtp) ────────────────
 let transporter = null;
-if (APPLY) {
+if (APPLY && TRANSPORT === "smtp") {
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
-    console.error("FATAL: GMAIL_USER / GMAIL_APP_PASSWORD missing");
+    console.error("FATAL: GMAIL_USER / GMAIL_APP_PASSWORD missing (or use --oauth)");
     process.exit(1);
   }
   transporter = nodemailer.createTransport({
@@ -167,8 +182,13 @@ for (const [userId, expList] of byOwner) {
   if (!APPLY) continue;
 
   try {
-    const info = await transporter.sendMail({ from: FROM, to, subject, html });
-    console.log(`     ✓ sent ${info.messageId}`);
+    if (TRANSPORT === "oauth") {
+      const r = await sendGmailOAuth({ to, subject, html, fromName: FROM_NAME });
+      console.log(`     ✓ sent (oauth) id=${r.id}`);
+    } else {
+      const info = await transporter.sendMail({ from: FROM, to, subject, html });
+      console.log(`     ✓ sent (smtp) ${info.messageId}`);
+    }
   } catch (err) {
     console.error(`     ✗ failed:`, err instanceof Error ? err.message : err);
   }
