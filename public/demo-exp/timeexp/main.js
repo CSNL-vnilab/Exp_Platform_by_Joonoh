@@ -24,6 +24,20 @@
 (function () {
   "use strict";
 
+  // The lab platform iframe is sandboxed via srcdoc → no `<base>` set,
+  // so relative URLs would resolve against `about:srcdoc` and 404.
+  // Capture our own script's URL synchronously (before any await) so
+  // all later fetches/image src strings are absolute.
+  const SCRIPT_BASE = (function () {
+    const s = document.currentScript;
+    if (s && s.src) {
+      const u = new URL(s.src);
+      return u.origin + u.pathname.replace(/\/[^/]+$/, "/");
+    }
+    // Defensive fallback — should never fire when loaded via entry_url.
+    return "https://lab-reservation-seven.vercel.app/demo-exp/timeexp/";
+  })();
+
   // ───────────────────────────────────────── lifecycle guard
   const EP = window.expPlatform;
   if (!EP) {
@@ -497,7 +511,7 @@
 
   // ───────────────────────────────────────── stimulus-distribution loader
   async function loadStimulusJson() {
-    const url = "./stimulus_30.json";
+    const url = SCRIPT_BASE + "stimulus_30.json";
     const res = await fetch(url, { cache: "force-cache" });
     if (!res.ok) throw new Error(`stimulus_30.json fetch ${res.status}`);
     return res.json();
@@ -990,7 +1004,7 @@
   function instructionsAtSessionStart(distChar, day, totalBlocks) {
     return new Promise((resolve) => {
       const ov = makeOverlay();
-      const guideUrl = `./dist_guide_${distChar}.png`;
+      const guideUrl = `${SCRIPT_BASE}dist_guide_${distChar}.png`;
       ov.style.justifyContent = "flex-start";
       ov.style.padding = "24px";
       ov.innerHTML = `
