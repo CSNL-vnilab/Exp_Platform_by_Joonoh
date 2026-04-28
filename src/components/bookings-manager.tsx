@@ -133,7 +133,21 @@ export function BookingsManager({
   rows,
 }: Props) {
   const router = useRouter();
-  const [filter, setFilter] = useState<Filter>("confirmed");
+  // Pick the default filter based on actual row distribution: if there are
+  // no confirmed rows but there are completed/cancelled rows (typical of a
+  // backfilled experiment), start on the most-populous status so the page
+  // doesn't open on an empty list.
+  const initialFilter: Filter = useMemo(() => {
+    const confirmedN = rows.filter((r) => r.status === "confirmed").length;
+    if (confirmedN > 0) return "confirmed";
+    const completedN = rows.filter((r) => r.status === "completed").length;
+    const cancelledN = rows.filter((r) => r.status === "cancelled").length;
+    if (completedN >= cancelledN && completedN > 0) return "completed";
+    if (cancelledN > 0) return "cancelled";
+    return "all";
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [filter, setFilter] = useState<Filter>(initialFilter);
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState<"emails" | "phones" | null>(null);
   const [verifyTarget, setVerifyTarget] = useState<BookingRowView | null>(null);

@@ -20,21 +20,35 @@ export default async function ExperimentsPage() {
   const { data: experiments } = await supabase
     .from("experiments")
     .select(
-      "id, title, project_name, status, session_duration_minutes, session_type, required_sessions, participation_fee, start_date, end_date, created_at, notion_project_page_id",
+      "id, title, project_name, status, session_duration_minutes, session_type, required_sessions, participation_fee, start_date, end_date, created_at, notion_project_page_id, description, protocol_version",
     )
     .eq("created_by", user.id)
     .order("created_at", { ascending: false });
 
   const experimentIds = experiments?.map((e) => e.id) ?? [];
-  const bookingCounts: Record<string, number> = {};
+  // Per-status counts (not just "confirmed") so backfilled completed
+  // experiments don't render as "예약 0건". Card surfaces all four
+  // numbers so the researcher sees the real shape of the experiment's
+  // booking history.
+  const bookingCounts: Record<
+    string,
+    { confirmed: number; completed: number; cancelled: number; total: number }
+  > = {};
   if (experimentIds.length > 0) {
     const { data: bookings } = await supabase
       .from("bookings")
-      .select("experiment_id")
-      .in("experiment_id", experimentIds)
-      .eq("status", "confirmed");
+      .select("experiment_id, status")
+      .in("experiment_id", experimentIds);
     for (const b of bookings ?? []) {
-      bookingCounts[b.experiment_id] = (bookingCounts[b.experiment_id] ?? 0) + 1;
+      const c =
+        bookingCounts[b.experiment_id] ??
+        (bookingCounts[b.experiment_id] = {
+          confirmed: 0, completed: 0, cancelled: 0, total: 0,
+        });
+      c.total += 1;
+      if (b.status === "confirmed") c.confirmed += 1;
+      else if (b.status === "completed") c.completed += 1;
+      else if (b.status === "cancelled") c.cancelled += 1;
     }
   }
 

@@ -19,6 +19,15 @@ export interface ExperimentListRow {
   end_date: string;
   created_at: string;
   notion_project_page_id?: string | null;
+  description?: string | null;
+  protocol_version?: string | null;
+}
+
+interface BookingBreakdown {
+  confirmed: number;
+  completed: number;
+  cancelled: number;
+  total: number;
 }
 
 const statusConfig: Record<
@@ -36,7 +45,12 @@ type Sort = "recent" | "oldest" | "title" | "starts";
 
 interface Props {
   items: ExperimentListRow[];
-  bookingCounts: Record<string, number>;
+  bookingCounts: Record<string, BookingBreakdown | number>;
+}
+
+function asBreakdown(v: BookingBreakdown | number | undefined): BookingBreakdown {
+  if (typeof v === "number") return { confirmed: v, completed: 0, cancelled: 0, total: v };
+  return v ?? { confirmed: 0, completed: 0, cancelled: 0, total: 0 };
 }
 
 export function ExperimentList({ items, bookingCounts }: Props) {
@@ -138,7 +152,8 @@ export function ExperimentList({ items, bookingCounts }: Props) {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((experiment) => {
             const status = statusConfig[experiment.status] ?? statusConfig.draft;
-            const count = bookingCounts[experiment.id] ?? 0;
+            const c = asBreakdown(bookingCounts[experiment.id]);
+            const isBackfill = experiment.description?.startsWith("[백필]");
             return (
               <Link
                 key={experiment.id}
@@ -166,7 +181,25 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                           </p>
                         )}
                       </div>
-                      <Badge variant={status.variant}>{status.label}</Badge>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge variant={status.variant}>{status.label}</Badge>
+                        {isBackfill && (
+                          <span
+                            title="캘린더에서 일괄 import된 과거 실험. 일부 메타데이터(protocol_version 등) 보완이 필요할 수 있습니다."
+                            className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+                          >
+                            백필
+                          </span>
+                        )}
+                        {experiment.protocol_version && (
+                          <span
+                            title={`protocol_version: ${experiment.protocol_version}`}
+                            className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800"
+                          >
+                            {experiment.protocol_version}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <p className="mt-3 text-sm text-muted">
                       {format(new Date(experiment.start_date), "yyyy.MM.dd")} ~{" "}
@@ -178,7 +211,15 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                         {experiment.session_type === "multi" &&
                           ` · ${experiment.required_sessions}회차`}
                       </span>
-                      <span>확정 {count}건</span>
+                      <span title={`확정 ${c.confirmed} · 완료 ${c.completed} · 취소 ${c.cancelled}`}>
+                        예약 {c.total}건
+                        {c.completed > 0 && (
+                          <span className="ml-1 text-sky-700">(완료 {c.completed})</span>
+                        )}
+                        {c.cancelled > 0 && (
+                          <span className="ml-1 text-rose-600">(취소 {c.cancelled})</span>
+                        )}
+                      </span>
                     </div>
                     {experiment.participation_fee > 0 && (
                       <p className="mt-2 text-sm font-medium text-emerald-700">
