@@ -88,7 +88,10 @@ export async function GET(request: NextRequest) {
       // Latest-effective-class view equivalent: pull participant_classes rows
       // in the lab matching the class, then filter out any that have been
       // superseded by a newer row (regardless of class).
-      const { data: classRows } = await supabase
+      // Use admin client so the lab-wide class list works for any researcher
+      // (RLS would otherwise restrict the view to rows linked to the
+      // researcher's own experiments).
+      const { data: classRows } = await admin
         .from("participant_classes")
         .select("participant_id, class, valid_from, valid_until")
         .eq("lab_id", lab.id)
@@ -170,16 +173,20 @@ export async function GET(request: NextRequest) {
     }
 
     // ------------------------------------------------------------------
-    // Main participants query (RLS-gated).
+    // Main participants query.
     // ------------------------------------------------------------------
-    // Non-admin researchers only receive id + created_at + aggregates; the
-    // server never serializes name/phone/email/gender/birthdate into the
-    // response body for them (QC C2).
+    // Switched from cookie-bound `supabase` (RLS) to `admin` so every
+    // researcher can see the lab-wide participant roster, not just the
+    // people they personally booked. PII protection still happens here:
+    // non-admin researchers only get id + created_at columns (the server
+    // never serializes name/phone/email/gender/birthdate for them, even
+    // accidentally). User directive 2026-04-28: 모든 연구원이 lab 참여자
+    // 목록을 암호화된 public_code 형태로 파악할 수 있어야 한다.
     const baseCols = isAdmin
       ? "id, name, phone, email, gender, birthdate, created_at"
       : "id, created_at";
 
-    let query = supabase
+    let query = admin
       .from("participants")
       .select(baseCols, { count: "exact" });
 
@@ -282,7 +289,9 @@ export async function GET(request: NextRequest) {
 
     const classByParticipant = new Map<string, ParticipantClassRow>();
     if (ids.length > 0) {
-      const { data: classRows } = await supabase
+      // admin client so the class column populates for every participant on
+      // the page, not just ones the researcher's RLS scope would allow.
+      const { data: classRows } = await admin
         .from("participant_classes")
         .select("*")
         .eq("lab_id", lab.id)

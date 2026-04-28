@@ -61,12 +61,14 @@ export async function GET(
       .maybeSingle();
     const isAdmin = roleRow?.role === "admin";
 
-    // Cookie-bound read: RLS decides whether this user may see the participant.
-    // For non-admins we only fetch id/created_at — name/phone/email/etc. never
-    // make it into the response body.
+    // Use admin client so any researcher can open any participant's
+    // pseudonymous detail page (matches the lab-wide list view from the
+    // sister route). PII protection still happens here via the column
+    // selection: non-admins only get id + created_at, so name/phone/email
+    // /gender/birthdate physically can't reach the response body.
     const piiCols = "id, name, phone, email, gender, birthdate, created_at";
     const safeCols = "id, created_at";
-    const { data: participant, error: pErr } = await supabase
+    const { data: participant, error: pErr } = await admin
       .from("participants")
       .select(isAdmin ? piiCols : safeCols)
       .eq("id", participantId)
@@ -87,10 +89,12 @@ export async function GET(
       .eq("code", DEFAULT_LAB_CODE)
       .maybeSingle();
 
-    // Current class (RLS-gated read).
+    // Current class — admin client so the class badge populates for any
+    // participant the researcher views (not just ones bound to their own
+    // experiments). Class itself is non-PII pseudonymous metadata.
     let currentClass: ParticipantClassRow | null = null;
     if (lab?.id) {
-      const { data: classRow } = await supabase
+      const { data: classRow } = await admin
         .from("participant_classes")
         .select("*")
         .eq("participant_id", participantId)
