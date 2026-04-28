@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TimeExpOnline test harness</title>
+<style>html,body{margin:0;padding:0;height:100%}</style>
+</head>
+<body>
+<script>
+// ────────────────────────────────────────────────────────────────────────
+// Test harness: stubs window.expPlatform and captures everything main.js
+// does to it, then loads the real main.js under test. Submitted blocks
+// are accumulated on window.__SUBMITTED__ for the Playwright runner to
+// inspect.
+//
+// This page is loaded from file:// or via a local http server; it's
+// NOT inside a sandboxed iframe — that path is verified separately.
+// ────────────────────────────────────────────────────────────────────────
+
+// Allow Playwright to override these via query params:
+//   ?subject=42&day=1&entry=local
+const params = new URLSearchParams(location.search);
+const SUBJECT = Number(params.get("subject") || "1");
+const SESSION_INDEX = params.get("sessionIndex")
+  ? Number(params.get("sessionIndex"))
+  : null;
+const ENTRY = params.get("entry") || "local";
+// "local" → script tag pointing at ../../public/demo-exp/timeexp/main.js
+// "prod"  → fetched from the prod URL (cross-origin; CORS already set)
+
+const log = [];
+function record(...args) {
+  log.push(args.map(String).join(" "));
+}
+
+window.__SUBMITTED__ = [];
+window.__BEHAVIOR__ = [];
+window.__LOG__ = log;
+window.__FATAL__ = null;
+
+window.addEventListener("error", (e) => {
+  window.__FATAL__ = (window.__FATAL__ || "") + "\n" + (e.message || String(e));
+});
+window.addEventListener("unhandledrejection", (e) => {
+  window.__FATAL__ =
+    (window.__FATAL__ || "") +
+    "\n" +
+    (e.reason && e.reason.message ? e.reason.message : String(e.reason));
+});
+
+const FAKE_BOOKING_ID = "00000000-1111-2222-3333-444444444444";
+
+window.expPlatform = {
+  subject: SUBJECT,
+  experimentId: "11111111-2222-3333-4444-555555555555",
+  bookingId: FAKE_BOOKING_ID,
+  sessionIndex: SESSION_INDEX,
+  config: {},
+  blocksSubmitted: 0,
+  condition: null,
+  isPilot: false,
+  submitBlock(payload) {
+    window.expPlatform.blocksSubmitted += 1;
+    window.__SUBMITTED__.push({
+      blockIndex: payload.blockIndex,
+      isLast: !!payload.isLast,
+      trialCount: payload.trials ? payload.trials.length : 0,
+      // store first + last trials only — keeps debug payload small
+      firstTrial: payload.trials && payload.trials[0],
+      lastTrial: payload.trials && payload.trials[payload.trials.length - 1],
+      blockMetadata: payload.blockMetadata,
+      receivedAt: performance.now(),
+    });
+    return Promise.resolve({
+      blocks_submitted: window.expPlatform.blocksSubmitted,
+      completion_code: payload.isLast ? "TEST-CODE" : null,
+    });
+  },
+  reportAttentionFailure() {
+    return Promise.resolve();
+  },
+  log(msg) {
+    record("[EP.log]", msg);
+    return Promise.resolve();
+  },
+  clock: {
+    now() {
+      return performance.now();
+    },
+    nextFrame() {
+      return new Promise((r) => requestAnimationFrame(r));
+    },
+  },
+};
+
+// Resolve script source.
+const SCRIPT_SRC =
+  ENTRY === "prod"
+    ? "https://lab-reservation-seven.vercel.app/demo-exp/timeexp/main.js"
+    : "/public/demo-exp/timeexp/main.js";
+
+const s = document.createElement("script");
+s.src = SCRIPT_SRC;
+s.onerror = () => (window.__FATAL__ = (window.__FATAL__ || "") + "\nSCRIPT_LOAD_FAILED");
+document.body.appendChild(s);
+
+// Expose helpers to Playwright via window.
+window.__waitForOverlay__ = function (matcher, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      const overlays = Array.from(document.querySelectorAll("body > div"));
+      const found = overlays.find((d) => matcher(d.textContent || ""));
+      if (found) return resolve(found);
+      if (Date.now() - start > timeoutMs) return reject(new Error("overlay timeout: " + matcher));
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+};
+</script>
+</body>
+</html>

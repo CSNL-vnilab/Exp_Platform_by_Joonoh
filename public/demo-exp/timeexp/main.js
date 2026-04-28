@@ -46,6 +46,74 @@
     return;
   }
 
+  // ───────────────────────────────────────── instrumentation hooks (harness)
+  // Public, documented surface for test harnesses + analyst tooling.
+  // Each named hook fires once per occurrence with a payload object that
+  // captures the salient state at that moment. Listeners attached via
+  // `__timeexpHooks__.on(name, fn)` from a parent or from the same iframe
+  // (no isTrusted requirement) — synchronous; do NOT do heavy work in a
+  // listener or you'll smear the timing measurement you came to inspect.
+  //
+  // Lifecycle (every listener payload contains `t` = performance.now()):
+  //   bootstrap                — { subjectNum, bookingId, sessionIndex }
+  //   calibration:done         — { pxPerDeg, distanceCm, pxPerCm }
+  //   refreshGate:result       — { fps, ok, bypassed, sampleCount }
+  //   sessionResolved          — { day, distChar, source }
+  //   scheduleGenerated        — { seed, blocks, totalRetries }
+  //   sessionInstructions:done — { distChar, day }
+  //   block:start              — { iR, totalBlocks, runtimeStartMs }
+  //   trial:phase              — { iR, iT, phase, t, theta, ... }
+  //                               phase ∈ { cueStart, vm1Start, occlusionStart,
+  //                                         occlusionEnd, vm2Start, cue2Start,
+  //                                         vm3Start, responseStart,
+  //                                         responseClick (or responseTimeout),
+  //                                         feedbackStart, feedbackEnd,
+  //                                         itiStart, itiEnd }
+  //   trial:saved              — { iR, iT, record }
+  //   block:bias               — { iR, biasRepro, valid, missed }
+  //   block:submitted          — { iR, blockIndex, isLast, retryAttempts }
+  //   block:summary:done       — { iR }
+  //   visibility:change        — { hidden, t }
+  //   error                    — { phase, error }
+  //   completed                — { totalBlocks }
+  //
+  // The parent (run-shell) doesn't subscribe today; harness mode (Playwright
+  // mock + e2e) does. Listeners die with the iframe.
+  const __hooks__ = (function () {
+    const listeners = new Map();
+    function on(name, fn) {
+      if (!listeners.has(name)) listeners.set(name, []);
+      listeners.get(name).push(fn);
+      return () => {
+        const arr = listeners.get(name) || [];
+        const i = arr.indexOf(fn);
+        if (i >= 0) arr.splice(i, 1);
+      };
+    }
+    function emit(name, payload) {
+      const stamped = Object.assign({ t: performance.now(), name }, payload || {});
+      // Always push to the ring buffer first — analyst/harness scrapes
+      // this even when no subscribers are attached.
+      __hooksLog__.push(stamped);
+      if (__hooksLog__.length > 4000) __hooksLog__.shift();
+      const arr = listeners.get(name);
+      if (!arr || arr.length === 0) return;
+      // Synchronous fan-out; defensive try/catch so a buggy listener doesn't
+      // kill the experiment.
+      for (const fn of arr) {
+        try {
+          fn(stamped);
+        } catch (err) {
+          console.error("[hook listener]", name, err);
+        }
+      }
+    }
+    return { on, emit };
+  })();
+  const __hooksLog__ = [];
+  // Expose to window so Playwright + analyst tooling can subscribe.
+  window.__timeexpHooks__ = { on: __hooks__.on, log: __hooksLog__ };
+
   // ───────────────────────────────────────── constants matching MATLAB
   const C = {
     // timing (s) — from param_TrialRunTime_Duration.m
@@ -95,9 +163,18 @@
     col_blue: [36, 36, 178], // 255*[0.2,0.2,1]*0.7
     col_grey: [102, 102, 102], // 255*0.4
     col_yellow: [102, 102, 0], // 255*[1,1,0]*0.4
-    col_black: [25, 25, 25], // 255*0.1
+    col_black: [26, 26, 26], // 255*0.1 → round-half-up
+    // MATLAB `par.grey = par.white * lum2colorcode(0.03)`. With sRGB γ≈2.2,
+    // colorcode = 255 × 0.03^(1/2.2) ≈ 49. Was 8 (linear interpretation),
+    // visible as ~30× darker than MATLAB. Now matches MATLAB display.
     backgroundLum: 0.03,
+    BACKGROUND_GREY: Math.round(255 * Math.pow(0.03, 1 / 2.2)), // 49
+    // col_red and col_blue rounded half-up to match MATLAB framebuffer
+    // (was [178,18,18] and [36,36,178]; now [179,18,18] and [36,36,179]).
   };
+  // Patch col_red / col_blue to round-half-up (matches MATLAB framebuffer).
+  C.col_red = [179, 18, 18];
+  C.col_blue = [36, 36, 179];
 
   // gradient blue→red, 100 steps (col_grad)
   const COL_GRAD = (() => {
@@ -217,7 +294,10 @@
   function clearCanvas(bgGrey) {
     const w = window.innerWidth,
       h = window.innerHeight;
-    ctx.fillStyle = `rgb(${bgGrey},${bgGrey},${bgGrey})`;
+    // Default to gamma-corrected MATLAB par.grey (≈49). Callers may
+    // override for special states but should rarely need to.
+    const g = typeof bgGrey === "number" ? bgGrey : C.BACKGROUND_GREY;
+    ctx.fillStyle = `rgb(${g},${g},${g})`;
     ctx.fillRect(0, 0, w, h);
   }
 
@@ -656,16 +736,17 @@
 
   // ───────────────────────────────────────── drawing primitives
   // background ring + bullseye, sized in CSS pixels relative to current ppd.
+  // Mirrors my_ring_aperture_bullseye(par.irect, 5, 1, ppd, [0,0,0],
+  // grey/255, 0.75, [0,0,0], 0.2) — for miss state the ring + bullseye
+  // turn yellow but the cross-gap is still the background grey (matches
+  // MATLAB tex_arc_miss).
   function drawArcBackground(ppd, options = {}) {
     const w = window.innerWidth,
       h = window.innerHeight;
     const cx = w / 2,
       cy = h / 2;
-    const bgGrey = options.miss ? 102 : 25; // bullseye yellow during miss feedback otherwise dark
-    clearCanvas(8); // dark background
+    clearCanvas(C.BACKGROUND_GREY); // gamma-corrected ~49
 
-    // Annulus (ring): outer=5°, inner=4°, dark color; on miss the platform
-    // turns the ring yellow to flag the no-response state.
     const outer = ppd * C.RING_OUTER_DEG;
     const inner = ppd * (C.RING_OUTER_DEG - C.RING_WIDTH_DEG);
     const ringColor = options.miss ? rgb(C.col_yellow) : "rgb(0,0,0)";
@@ -675,22 +756,30 @@
     ctx.arc(cx, cy, inner, 0, 2 * Math.PI, true);
     ctx.fill("evenodd");
 
-    // Bullseye outer (0.75°) — matches my_ring_aperture_bullseye(...,0.75,[0 0 0],0.2)
+    // Bullseye outer (0.75°). MATLAB clips the cross-gap to inside the
+    // outer disk; we approximate by drawing the disk first, then drawing
+    // the cross-gap rects clipped to the same disk via canvas clip().
     const fixOuter = ppd * C.BULLSEYE_OUTER_DEG;
     const fixInner = ppd * C.BULLSEYE_INNER_DEG;
-    ctx.fillStyle = options.miss ? rgb(C.col_yellow) : "rgb(0,0,0)";
+    const bullColor = options.miss ? rgb(C.col_yellow) : "rgb(0,0,0)";
+    ctx.fillStyle = bullColor;
     ctx.beginPath();
     ctx.arc(cx, cy, fixOuter, 0, 2 * Math.PI);
     ctx.fill();
 
-    // Cross gap — a "+" cutout in background colour goes through the
-    // outer bullseye but stops at the inner dot.
-    ctx.fillStyle = `rgb(8,8,8)`;
+    // Cross-gap: "+" of background grey clipped to the outer disk so it
+    // never bleeds past the bullseye edge (MATLAB mask: `r <= r_outer`).
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, fixOuter, 0, 2 * Math.PI);
+    ctx.clip();
+    ctx.fillStyle = `rgb(${C.BACKGROUND_GREY},${C.BACKGROUND_GREY},${C.BACKGROUND_GREY})`;
     ctx.fillRect(cx - fixInner, cy - fixOuter, 2 * fixInner, 2 * fixOuter);
     ctx.fillRect(cx - fixOuter, cy - fixInner, 2 * fixOuter, 2 * fixInner);
+    ctx.restore();
 
-    // Inner dot (0.2°) — black, covers cross intersection.
-    ctx.fillStyle = options.miss ? rgb(C.col_yellow) : "rgb(0,0,0)";
+    // Inner dot (0.2°): black or yellow on miss, covers cross intersection.
+    ctx.fillStyle = bullColor;
     ctx.beginPath();
     ctx.arc(cx, cy, fixInner, 0, 2 * Math.PI);
     ctx.fill();
@@ -769,6 +858,45 @@
 
   // ───────────────────────────────────────── trial state machine (port of Duration_Occlusion.m)
   let ppd = 60; // overwritten after calibration
+  let measuredRefreshHz = 60; // overwritten by refresh-rate gate
+  function activeIfiMs() {
+    // 1000/REFRESH_HZ MS, derived from whatever the refresh-rate gate
+    // actually measured. Defaults to 60 Hz baseline if not yet measured.
+    const hz = Number.isFinite(measuredRefreshHz) && measuredRefreshHz > 30
+      ? measuredRefreshHz
+      : 60;
+    return 1000 / hz;
+  }
+
+  // Visibility / focus loss tracking. Start a single page-level listener
+  // once and accumulate (start, end) pairs into hiddenSpans so per-trial
+  // analysis can flag any phase that overlapped a hidden window.
+  const hiddenSpans = [];
+  let hiddenStart = null;
+  document.addEventListener("visibilitychange", () => {
+    const t = performance.now();
+    if (document.hidden) {
+      hiddenStart = t;
+      __hooks__.emit("visibility:change", { hidden: true, t });
+    } else if (hiddenStart != null) {
+      hiddenSpans.push([hiddenStart, t]);
+      __hooks__.emit("visibility:change", { hidden: false, t, spanMs: t - hiddenStart });
+      hiddenStart = null;
+    }
+  });
+  function trialHiddenMs(t0, t1) {
+    let acc = 0;
+    for (const [a, b] of hiddenSpans) {
+      const lo = Math.max(t0, a);
+      const hi = Math.min(t1, b);
+      if (hi > lo) acc += hi - lo;
+    }
+    if (hiddenStart != null && t1 > hiddenStart) {
+      acc += Math.min(t1, performance.now()) - Math.max(t0, hiddenStart);
+    }
+    return acc;
+  }
+
   function expPlatformLog(...args) {
     if (typeof EP.log === "function") EP.log(args.map(String).join(" "));
   }
@@ -787,24 +915,40 @@
     const occl_end = sched.occl_end[iT];
     const doFeedback = sched.feedback[iT] === 1;
 
+    // Active ifi for deadline arithmetic. Defaults to 60 Hz frame
+    // duration (16.67 ms) but if the refresh-rate gate measured a
+    // different median we honour that — keeps `WaitSecs UntilTime ±ifi`
+    // semantics correct on non-60 Hz screens that bypassed the gate.
+    const IFI_MS = activeIfiMs();
+
+    // vbl_start equivalent — captured BEFORE the first nextFrame() wait
+    // so we mirror MATLAB's `tstart = GetSecs` at the top of the trial.
+    const vblStart = EP.clock.now();
+    __hooks__.emit("trial:phase", {
+      iR, iT, phase: "trialStart", theta, doFeedback, vblStart,
+    });
+
     // Trial-end target (anchored to runtime start so missed responses don't
     // drift the schedule — matches MATLAB tend = prev tend + lentrial).
     const tend = runtimeStartMs + (iT + 1) * C.lentrial * 1000;
 
     // === Phase 1: cue + vm1 ===
     const tCueOnset = await EP.clock.nextFrame();
+    __hooks__.emit("trial:phase", { iR, iT, phase: "cueStart", t: tCueOnset });
     while (true) {
       const t = EP.clock.now();
-      if (t >= tCueOnset + C.tprecue * 1000) break;
+      if (t >= tCueOnset + C.tprecue * 1000 - IFI_MS) break;
       drawArcBackground(ppd);
       drawBar(start1, C.col_white);
       await nextFrame();
     }
 
+    const vm1Start = EP.clock.now();
+    __hooks__.emit("trial:phase", { iR, iT, phase: "vm1Start", t: vm1Start });
     const vm1End = tCueOnset + C.tprecue * 1000 + tvm1 * 1000;
     while (true) {
       const t = EP.clock.now();
-      if (t >= vm1End) break;
+      if (t >= vm1End - IFI_MS) break;
       const f = (t - tCueOnset - C.tprecue * 1000) / (tvm1 * 1000);
       const a = start1 + dir1 * speed1 * tvm1 * f;
       drawArcBackground(ppd);
@@ -813,24 +957,30 @@
     }
 
     // === Phase 2: occlusion (theta) ===
+    // MATLAB uses `WaitSecs('UntilTime', vbl_occlu1 + theta - ifi)` to
+    // overshoot by less than one frame. Our previous version waited the
+    // full theta which biased the occluded interval up by ~1 frame.
     const tOcclOnset = await EP.clock.nextFrame();
+    __hooks__.emit("trial:phase", { iR, iT, phase: "occlusionStart", t: tOcclOnset });
     drawArcBackground(ppd);
-    // Hold the arc only — no bar — until theta elapsed.
     while (true) {
       const t = EP.clock.now();
-      if (t >= tOcclOnset + theta * 1000) break;
-      // Still re-render each frame so any tab refocus repaints cleanly.
+      if (t >= tOcclOnset + theta * 1000 - IFI_MS) break;
       drawArcBackground(ppd);
       await nextFrame();
     }
     const tOcclEnd = EP.clock.now();
     const occluDurObserved = (tOcclEnd - tOcclOnset) / 1000;
+    __hooks__.emit("trial:phase", {
+      iR, iT, phase: "occlusionEnd", t: tOcclEnd, occluDurObserved, theta,
+    });
 
     // === Phase 3: vm2 ===
+    __hooks__.emit("trial:phase", { iR, iT, phase: "vm2Start", t: tOcclEnd });
     const vm2End = tOcclEnd + tvm2 * 1000;
     while (true) {
       const t = EP.clock.now();
-      if (t >= vm2End) break;
+      if (t >= vm2End - IFI_MS) break;
       const f = (t - tOcclEnd) / (tvm2 * 1000);
       const a = occl_end + dir1 * speed1 * tvm2 * f;
       drawArcBackground(ppd);
@@ -839,21 +989,22 @@
     }
 
     // === Phase 4: cue2 ===
-    // Reproduction-only path (seed=0): show start2 cue in green.
     const tCue2Onset = await EP.clock.nextFrame();
+    __hooks__.emit("trial:phase", { iR, iT, phase: "cue2Start", t: tCue2Onset });
     while (true) {
       const t = EP.clock.now();
-      if (t >= tCue2Onset + C.tprecue * 1000) break;
+      if (t >= tCue2Onset + C.tprecue * 1000 - IFI_MS) break;
       drawArcBackground(ppd);
       drawBar(start2, C.col_dg);
       await nextFrame();
     }
 
     // === Phase 4-2: vm3 ===
+    __hooks__.emit("trial:phase", { iR, iT, phase: "vm3Start" });
     const vm3End = tCue2Onset + C.tprecue * 1000 + tvm3 * 1000;
     while (true) {
       const t = EP.clock.now();
-      if (t >= vm3End) break;
+      if (t >= vm3End - IFI_MS) break;
       const f = (t - tCue2Onset - C.tprecue * 1000) / (tvm3 * 1000);
       const a = start2 + dir2 * speed2 * tvm3 * f;
       drawArcBackground(ppd);
@@ -863,7 +1014,11 @@
     const startAngle = modPos(start2 + dir2 * speed2 * tvm3, 2 * Math.PI);
 
     // === Phase 5: response (click → reproduced duration) ===
-    const tRespOnset = await EP.clock.nextFrame();
+    // MATLAB anchors `vbl_respOnset = GetSecs` immediately after the last
+    // vm3 flip; the previous JS port waited an extra `nextFrame()` here
+    // which shifted response onset by ~1 frame. Use clock.now() to match.
+    const tRespOnset = EP.clock.now();
+    __hooks__.emit("trial:phase", { iR, iT, phase: "responseStart", t: tRespOnset });
     let confirm = false;
     let response = NaN;
     let responseAngle = NaN;
@@ -874,6 +1029,8 @@
     let pendingClick = null;
     const clickHandler = (e) => {
       if (!e.isTrusted) return;
+      // event.timeStamp is on the same DOMHighResTimeStamp epoch as
+      // performance.now(), so direct subtraction with tRespOnset is valid.
       pendingClick = e.timeStamp;
     };
     window.addEventListener("pointerdown", clickHandler, { passive: true });
@@ -881,22 +1038,39 @@
     while (true) {
       const t = EP.clock.now();
       const elapsedMs = t - tRespOnset;
-      if (elapsedMs >= C.testimate * 1000) break;
+      if (elapsedMs >= C.testimate * 1000) {
+        __hooks__.emit("trial:phase", { iR, iT, phase: "responseTimeout", t });
+        break;
+      }
       drawArcBackground(ppd);
       await nextFrame();
       if (pendingClick !== null) {
         tClick = pendingClick;
         const respSec = (tClick - tRespOnset) / 1000;
-        // MATLAB: ignore clicks within the first 200 ms (debounce).
+        // MATLAB Duration_Occlusion.m:125-131 — debounce <0.2s clicks
+        // by treating them as a miss AND breaking out of the loop.
+        // (Previous JS port kept polling, which let participants tap
+        // twice and "rescue" a bouncy click. Now matches MATLAB.)
         if (respSec > 0.2) {
           response = respSec;
           responseAngle = dir2 * speed2 * response;
           ierror = response - theta;
           RT = response;
           confirm = true;
-          break;
+          __hooks__.emit("trial:phase", {
+            iR, iT, phase: "responseClick", t: tClick, response, ierror,
+          });
+        } else {
+          response = NaN;
+          ierror = NaN;
+          RT = NaN;
+          tClick = NaN;
+          confirm = false;
+          __hooks__.emit("trial:phase", {
+            iR, iT, phase: "responseDebounced", t: pendingClick, respSec,
+          });
         }
-        pendingClick = null;
+        break;
       }
     }
     window.removeEventListener("pointerdown", clickHandler);
@@ -905,6 +1079,7 @@
     if (doFeedback) {
       // Trial gets feedback (== iTrainTest=2 in MATLAB).
       if (confirm) {
+        __hooks__.emit("trial:phase", { iR, iT, phase: "feedbackStart", confirm: true });
         const trueAngle = modPos(startAngle + dir2 * speed2 * theta, 2 * Math.PI);
         const respAngleAbs = modPos(startAngle + responseAngle, 2 * Math.PI);
         const errAngle = dir2 * speed2 * ierror;
@@ -913,41 +1088,49 @@
         drawArcBackground(ppd);
         drawArcSegment(startAngle, responseAngle, C.col_white);
         drawBar(respAngleAbs, C.col_dg, 1.2);
-        await sleepUntil(EP.clock.now() + (0.25 * 1000 - 1000 / C.REFRESH_HZ));
+        await sleepUntil(EP.clock.now() + (0.25 * 1000 - IFI_MS));
 
         // Step 6b: error visualization for remaining 0.75 s.
         drawArcBackground(ppd);
         if (ierror > 0) {
-          // Over-shoot: show truth then over-extension in red.
+          // Over-shoot: white trajectory to truth, red over-extension.
           drawArcSegment(startAngle, dir2 * speed2 * theta, C.col_white);
           drawArcSegment(trueAngle, errAngle, C.col_red);
         } else {
           drawArcSegment(startAngle, responseAngle, C.col_white);
           drawArcSegment(trueAngle, errAngle, C.col_blue);
         }
-        await sleepUntil(EP.clock.now() + ((C.tfeedback - 0.25) * 1000 - 1000 / C.REFRESH_HZ));
+        await sleepUntil(EP.clock.now() + ((C.tfeedback - 0.25) * 1000 - IFI_MS));
       } else {
+        __hooks__.emit("trial:phase", { iR, iT, phase: "feedbackStart", confirm: false });
         drawArcBackground(ppd, { miss: true });
-        await sleepUntil(EP.clock.now() + (C.tfeedback * 1000 - 1000 / C.REFRESH_HZ));
+        await sleepUntil(EP.clock.now() + (C.tfeedback * 1000 - IFI_MS));
       }
     } else {
       // No-feedback trials (MATLAB iTrainTest=3): show response bar only.
       if (confirm) {
+        __hooks__.emit("trial:phase", { iR, iT, phase: "feedbackStart", noFeedback: true, confirm: true });
         const respAngleAbs = modPos(startAngle + responseAngle, 2 * Math.PI);
         drawArcBackground(ppd);
         drawBar(respAngleAbs, C.col_dg);
-        await sleepUntil(EP.clock.now() + (C.tfeedback * 1000 - 1000 / C.REFRESH_HZ));
+        await sleepUntil(EP.clock.now() + (C.tfeedback * 1000 - IFI_MS));
       } else {
+        __hooks__.emit("trial:phase", { iR, iT, phase: "feedbackStart", noFeedback: true, confirm: false });
         drawArcBackground(ppd, { miss: true });
-        await sleepUntil(EP.clock.now() + (C.tfeedback * 1000 - 1000 / C.REFRESH_HZ));
+        await sleepUntil(EP.clock.now() + (C.tfeedback * 1000 - IFI_MS));
       }
     }
+    __hooks__.emit("trial:phase", { iR, iT, phase: "feedbackEnd", t: EP.clock.now() });
 
     // === Phase 7: ITI — hold arc background until tend.
+    __hooks__.emit("trial:phase", { iR, iT, phase: "itiStart" });
     drawArcBackground(ppd);
     await sleepUntil(tend);
+    const tendActual = EP.clock.now();
+    __hooks__.emit("trial:phase", { iR, iT, phase: "itiEnd", t: tendActual });
 
-    return {
+    const tHiddenMs = trialHiddenMs(vblStart, tendActual);
+    const record = {
       block_index: iR,
       trial_index: iT,
       Stm: theta,
@@ -972,8 +1155,9 @@
       ResponseAngle: confirm ? startAngle + responseAngle : NaN,
       Error: ierror,
       RT,
-      response_isTrusted: true, // we only record isTrusted clicks
+      response_isTrusted: confirm,
       // Timing
+      vbl_start: vblStart,
       vbl_cue: tCueOnset,
       vbl_occlu: tOcclOnset,
       vbl_occlu_end: tOcclEnd,
@@ -981,13 +1165,19 @@
       vbl_cue2: tCue2Onset,
       vbl_respOnset: tRespOnset,
       vbl_resp: confirm ? tClick : NaN,
+      tend: tendActual,
       tend_target: tend,
-      tend_actual: EP.clock.now(),
+      // visibility / focus integrity
+      hidden_ms: tHiddenMs,
+      hidden_flag: tHiddenMs > 0,
       // covariates
       dpr: window.devicePixelRatio || 1,
       inner_w: window.innerWidth,
       inner_h: window.innerHeight,
+      ifi_ms: IFI_MS,
     };
+    __hooks__.emit("trial:saved", { iR, iT, record });
+    return record;
   }
 
   // Sleep until performance.now() reaches a target time. Uses RAF coalescing
@@ -1084,20 +1274,45 @@
   let participantBookingId;
 
   async function main() {
-    participantSubject = EP.subject;
+    // Coerce subject to a finite integer; without this a stringified or
+    // floating-point subject silently corrupts the dist-pattern formula
+    // (mod 4 of "9" works but mod 4 of "abc" returns NaN).
+    const subjNum = Math.trunc(Number(EP.subject));
+    if (!Number.isFinite(subjNum) || subjNum < 0) {
+      throw new Error(`EP.subject is not a non-negative integer: ${String(EP.subject)}`);
+    }
+    participantSubject = subjNum;
     participantBookingId = EP.bookingId;
+    __hooks__.emit("bootstrap", {
+      subjectNum: subjNum,
+      bookingId: participantBookingId,
+      sessionIndex: EP.sessionIndex ?? null,
+    });
 
     // 1. Calibration → ppd
     const calib = await runCalibration();
     ppd = calib.pxPerDeg;
+    __hooks__.emit("calibration:done", {
+      pxPerDeg: calib.pxPerDeg,
+      pxPerCm: calib.pxPerCm,
+      distanceCm: calib.distanceCm,
+    });
 
     // 2. Refresh-rate gate (60 Hz strict per Q2)
     const hzResult = await refreshRateGate();
+    measuredRefreshHz = hzResult.fps;
+    __hooks__.emit("refreshGate:result", {
+      fps: hzResult.fps,
+      ok: hzResult.ok,
+      bypassed: !!hzResult.bypassed,
+      sampleCount: hzResult.sampleCount,
+    });
 
     // 3. Resolve session day (1..5)
     const sessionInfo = await resolveSessionIndex();
     const day = sessionInfo.day;
-    const distChar = distForSession(participantSubject, day);
+    const distChar = distForSession(subjNum, day);
+    __hooks__.emit("sessionResolved", { day, distChar, source: sessionInfo.source });
 
     // 4. Load stimulus distribution → 15-quantile lookup
     const stimulus = await loadStimulusJson();
@@ -1108,14 +1323,20 @@
     const seedHex = await uint32FromString(participantBookingId);
     const rng = mulberry32(seedHex);
     const schedule = generateAllSchedules(rng, distChar, stmDist15, day);
+    __hooks__.emit("scheduleGenerated", {
+      seed: seedHex,
+      blocks: schedule.length,
+      totalRetries: schedule.reduce((s, b) => s + (b.attempts || 1) - 1, 0),
+    });
 
     // Show canvas, hide all overlays.
     canvas.style.display = "block";
     resizeCanvas();
-    clearCanvas(8);
+    clearCanvas(C.BACKGROUND_GREY);
 
     // 6. Master instructions
     await instructionsAtSessionStart(distChar, day, schedule.length);
+    __hooks__.emit("sessionInstructions:done", { distChar, day });
 
     const sessionMeta = {
       experimentLabel: "TimeExpOnline1_demo",
@@ -1147,9 +1368,16 @@
       await blockIntroScreen(iR, schedule.length, distChar);
 
       const sched = schedule[iR];
-      // The runtime start anchor matches MATLAB's `tend` chaining: the
-      // i-th trial is expected to end at runtimeStart + (i+1)*lentrial.
-      const runtimeStartMs = EP.clock.now();
+      // tblockinit captured at top of block (after the intro screen
+      // dismissed). Mirrors par.CurrentStims.tblockinit at
+      // instruction_Duration.m:35.
+      const tblockinit = EP.clock.now();
+      __hooks__.emit("block:start", {
+        iR, totalBlocks: schedule.length, tblockinit,
+      });
+
+      // Anchor `tend` chaining to the first trial's start, same as MATLAB.
+      const runtimeStartMs = tblockinit;
       const trials = [];
       for (let iT = 0; iT < sched.Stm.length; iT++) {
         const tr = await runTrial(iR, iT, sched, runtimeStartMs);
@@ -1160,55 +1388,75 @@
           } err=${Number.isFinite(tr.Error) ? tr.Error.toFixed(2) : "miss"}`,
         );
       }
+      const blockend = EP.clock.now();
 
-      // bias = signed mean error over valid (non-NaN) trials
+      // bias = signed mean error over valid (non-NaN) trials. Matches
+      // Summary_Duration.m:34 (`sum(errors(idx0)/length(...))`).
       const validErr = trials.map((t) => t.Error).filter(Number.isFinite);
       const biasRepro =
         validErr.length > 0 ? validErr.reduce((s, v) => s + v, 0) / validErr.length : NaN;
+      __hooks__.emit("block:bias", {
+        iR, biasRepro, valid: validErr.length, missed: trials.length - validErr.length,
+      });
 
-      // Submit block. Schedule + session meta land on block 0 only — keeps
-      // per-block payload smaller while preserving full reproducibility.
       const blockMetadata = {
         block_index: iR,
         biasRepro,
+        // Legacy NaN fields kept for downstream tooling parity with MATLAB
+        // Summary_Duration.m:58-61 (these are explicitly NaN in the lab
+        // pipeline; analyst recomputes from `Error`).
+        sdErrRepro: null,
+        varWithinStimRepro: null,
+        logSlope: null,
+        logR2: null,
         trialsValid: validErr.length,
         trialsMissed: trials.length - validErr.length,
+        tblockinit,
+        blockend,
+        blockdur: blockend - tblockinit,
         // Only block 0 carries the full session meta to keep later blocks lean.
         ...(iR === 0 ? { session: sessionMeta } : {}),
       };
 
-      try {
-        await EP.submitBlock({
-          blockIndex: iR,
-          trials,
-          blockMetadata,
-          completedAt: new Date().toISOString(),
-          isLast: iR === schedule.length - 1,
-        });
-      } catch (err) {
-        // Surface to platform; rerun-from-block-N still possible since the
-        // server enforces monotonic block_index.
-        expPlatformLog("submitBlock failed: " + (err && err.message ? err.message : String(err)));
-        // Show error overlay; let participant retry by clicking.
-        const ov = makeOverlay();
-        ov.innerHTML = `
-          <h2>저장 실패</h2>
-          <p>블록 ${iR + 1} 저장에 실패했습니다 (${
-            err && err.message ? err.message : "unknown"
-          }).<br>인터넷 연결을 확인한 뒤 클릭해 다시 시도해 주세요.</p>`;
-        await waitForClick();
-        ov.remove();
-        // Retry once.
-        await EP.submitBlock({
-          blockIndex: iR,
-          trials,
-          blockMetadata,
-          completedAt: new Date().toISOString(),
-          isLast: iR === schedule.length - 1,
-        });
+      let submitOk = false;
+      let attempts = 0;
+      while (!submitOk) {
+        attempts += 1;
+        try {
+          await EP.submitBlock({
+            blockIndex: iR,
+            trials,
+            blockMetadata,
+            completedAt: new Date().toISOString(),
+            isLast: iR === schedule.length - 1,
+          });
+          submitOk = true;
+          __hooks__.emit("block:submitted", {
+            iR, isLast: iR === schedule.length - 1, retryAttempts: attempts - 1,
+          });
+        } catch (err) {
+          expPlatformLog(
+            "submitBlock failed: " + (err && err.message ? err.message : String(err)),
+          );
+          if (attempts >= 3) {
+            __hooks__.emit("error", {
+              phase: "submitBlock", error: err && err.message ? err.message : String(err),
+            });
+            throw err;
+          }
+          const ov = makeOverlay();
+          ov.innerHTML = `
+            <h2>저장 실패</h2>
+            <p>블록 ${iR + 1} 저장에 실패했습니다 (${
+              err && err.message ? err.message : "unknown"
+            }).<br>인터넷 연결을 확인한 뒤 클릭해 다시 시도해 주세요.</p>`;
+          await waitForClick();
+          ov.remove();
+        }
       }
 
       await blockSummaryScreen(iR, schedule.length, iR === schedule.length - 1, biasRepro);
+      __hooks__.emit("block:summary:done", { iR });
     }
 
     // Goodbye screen.
@@ -1220,6 +1468,7 @@
       <p style="opacity:0.7;font-size:13px">
         Day ${day} 완료. 내일 (가능하면 같은 시각) 다시 와주세요.
       </p>`;
+    __hooks__.emit("completed", { totalBlocks: schedule.length });
   }
 
   main().catch((err) => {
