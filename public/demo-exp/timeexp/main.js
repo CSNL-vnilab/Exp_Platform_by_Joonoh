@@ -1227,45 +1227,291 @@
   }
 
   function blockIntroScreen(iR, totalBlocks, distChar) {
-    return new Promise((resolve) => {
-      const ov = makeOverlay();
-      ov.innerHTML = `
-        <h1 style="margin:0 0 8px;font-size:24px">Block ${iR + 1} / ${totalBlocks}</h1>
-        <p style="max-width:560px">
-          가려진 시간(θ)을 클릭으로 재현하세요. 일부 트라이얼에는
-          정답 피드백이 표시됩니다.
-        </p>
-        <p style="margin-top:18px;opacity:0.7">아무 곳이나 클릭하여 블록 시작</p>`;
-      const start = (e) => {
-        if (!e.isTrusted) return;
-        window.removeEventListener("pointerdown", start);
-        ov.remove();
-        resolve();
-      };
-      window.addEventListener("pointerdown", start);
+    // Two-screen flow mirroring instruction_Duration.m:23-33:
+    //   (1) Block-N intro text → click → (2) dist-guide screen → click → trials.
+    return new Promise(async (resolve) => {
+      // Screen 1: block intro
+      await new Promise((r) => {
+        const ov = makeOverlay();
+        ov.innerHTML = `
+          <h1 style="margin:0 0 8px;font-size:24px">Block ${iR + 1} / ${totalBlocks}</h1>
+          <p style="max-width:560px">
+            <b>Reproduction task</b><br>
+            가려진 시간(θ)을 클릭으로 재현하세요. 일부 트라이얼에는 정답 피드백이 표시됩니다.
+          </p>
+          <p style="margin-top:18px;opacity:0.7">아무 곳이나 클릭하여 계속</p>`;
+        const start = (e) => {
+          if (!e.isTrusted) return;
+          window.removeEventListener("pointerdown", start);
+          ov.remove();
+          r();
+        };
+        window.addEventListener("pointerdown", start);
+      });
+      // Screen 2: dist-guide (matches instruction_Duration.m:32-33 every block).
+      await new Promise((r) => {
+        const ov = makeOverlay();
+        const guideUrl = `${SCRIPT_BASE}dist_guide_${distChar}.png`;
+        ov.style.padding = "32px";
+        ov.innerHTML = `
+          <p style="margin:0 0 12px;max-width:720px">
+            In this experiment, stimuli will be sampled from a distribution with this shape.
+          </p>
+          <img src="${guideUrl}" alt="dist guide ${distChar}"
+               style="max-width:760px;width:62vw;height:auto;border:1px solid #444;background:#b3b3b3">
+          <p style="margin-top:16px;opacity:0.7">아무 곳이나 클릭하여 블록 시작</p>`;
+        const start = (e) => {
+          if (!e.isTrusted) return;
+          window.removeEventListener("pointerdown", start);
+          ov.remove();
+          r();
+        };
+        window.addEventListener("pointerdown", start);
+      });
+      resolve();
     });
   }
 
-  function blockSummaryScreen(iR, totalBlocks, isLastBlock, biasReproSec) {
-    return new Promise((resolve) => {
-      const ov = makeOverlay();
-      const biasTxt =
-        Number.isFinite(biasReproSec)
-          ? `이번 블록 평균 편차: ${biasReproSec >= 0 ? "+" : ""}${biasReproSec.toFixed(3)} 초`
-          : "이번 블록 평균 편차: (응답 부족)";
-      ov.innerHTML = `
-        <h2 style="margin:0 0 8px">블록 ${iR + 1} 요약</h2>
-        <p>${biasTxt}</p>
-        ${
-          isLastBlock
-            ? "<p>모든 블록이 끝났습니다. 데이터 저장 중…</p>"
-            : "<p>5초 휴식 후 자동으로 다음 블록 안내가 표시됩니다.</p>"
-        }`;
-      const wait = isLastBlock ? 1500 : 5000;
-      setTimeout(() => {
-        ov.remove();
+  // Per-block summary screen: ports MATLAB Summary_Duration.m progress
+  // panel (bias bar chart over up-to-12 blocks + stimulus dist + response
+  // histogram). Followed by a 5-second mandatory rest, then a 5..1
+  // countdown, then click-to-continue (instruction_Duration paradigm).
+  function blockSummaryScreen(iR, totalBlocks, isLastBlock, biasReproSec, distChar, biasHistory, responseHistogramTrials) {
+    return new Promise(async (resolve) => {
+      // Step 1: bias chart + dist guide + response histogram screen.
+      const summaryOv = await makeBiasChartOverlay({
+        iR,
+        totalBlocks,
+        biasReproSec,
+        biasHistory,
+        distChar,
+        responseHistogramTrials,
+      });
+      // Step 2: 5 s mandatory rest (MATLAB pause(par.trest=5)).
+      await new Promise((r) => setTimeout(r, 5000));
+      // Step 3: countdown 5..1.
+      const cdEl = document.createElement("div");
+      Object.assign(cdEl.style, {
+        position: "absolute",
+        left: "50%",
+        bottom: "32px",
+        transform: "translateX(-50%)",
+        color: "#222",
+        fontSize: "28px",
+        fontWeight: "600",
+      });
+      summaryOv.appendChild(cdEl);
+      for (let s = 5; s >= 1; s--) {
+        cdEl.textContent = String(s);
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      cdEl.textContent = "아무 곳이나 클릭하여 다음 블록 시작";
+      cdEl.style.fontSize = "16px";
+      cdEl.style.opacity = "0.85";
+      // Step 4: wait for click. (Last block goes straight to goodbye.)
+      if (isLastBlock) {
+        await new Promise((r) => setTimeout(r, 1500));
+        summaryOv.remove();
         resolve();
-      }, wait);
+        return;
+      }
+      const click = (e) => {
+        if (!e.isTrusted) return;
+        window.removeEventListener("pointerdown", click);
+        summaryOv.remove();
+        resolve();
+      };
+      window.addEventListener("pointerdown", click);
+    });
+  }
+
+  function makeBiasChartOverlay(args) {
+    return new Promise((resolve) => {
+      const { iR, totalBlocks, biasReproSec, biasHistory, distChar, responseHistogramTrials } = args;
+
+      const ov = makeOverlay();
+      ov.style.background = `rgb(${C.BACKGROUND_GREY},${C.BACKGROUND_GREY},${C.BACKGROUND_GREY})`;
+      ov.style.color = "#111";
+      ov.style.justifyContent = "flex-start";
+      ov.style.padding = "24px";
+
+      // Layout: title row, then two-panel grid (bias chart left / dist
+      // guide + response histogram right).
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const biasYMin = -0.25;
+      const biasYMax = 0.25;
+      const xMaxBlock = 12;
+
+      const biasCanvas = document.createElement("canvas");
+      const histCanvas = document.createElement("canvas");
+      // Render at DPR for HiDPI sharpness.
+      const dpr = window.devicePixelRatio || 1;
+      const panelW = Math.min(w * 0.42, 600);
+      const panelH = Math.min(h * 0.45, 360);
+      [biasCanvas, histCanvas].forEach((c) => {
+        c.width = Math.round(panelW * dpr);
+        c.height = Math.round(panelH * dpr);
+        c.style.width = panelW + "px";
+        c.style.height = panelH + "px";
+        c.style.background = "rgba(255,255,255,0.85)";
+        c.style.border = "1px solid #333";
+      });
+      const bctx = biasCanvas.getContext("2d");
+      const hctx = histCanvas.getContext("2d");
+      bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // ── Bias chart ──
+      // Replicates draw_repro_progress_screen "Bias" panel: bar chart with
+      // y-axis -0.25..+0.25, x-axis 1..12 blocks, dark-yellow bars (red if
+      // outside ymax range), green zero-line.
+      const padL = 50,
+        padR = 16,
+        padT = 30,
+        padB = 36;
+      const plotW = panelW - padL - padR;
+      const plotH = panelH - padT - padB;
+      const barColor = "rgb(180,120,20)";
+      const outlierColor = "rgb(210,35,35)";
+      bctx.fillStyle = "#111";
+      bctx.font = "16px system-ui";
+      bctx.fillText("Bias", padL, 20);
+      // y ticks
+      bctx.strokeStyle = "rgba(0,0,0,0.15)";
+      bctx.fillStyle = "#444";
+      bctx.font = "11px system-ui";
+      for (let yt = -0.2; yt <= 0.2 + 1e-9; yt += 0.1) {
+        const yy =
+          padT + plotH - ((yt - biasYMin) / (biasYMax - biasYMin)) * plotH;
+        bctx.beginPath();
+        bctx.moveTo(padL, yy);
+        bctx.lineTo(padL + plotW, yy);
+        bctx.stroke();
+        bctx.fillText(yt.toFixed(1), 8, yy + 4);
+      }
+      // bars
+      const binW = plotW / xMaxBlock;
+      const barW = binW * 0.42;
+      const zeroY = padT + plotH - ((0 - biasYMin) / (biasYMax - biasYMin)) * plotH;
+      for (let b = 0; b < xMaxBlock; b++) {
+        const v = biasHistory[b];
+        if (!Number.isFinite(v)) continue;
+        const xc = padL + (b + 0.5) * binW;
+        const x0 = xc - barW / 2;
+        const x1 = xc + barW / 2;
+        const clamped = Math.max(biasYMin, Math.min(biasYMax, v));
+        const y =
+          padT + plotH - ((clamped - biasYMin) / (biasYMax - biasYMin)) * plotH;
+        const out = Math.abs(v) > biasYMax;
+        bctx.fillStyle = out ? outlierColor : barColor;
+        bctx.fillRect(
+          x0,
+          Math.min(zeroY, y),
+          x1 - x0,
+          Math.abs(zeroY - y),
+        );
+      }
+      // zero line
+      bctx.strokeStyle = "rgb(80,220,120)";
+      bctx.lineWidth = 2;
+      bctx.beginPath();
+      bctx.moveTo(padL, zeroY);
+      bctx.lineTo(padL + plotW, zeroY);
+      bctx.stroke();
+      // x ticks (block numbers)
+      bctx.fillStyle = "#222";
+      bctx.font = "11px system-ui";
+      for (let b = 0; b < xMaxBlock; b++) {
+        const xc = padL + (b + 0.5) * binW - 4;
+        bctx.fillText(String(b + 1), xc, padT + plotH + 14);
+      }
+      bctx.fillText("Block", padL + plotW / 2 - 14, panelH - 6);
+
+      // ── Response histogram ──
+      // Replicates the bottom-right "Response" panel: aligned x-axis to
+      // stimulus distribution (0.4..1.8), bins of 0.2 width, normalized
+      // probability bars, with stimulus span [0.6..1.6] dotted-line guides.
+      const xMin = 0.4,
+        xMax = 1.8;
+      const binEdges = [];
+      for (let v = xMin; v <= xMax + 1e-9; v += 0.2) binEdges.push(v);
+      const counts = new Array(binEdges.length - 1).fill(0);
+      const valid = (responseHistogramTrials || []).filter((v) =>
+        Number.isFinite(v),
+      );
+      for (const v of valid) {
+        const idx = Math.max(
+          0,
+          Math.min(counts.length - 1, Math.floor((v - xMin) / 0.2)),
+        );
+        counts[idx] += 1;
+      }
+      const sum = counts.reduce((s, c) => s + c, 0);
+      const probs = counts.map((c) => (sum > 0 ? c / sum : 0));
+      const maxProb = Math.max(...probs, 1e-9);
+
+      const hPadL = 50,
+        hPadR = 16,
+        hPadT = 30,
+        hPadB = 36;
+      const hPlotW = panelW - hPadL - hPadR;
+      const hPlotH = panelH - hPadT - hPadB;
+      hctx.fillStyle = "#111";
+      hctx.font = "16px system-ui";
+      hctx.fillText("Response", hPadL, 20);
+      hctx.fillStyle = barColor;
+      const hBinW = hPlotW / counts.length;
+      for (let i = 0; i < counts.length; i++) {
+        const x = hPadL + i * hBinW;
+        const barH = (probs[i] / maxProb) * hPlotH;
+        hctx.fillRect(x + hBinW * 0.05, hPadT + hPlotH - barH, hBinW * 0.9, barH);
+      }
+      // stimulus-span dotted vlines at 0.6 and 1.6
+      hctx.strokeStyle = "rgb(140,140,140)";
+      hctx.setLineDash([4, 4]);
+      for (const v of [0.6, 1.6]) {
+        const x = hPadL + ((v - xMin) / (xMax - xMin)) * hPlotW;
+        hctx.beginPath();
+        hctx.moveTo(x, hPadT);
+        hctx.lineTo(x, hPadT + hPlotH);
+        hctx.stroke();
+      }
+      hctx.setLineDash([]);
+      // x ticks
+      hctx.fillStyle = "#222";
+      hctx.font = "11px system-ui";
+      for (const v of [0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8]) {
+        const x = hPadL + ((v - xMin) / (xMax - xMin)) * hPlotW - 8;
+        hctx.fillText(v.toFixed(1), x, hPadT + hPlotH + 14);
+      }
+      hctx.fillText("Reproduced θ (s)", hPadL + hPlotW / 2 - 40, panelH - 6);
+
+      // Header + biasTxt
+      const header = document.createElement("div");
+      header.style.marginBottom = "6px";
+      const biasNum = Number.isFinite(biasReproSec)
+        ? `${biasReproSec >= 0 ? "+" : ""}${biasReproSec.toFixed(3)} s`
+        : "(no responses)";
+      header.innerHTML = `
+        <h2 style="margin:0 0 4px;font-size:22px">Block ${iR + 1} / ${totalBlocks} — bias ${biasNum}</h2>
+        <p style="margin:0;font-size:13px;opacity:0.75">5초 강제 휴식 후 카운트다운이 시작됩니다.</p>`;
+      ov.appendChild(header);
+
+      // 2x1 grid
+      const grid = document.createElement("div");
+      Object.assign(grid.style, {
+        display: "flex",
+        gap: "20px",
+        margin: "12px 0",
+        flexWrap: "wrap",
+        justifyContent: "center",
+      });
+      grid.appendChild(biasCanvas);
+      grid.appendChild(histCanvas);
+      ov.appendChild(grid);
+
+      resolve(ov);
     });
   }
 
@@ -1363,6 +1609,9 @@
       schedule, // full pre-generated schedule (seed Q6: keep)
     };
 
+    // Bias chart needs the cumulative history across blocks.
+    const biasHistory = new Array(schedule.length).fill(NaN);
+
     // Block loop.
     for (let iR = 0; iR < schedule.length; iR++) {
       await blockIntroScreen(iR, schedule.length, distChar);
@@ -1455,7 +1704,17 @@
         }
       }
 
-      await blockSummaryScreen(iR, schedule.length, iR === schedule.length - 1, biasRepro);
+      biasHistory[iR] = biasRepro;
+      const responseHistogramTrials = trials.map((t) => t.Est);
+      await blockSummaryScreen(
+        iR,
+        schedule.length,
+        iR === schedule.length - 1,
+        biasRepro,
+        distChar,
+        biasHistory,
+        responseHistogramTrials,
+      );
       __hooks__.emit("block:summary:done", { iR });
     }
 

@@ -237,6 +237,195 @@ const INVARIANTS = [
       return null;
     },
   },
+  {
+    id: "INV-11",
+    description: "Schedule covers all 15 quantile labels exactly twice (30 trials)",
+    check(stream) {
+      // Read first block schedule from the saved record stream.
+      const saves = stream.filter((e) => e.name === "trial:saved" && e.iR === 0);
+      if (saves.length !== 30) return `block 0 had ${saves.length} trials (expected 30)`;
+      const labels = saves.map((s) => s.record.thetaLabel);
+      const counts = {};
+      for (const l of labels) counts[l] = (counts[l] || 0) + 1;
+      for (let lab = 1; lab <= 15; lab++) {
+        if (counts[lab] !== 2) {
+          return `label ${lab} appeared ${counts[lab] || 0} times (expected 2). All counts: ${JSON.stringify(counts)}`;
+        }
+      }
+      return null;
+    },
+  },
+  {
+    id: "INV-12",
+    description: "Feedback rule honoured: dist=U → all idx8 + 1 idx5 + 1 idx11 marked",
+    check(stream) {
+      const saves = stream.filter((e) => e.name === "trial:saved" && e.iR === 0);
+      const labelsByFb = { 1: [], 0: [] };
+      for (const s of saves) labelsByFb[s.record.feedback].push(s.record.thetaLabel);
+      const fbLabels = labelsByFb[1];
+      const sess = stream.find((e) => e.name === "sessionResolved");
+      const dist = sess ? sess.distChar : "?";
+      // For U: every idx8 (count 2) + 1 random idx5 + 1 random idx11 → 4 total
+      // For A: every idx8 (count 2) + every idx5 (count 2) → 4 total
+      // For B: every idx8 (count 2) + every idx11 (count 2) → 4 total
+      const c8 = fbLabels.filter((l) => l === 8).length;
+      const c5 = fbLabels.filter((l) => l === 5).length;
+      const c11 = fbLabels.filter((l) => l === 11).length;
+      const cOther = fbLabels.filter((l) => l !== 5 && l !== 8 && l !== 11).length;
+      if (cOther > 0) return `unexpected fb on labels: ${fbLabels.filter((l) => ![5, 8, 11].includes(l))}`;
+      if (c8 !== 2) return `dist=${dist}: idx8 fb count ${c8} (expected 2)`;
+      if (dist === "U") {
+        if (c5 !== 1 || c11 !== 1)
+          return `dist=U: c5=${c5} c11=${c11} (expected 1 each)`;
+      } else if (dist === "A") {
+        if (c5 !== 2 || c11 !== 0)
+          return `dist=A: c5=${c5} c11=${c11} (expected 2,0)`;
+      } else if (dist === "B") {
+        if (c11 !== 2 || c5 !== 0)
+          return `dist=B: c5=${c5} c11=${c11} (expected 0,2)`;
+      }
+      return null;
+    },
+  },
+  {
+    id: "INV-13",
+    description: "Per-trial schedule: tvm2 = 1.1 - tvm1 (within 1e-9)",
+    check(stream) {
+      const saves = stream.filter((e) => e.name === "trial:saved" && e.iR === 0);
+      for (const s of saves) {
+        const r = s.record;
+        if (Math.abs(r.tvm2 - (1.1 - r.tvm1)) > 1e-9)
+          return `iT=${r.trial_index}: tvm2=${r.tvm2} ≠ 1.1−tvm1=${1.1 - r.tvm1}`;
+      }
+      return null;
+    },
+  },
+  {
+    id: "INV-14",
+    description: "dir1, dir2 ∈ {+1,-1} half-and-half across 30 trials",
+    check(stream) {
+      const saves = stream.filter((e) => e.name === "trial:saved" && e.iR === 0);
+      const d1 = saves.map((s) => s.record.dir1);
+      const d2 = saves.map((s) => s.record.dir2);
+      const c1p = d1.filter((d) => d === 1).length;
+      const c1m = d1.filter((d) => d === -1).length;
+      const c2p = d2.filter((d) => d === 1).length;
+      const c2m = d2.filter((d) => d === -1).length;
+      if (c1p !== 15 || c1m !== 15) return `dir1: +1=${c1p} -1=${c1m} (expected 15/15)`;
+      if (c2p !== 15 || c2m !== 15) return `dir2: +1=${c2p} -1=${c2m} (expected 15/15)`;
+      return null;
+    },
+  },
+  {
+    id: "INV-15",
+    description: "speed1 = occ_deg / Stm; speed2 = median(speed1) constant",
+    check(stream) {
+      const saves = stream.filter((e) => e.name === "trial:saved" && e.iR === 0);
+      const speed1 = saves.map((s) => s.record.speed1);
+      for (const s of saves) {
+        const expected = s.record.occ_deg / s.record.Stm;
+        if (Math.abs(s.record.speed1 - expected) > 1e-9) {
+          return `iT=${s.record.trial_index}: speed1 mismatch`;
+        }
+      }
+      const sorted = [...speed1].sort((a, b) => a - b);
+      const med = (sorted[14] + sorted[15]) / 2;
+      const allSpeed2 = saves.map((s) => s.record.speed2);
+      const minS2 = Math.min(...allSpeed2);
+      const maxS2 = Math.max(...allSpeed2);
+      if (maxS2 - minS2 > 1e-9)
+        return `speed2 not constant: min=${minS2} max=${maxS2}`;
+      if (Math.abs(allSpeed2[0] - med) > 1e-9)
+        return `speed2=${allSpeed2[0]} ≠ median(speed1)=${med}`;
+      return null;
+    },
+  },
+  {
+    id: "INV-16",
+    description: "Stm theta values are within [0.6, 1.6]",
+    check(stream) {
+      const saves = stream.filter((e) => e.name === "trial:saved" && e.iR === 0);
+      for (const s of saves) {
+        const v = s.record.Stm;
+        if (v < 0.6 - 1e-6 || v > 1.6 + 1e-6) {
+          return `iT=${s.record.trial_index}: Stm=${v} outside [0.6, 1.6]`;
+        }
+      }
+      return null;
+    },
+  },
+  {
+    id: "INV-17",
+    description: "occl_end = end1 + dir1*speed1*Stm; end1 = start1 + dir1*speed1*tvm1",
+    check(stream) {
+      const saves = stream.filter((e) => e.name === "trial:saved" && e.iR === 0);
+      for (const s of saves) {
+        const r = s.record;
+        const expEnd1 = r.start1 + r.dir1 * r.speed1 * r.tvm1;
+        const expOcclEnd = r.end1 + r.dir1 * r.speed1 * r.Stm;
+        if (Math.abs(r.end1 - expEnd1) > 1e-9)
+          return `iT=${r.trial_index}: end1 mismatch`;
+        if (Math.abs(r.occl_end - expOcclEnd) > 1e-9)
+          return `iT=${r.trial_index}: occl_end mismatch`;
+      }
+      return null;
+    },
+  },
+  {
+    id: "INV-18",
+    description: "vbl ordering: vbl_start ≲ vbl_cue ≤ vbl_occlu < vbl_occlu_end ≤ vbl_cue2 ≤ vbl_respOnset",
+    check(stream) {
+      // 1 ms slack between vbl_start and vbl_cue: Chromium RAF can return
+      // the batch timestamp slightly earlier than the synchronous now()
+      // captured a moment before, when sync code lands inside a running
+      // frame. MATLAB has tstart <= vbl_cue strictly, but the difference
+      // is sub-millisecond — not material.
+      const saves = stream.filter((e) => e.name === "trial:saved" && e.iR === 0);
+      for (const s of saves) {
+        const r = s.record;
+        if (
+          !(
+            r.vbl_start - r.vbl_cue <= 1 && // allow 1 ms slack here
+            r.vbl_cue <= r.vbl_occlu &&
+            r.vbl_occlu < r.vbl_occlu_end &&
+            r.vbl_occlu_end <= r.vbl_cue2 &&
+            r.vbl_cue2 <= r.vbl_respOnset
+          )
+        ) {
+          return `iT=${r.trial_index}: vbl ordering broken vs={start:${r.vbl_start}, cue:${r.vbl_cue}, occlu:${r.vbl_occlu}, occluEnd:${r.vbl_occlu_end}, cue2:${r.vbl_cue2}, respOnset:${r.vbl_respOnset}}`;
+        }
+      }
+      return null;
+    },
+  },
+  {
+    id: "INV-19",
+    description: "RT > 0.2 s on every confirmed trial (debounce honoured)",
+    check(stream) {
+      const saves = stream.filter((e) => e.name === "trial:saved" && e.iR === 0);
+      for (const s of saves) {
+        const r = s.record;
+        if (Number.isFinite(r.RT) && r.RT <= 0.2) {
+          return `iT=${r.trial_index}: confirmed RT=${r.RT} ≤ 0.2 (debounce should have rejected)`;
+        }
+      }
+      return null;
+    },
+  },
+  {
+    id: "INV-20",
+    description: "Background grey is gamma-corrected (≥40, ≤55) — sampled from canvas",
+    check(stream, ctx) {
+      // Sampled by harness via page.evaluate after first trial.
+      const sample = ctx.bgSample;
+      if (!sample) return "no background sample captured";
+      const [r, g, b] = sample;
+      if (r < 40 || r > 55 || g !== r || b !== r) {
+        return `bg sample rgb(${r},${g},${b}) outside expected gamma-corrected range [40-55]`;
+      }
+      return null;
+    },
+  },
 ];
 
 async function snapshot(page, label, outDir) {
@@ -354,10 +543,24 @@ async function runMock() {
   await auto;
   await snapshot(page, "99-after-block-0", outDir);
 
+  // Sample background pixel from the visible canvas at a corner well
+  // outside the bullseye + ring (top-left).
+  const bgSample = await page.evaluate(() => {
+    const c = document.querySelector("#ep-canvas");
+    if (!c) return null;
+    const cv = document.createElement("canvas");
+    cv.width = 4;
+    cv.height = 4;
+    const cx = cv.getContext("2d");
+    cx.drawImage(c, 8, 8, 4, 4, 0, 0, 4, 4);
+    const px = cx.getImageData(0, 0, 1, 1).data;
+    return [px[0], px[1], px[2]];
+  });
+
   const stream = await page.evaluate(() => window.__hookStream__);
   const refreshHz = stream.find((e) => e.name === "refreshGate:result")?.fps ?? 60;
   const day = stream.find((e) => e.name === "sessionResolved")?.day ?? 1;
-  const ctxObj = { measuredHz: refreshHz, day };
+  const ctxObj = { measuredHz: refreshHz, day, bgSample };
 
   console.log(`mock harness: ${stream.length} hook events, refresh=${refreshHz.toFixed(1)} Hz, day=${day}`);
 
