@@ -288,7 +288,10 @@ export function RunShell({
     parent.postMessage({ __exp: true, type: 'load_error' }, '*');
     return;
   }
-  script.src = "${safeEntry}";
+  // ${"safeEntry"} is already JSON-encoded (quoted) by scriptSafe; do
+  // NOT wrap it in additional quotes — that produces ""url"" and
+  // crashes the iframe parser before main.js can load.
+  script.src = ${safeEntry};
   ${entrySri ? `script.setAttribute('integrity', ${scriptSafe(entrySri)}); script.setAttribute('crossorigin', 'anonymous');` : ""}
   script.onload = function(){ if (loading) loading.remove(); parent.postMessage({ __exp: true, type: 'loaded' }, '*'); };
   script.onerror = function(){
