@@ -20,11 +20,25 @@ export default async function ExperimentDetailPage({
     notFound();
   }
 
-  const { count } = await supabase
+  // Per-status breakdown so backfilled experiments (all completed) don't
+  // render as "확정 예약 0건". Mirrors the fix on /experiments listing.
+  const { data: rows } = await supabase
     .from("bookings")
-    .select("id", { count: "exact", head: true })
-    .eq("experiment_id", experimentId)
-    .eq("status", "confirmed");
+    .select("status")
+    .eq("experiment_id", experimentId);
+  const breakdown = { confirmed: 0, completed: 0, cancelled: 0, total: 0 };
+  for (const r of rows ?? []) {
+    breakdown.total += 1;
+    if (r.status === "confirmed") breakdown.confirmed += 1;
+    else if (r.status === "completed") breakdown.completed += 1;
+    else if (r.status === "cancelled") breakdown.cancelled += 1;
+  }
 
-  return <ExperimentDetail experiment={experiment} bookingCount={count ?? 0} />;
+  return (
+    <ExperimentDetail
+      experiment={experiment}
+      bookingCount={breakdown.confirmed}
+      bookingBreakdown={breakdown}
+    />
+  );
 }

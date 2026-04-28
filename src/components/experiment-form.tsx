@@ -484,12 +484,13 @@ export function ExperimentForm({
     setSubmitting(true);
 
     try {
-      const supabase = createClient();
-
       if (isEditing) {
-        // If the checklist shape changed (items added/removed/renamed or
-        // required flags shifted), drop the prior "completed" timestamp so
-        // the booking gate recomputes from scratch.
+        // Route the PATCH through /api/experiments/[id] (PUT) so server-side
+        // notion_project_page_id normalisation + zod validation +
+        // calendar-cache invalidation all run uniformly. Previously this
+        // path used a direct supabase client update, which bypassed those
+        // and could let through values that the API guard would have
+        // caught (NaN, malformed UUIDs, etc.).
         const prevChecklist = experiment?.pre_experiment_checklist ?? [];
         const checklistShapeChanged =
           prevChecklist.length !== checklist.length ||
@@ -501,16 +502,30 @@ export function ExperimentForm({
           ? { ...formData, checklist_completed_at: null }
           : formData;
 
-        const { error } = await supabase
-          .from("experiments")
-          .update(patch)
-          .eq("id", experiment.id);
-
-        if (error) throw error;
+        const res = await fetch(`/api/experiments/${experiment!.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            issues?: Array<{ message: string; path: (string | number)[] }>;
+          };
+          if (j.issues && j.issues[0]) {
+            const path = j.issues[0].path?.join(".") ?? "";
+            toast(`${j.issues[0].message}${path ? ` (${path})` : ""}`, "error");
+          } else {
+            toast(j.error ?? `저장 실패 (HTTP ${res.status})`, "error");
+          }
+          setSubmitting(false);
+          return;
+        }
         toast("실험이 수정되었습니다.", "success");
         router.refresh();
         onCancel?.();
       } else {
+        const supabase = createClient();
         const {
           data: { user },
         } = await supabase.auth.getUser();
@@ -526,12 +541,19 @@ export function ExperimentForm({
           .select("id")
           .single();
 
-        if (error) throw error;
+        if (error) {
+          toast(error.message ?? "저장 중 오류가 발생했습니다.", "error");
+          setSubmitting(false);
+          return;
+        }
         toast("실험이 생성되었습니다.", "success");
         router.push(`/experiments/${data.id}`);
       }
-    } catch {
-      toast("저장 중 오류가 발생했습니다.", "error");
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : "저장 중 오류가 발생했습니다.",
+        "error",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -1729,22 +1751,39 @@ export function ExperimentForm({
                         />
                       ) : (
                         <input
-                          value={param.default == null ? "" : String(param.default)}
+                          value={
+                            param.default == null
+                              ? ""
+                              : typeof param.default === "number" && !Number.isFinite(param.default)
+                                ? "" // never render NaN/Infinity into the input
+                                : String(param.default)
+                          }
                           onChange={(e) => {
                             const next = [...parameterSchema];
                             const raw = e.target.value;
+                            let parsed: number | string | null;
+                            if (raw === "") {
+                              parsed = null;
+                            } else if (param.type === "number") {
+                              const n = Number(raw);
+                              // Reject NaN/Infinity at input time so we never
+                              // serialise an invalid number into the DB. Keep
+                              // the previous default so the user can keep
+                              // typing (e.g. "1." → "1.5") without losing it.
+                              parsed = Number.isFinite(n) ? n : (next[index].default ?? null);
+                            } else {
+                              parsed = raw;
+                            }
                             next[index] = {
                               ...next[index],
-                              default:
-                                raw === ""
-                                  ? null
-                                  : param.type === "number"
-                                    ? Number(raw)
-                                    : raw,
+                              default: parsed,
                             };
                             setParameterSchema(next);
                           }}
-                          placeholder="default (선택)"
+                          placeholder={
+                            param.type === "number" ? "default (숫자)" : "default (선택)"
+                          }
+                          inputMode={param.type === "number" ? "decimal" : undefined}
                           className="min-w-[10rem] flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                         />
                       )}

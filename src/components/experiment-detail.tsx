@@ -50,9 +50,14 @@ function toLocal(iso: string): string {
 interface ExperimentDetailProps {
   experiment: Experiment;
   bookingCount: number;
+  bookingBreakdown?: { confirmed: number; completed: number; cancelled: number; total: number };
 }
 
-export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailProps) {
+export function ExperimentDetail({
+  experiment,
+  bookingCount,
+  bookingBreakdown,
+}: ExperimentDetailProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
@@ -731,7 +736,30 @@ export function ExperimentDetail({ experiment, bookingCount }: ExperimentDetailP
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-foreground">예약 현황</h2>
-                <p className="mt-1 text-sm text-muted">확정 예약 {bookingCount}건</p>
+                <p className="mt-1 text-sm text-muted">
+                  {bookingBreakdown ? (
+                    <>
+                      예약 {bookingBreakdown.total}건
+                      {bookingBreakdown.confirmed > 0 && (
+                        <span className="ml-1 text-emerald-700">
+                          (확정 {bookingBreakdown.confirmed})
+                        </span>
+                      )}
+                      {bookingBreakdown.completed > 0 && (
+                        <span className="ml-1 text-sky-700">
+                          (완료 {bookingBreakdown.completed})
+                        </span>
+                      )}
+                      {bookingBreakdown.cancelled > 0 && (
+                        <span className="ml-1 text-rose-600">
+                          (취소 {bookingBreakdown.cancelled})
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>확정 예약 {bookingCount}건</>
+                  )}
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Link href={`/experiments/${experiment.id}/bookings`}>
