@@ -194,18 +194,28 @@ async function driveParticipant({ bookingId, token, expId, runUrl }) {
   page.on("pageerror", (e) => console.log("  [pageerror]", e.message));
 
   log(`navigate → ${runUrl}`);
-  await page.goto(runUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  // networkidle so React hydrates before we click — the start button
+  // requires hydration for its onClick handler to fire.
+  await page.goto(runUrl, { waitUntil: "networkidle", timeout: 60_000 });
   await snapshot(page, "00a-run-page");
 
   // The /run page is a researcher-friendly intro screen with a "실험 시작"
-  // (Start experiment) button. Clicking it sets phase=running which
-  // mounts the sandbox iframe with main.js.
-  const startBtn = page.getByRole("button", { name: /실험\s*시작|Start experiment/i });
-  await startBtn.waitFor({ state: "visible", timeout: 30_000 });
+  // (Start experiment) button. Click via direct DOM dispatch — Playwright's
+  // role-based click occasionally fails on this React tree (button has no
+  // accessible name attribute, only text content; getByRole click can race
+  // with React event handler binding).
+  await page.waitForFunction(
+    () => Array.from(document.querySelectorAll("button")).some((b) => /실험.*시작/.test(b.textContent || "")),
+    null,
+    { timeout: 30_000 },
+  );
   await snapshot(page, "00b-pre-start");
-  await startBtn.click({ force: true });
-  // Give React a tick + screenshot post-click for diagnosis if iframe
-  // never materializes.
+  await page.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll("button")).find((b) =>
+      /실험.*시작/.test(b.textContent || ""),
+    );
+    if (btn) btn.click();
+  });
   await page.waitForTimeout(1_000);
   await snapshot(page, "00c-post-start");
 
