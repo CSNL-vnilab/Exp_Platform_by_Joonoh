@@ -17,6 +17,7 @@ const DEMOS = [
   "public/demo-exp/hello-world.js",
   "public/demo-exp/number-task.js",
   "public/demo-exp/rating-task.js",
+  "public/demo-exp/timeexp/main.js",
 ];
 
 // Canonical surface the bridge hands to the iframe. Keep this list

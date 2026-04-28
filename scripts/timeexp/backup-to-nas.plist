@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Lab Mac launchd job for hourly Supabase → NAS mirror of TimeExpOnline
+  trial data. Install once per machine that has /Volumes/CSNL_new mounted:
+
+      cp scripts/timeexp/backup-to-nas.plist \
+         ~/Library/LaunchAgents/com.csnl.timeexp.backup.plist
+      launchctl load ~/Library/LaunchAgents/com.csnl.timeexp.backup.plist
+      launchctl start com.csnl.timeexp.backup
+
+  Edit ProgramArguments to point at YOUR repo + node binary.
+  EnvironmentVariables.EXPERIMENT_ID must be set to the prod uuid of the
+  TimeExpOnline1_demo experiment (visible in /experiments/{id} URL).
+
+  Logs: /tmp/timeexp-backup.{out,err}.log — `tail -f` to watch.
+
+  Stop: launchctl unload ~/Library/LaunchAgents/com.csnl.timeexp.backup.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.csnl.timeexp.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>/usr/local/bin/node</string>
+        <string>/Users/csnl/Documents/claude/lab-reservation/scripts/timeexp/backup-to-nas.mjs</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/csnl/Documents/claude/lab-reservation</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>EXPERIMENT_ID</key>
+        <string>FILL-IN-THE-TIMEEXPONLINE1-DEMO-EXPERIMENT-UUID</string>
+        <key>NAS_MOUNT_PATH</key>
+        <string>/Volumes/CSNL_new/people/JOP/Magnitude/Experiment/results/TimeExpOnline1_demo</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/timeexp-backup.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/timeexp-backup.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,41 @@
+name: TimeExpOnline data integrity
+
+# Hourly Supabase-side check on the TimeExpOnline1_demo dataset. Counts
+# block files per subject, flags partial sessions / schedule drift.
+# This complements the lab-Mac launchd backup (scripts/timeexp/
+# backup-to-nas.plist) — that one mirrors to NAS, this one watches for
+# anomalies even when the lab Mac is offline.
+#
+# Requires repo secrets:
+#   SUPABASE_URL                 (matches NEXT_PUBLIC_SUPABASE_URL)
+#   SUPABASE_SERVICE_ROLE_KEY    service-role for read-only listing
+#   TIMEEXP_EXPERIMENT_ID        prod experiment uuid
+
+on:
+  schedule:
+    # Hourly at :17 — offsets the :00/:30 sweeps to avoid colliding
+    # with cron windows on the deployed lab platform.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integrity check
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EXPERIMENT_ID: ${{ secrets.TIMEEXP_EXPERIMENT_ID }}
+        run: node scripts/timeexp/check-data-integrity.mjs
