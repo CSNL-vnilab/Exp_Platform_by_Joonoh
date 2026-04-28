@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { ClassBadge } from "@/components/class-badge";
+import { ParticipantMergeModal } from "@/components/participant-merge-modal";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import type { ParticipantClass, UserRole } from "@/types/database";
 
@@ -93,6 +94,7 @@ export function ParticipantDetail({ data, role }: Props) {
   const isAdmin = role === "admin";
 
   const [classModalOpen, setClassModalOpen] = useState(false);
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
 
   const current = data.class;
   const isBlacklisted = current?.class === "blacklist";
@@ -144,8 +146,27 @@ export function ParticipantDetail({ data, role }: Props) {
           <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-800">
             취소 {data.stats.cancelled}
           </span>
+          {isAdmin && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setMergeModalOpen(true)}
+              title="이 참여자를 다른 row 와 병합 (한 인물이 두 번 등록된 경우)"
+            >
+              병합
+            </Button>
+          )}
         </div>
       </div>
+
+      {isAdmin && (
+        <ParticipantMergeModal
+          open={mergeModalOpen}
+          onClose={() => setMergeModalOpen(false)}
+          sourceId={data.participant.id}
+          sourceLabel={data.participant.name ?? data.lab_identity.public_code}
+        />
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* 개인정보 — admin-only. Researchers only see the public code card below. */}

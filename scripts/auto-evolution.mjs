@@ -131,7 +131,7 @@ function deriveFindings(m, dbAudit, calCheck) {
     findings.push({ priority: 3, area: "participants",
       title: `${m.participants_dup_groups.length} duplicate participant name groups`,
       detail: `Top: ${top}. Common cause: same person listed in Korean + English transliteration (e.g. 이보현 vs bohyun lee).`,
-      action: "Add a UI merge tool. Until then, manual SQL via /admin/participants." });
+      action: "Resolve via the participant detail page → 병합 버튼 (admin only). Endpoint: POST /api/participants/{sourceId}/merge {targetId}." });
   }
   if (m.participants_placeholder_email > 0) {
     findings.push({ priority: 3, area: "participants",
