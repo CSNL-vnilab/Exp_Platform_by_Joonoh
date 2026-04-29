@@ -27,6 +27,24 @@ export interface ExperimentChecklistItem {
 
 export type ExperimentMode = "offline" | "online" | "hybrid";
 
+// Mirror of the persisted JSONB shape — see
+// `src/lib/experiments/code-analysis-schema.ts` for the zod source of
+// truth. Kept structural here so the DB types file does not pull in zod
+// at type-only import sites.
+export interface OfflineCodeAnalysisColumn {
+  code_excerpt: string | null;
+  code_filename: string | null;
+  code_lang: string | null;
+  analyzed_at: string | null;
+  model: string | null;
+  // Loose `unknown` here to avoid duplicating the deep CodeAnalysis
+  // shape — consumers cast through CodeAnalysisSchema when reading.
+  heuristic: unknown;
+  ai: unknown;
+  overrides: unknown;
+  merged: unknown;
+}
+
 export interface OnlineRuntimeConfig {
   // Researcher-provided URL to the experiment JavaScript file(s). Loaded
   // as a <script> inside the /run shell's sandbox iframe.
@@ -335,6 +353,10 @@ export interface Database {
           protocol_version: string | null;
           experiment_mode: ExperimentMode;
           online_runtime_config: OnlineRuntimeConfig | null;
+          // Heuristic + AI + user-override extracted metadata for the
+          // experimenter's offline experiment code (migration 00049).
+          // Shape lives in src/lib/experiments/code-analysis-schema.ts.
+          offline_code_analysis: OfflineCodeAnalysisColumn | null;
           data_consent_required: boolean;
           created_by: string | null;
           created_at: string;
@@ -382,6 +404,7 @@ export interface Database {
           protocol_version?: string | null;
           experiment_mode?: ExperimentMode;
           online_runtime_config?: OnlineRuntimeConfig | null;
+          offline_code_analysis?: OfflineCodeAnalysisColumn | null;
           data_consent_required?: boolean;
           created_by?: string | null;
           created_at?: string;
@@ -429,6 +452,7 @@ export interface Database {
           protocol_version?: string | null;
           experiment_mode?: ExperimentMode;
           online_runtime_config?: OnlineRuntimeConfig | null;
+          offline_code_analysis?: OfflineCodeAnalysisColumn | null;
           data_consent_required?: boolean;
           created_by?: string | null;
         };
@@ -751,6 +775,10 @@ export interface Database {
           account_number: string | null;
           account_holder: string | null;
           institution: string | null;
+          // Participant-confirmed contact snapshot (migration 00050).
+          name_override: string | null;
+          email_override: string | null;
+          phone: string | null;
           signature_path: string | null;
           signed_at: string | null;
           bankbook_path: string | null;
@@ -786,6 +814,9 @@ export interface Database {
           account_number?: string | null;
           account_holder?: string | null;
           institution?: string | null;
+          name_override?: string | null;
+          email_override?: string | null;
+          phone?: string | null;
           signature_path?: string | null;
           signed_at?: string | null;
           bankbook_path?: string | null;
@@ -815,6 +846,9 @@ export interface Database {
           account_number?: string | null;
           account_holder?: string | null;
           institution?: string | null;
+          name_override?: string | null;
+          email_override?: string | null;
+          phone?: string | null;
           signature_path?: string | null;
           signed_at?: string | null;
           bankbook_path?: string | null;

@@ -25,6 +25,7 @@
     "ai:health": "curl -s http://127.0.0.1:11434/api/tags | node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);console.log(j.models.map(m=>m.name).sort().join('\\n'));})\""
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
     "@hookform/resolvers": "^5.2.2",
     "@notionhq/client": "^5.18.0",
     "@supabase/ssr": "^0.10.2",
@@ -50,6 +51,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
+    "playwright": "^1.59.1",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5",

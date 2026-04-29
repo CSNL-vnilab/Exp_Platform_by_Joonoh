@@ -74,6 +74,66 @@ export async function generate(opts: GenerateOptions): Promise<string> {
   return data.response ?? "";
 }
 
+export interface ChatJsonOptions extends ChatOptions {
+  // Optional JSON-Schema string. Ollama accepts a schema object via
+  // `format` on supported models; we pass it through verbatim. When
+  // omitted, the request just sets `format: "json"` so the model
+  // produces parseable JSON.
+  schema?: string | object;
+  // For thinking-models (Qwen3.6, deepseek-r1, …), thinking tokens
+  // count against `num_predict` and frequently exhaust the budget on
+  // long-context structured output. Default `think: false` keeps the
+  // model in non-thinking mode, which is what we want for extraction.
+  think?: boolean;
+}
+
+export async function chatJson<T = unknown>(opts: ChatJsonOptions): Promise<T> {
+  const model = resolveModel(opts.model, opts.task, "code.analysis");
+  const format =
+    opts.schema == null
+      ? "json"
+      : typeof opts.schema === "string"
+        ? safeParseJson(opts.schema) ?? "json"
+        : opts.schema;
+  const body: Record<string, unknown> = {
+    model,
+    messages: opts.messages,
+    stream: false,
+    format,
+    think: opts.think ?? false,
+    options: {
+      temperature: opts.temperature ?? 0.1,
+      num_ctx: opts.num_ctx ?? 32_768,
+      num_predict: opts.num_predict ?? 4_096,
+    },
+  };
+  const res = await ollamaFetch("/api/chat", body, opts.signal);
+  const data = (await res.json()) as { message?: { content?: string } };
+  const raw = data.message?.content ?? "";
+  const parsed = safeParseJson(raw);
+  if (parsed == null) {
+    throw new Error(`chatJson: model returned non-JSON: ${raw.slice(0, 200)}`);
+  }
+  return parsed as T;
+}
+
+function safeParseJson(s: string): unknown | null {
+  try {
+    return JSON.parse(s);
+  } catch {
+    // tolerate ```json fenced blocks
+    const m = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (m) {
+      try {
+        return JSON.parse(m[1]);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 export async function chat(opts: ChatOptions): Promise<string> {
   const model = resolveModel(opts.model, opts.task, "reason");
   const res = await ollamaFetch(

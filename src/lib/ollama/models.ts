@@ -5,6 +5,13 @@ export const MODELS = {
   reviewDeep: "gemma4:31b",
   reviewFast: "gemma4:26b",
   reasoning: "qwen3.6:latest",
+  // Code-analysis defaults to qwen3.6:latest — won the
+  // scripts/prompt-bench.mjs sweep (save-focused preset + docs=Y →
+  // 79.2% on the Magnitude experiment). Hosts that have pulled the
+  // larger Qwen3.6-35B-A3B can override via env OFFLINE_CODE_MODEL;
+  // the runtime resolver falls back to whichever qwen3.6:* tag exists.
+  codeAnalysis: process.env.OFFLINE_CODE_MODEL ?? "qwen3.6:latest",
+  codeAnalysisFallback: "qwen3.6:latest",
   embedding: "qwen3-embedding:8b",
   embeddingLite: "bge-m3:latest",
   ocr: "glm-ocr:latest",
@@ -16,6 +23,7 @@ export type Task =
   | "review.deep"
   | "review.fast"
   | "reason"
+  | "code.analysis"
   | "embed"
   | "embed.lite"
   | "ocr";
@@ -28,6 +36,8 @@ export function modelFor(task: Task): string {
       return MODELS.reviewFast;
     case "reason":
       return MODELS.reasoning;
+    case "code.analysis":
+      return MODELS.codeAnalysis;
     case "embed":
       return MODELS.embedding;
     case "embed.lite":

@@ -14,6 +14,8 @@ import { experimentSchema } from "@/lib/utils/validation";
 import { EXPERIMENT_CATEGORIES } from "@/lib/experiments/categories";
 import { WeekTimetablePreview } from "@/components/booking/week-timetable-preview";
 import { OnlineScreenerEditor } from "@/components/online-screener-editor";
+import { OfflineCodeAnalyzer } from "@/components/offline-code-analyzer";
+import type { CodeAnalysis, CodeAnalysisOverrides } from "@/lib/experiments/code-analysis-schema";
 import type {
   Experiment,
   ExperimentChecklistItem,
@@ -112,6 +114,33 @@ export function ExperimentForm({
   const [checklist, setChecklist] = useState<ExperimentChecklistItem[]>(
     experiment?.pre_experiment_checklist ?? [],
   );
+
+  // Offline code analysis (migration 00049). For new experiments we
+  // accumulate the analyzer's state in memory and PUT it after the
+  // experiment row is created. For edits we read the column directly
+  // and let the analyzer save itself via its own endpoint.
+  const initialOcAnalysis = experiment?.offline_code_analysis as
+    | {
+        code_excerpt: string | null;
+        code_filename: string | null;
+        code_lang: string | null;
+        model: string | null;
+        heuristic: CodeAnalysis | null;
+        ai: CodeAnalysis | null;
+        overrides: CodeAnalysisOverrides | null;
+      }
+    | null
+    | undefined;
+  const [pendingOfflineCode, setPendingOfflineCode] = useState<{
+    heuristic: CodeAnalysis | null;
+    ai: CodeAnalysis | null;
+    overrides: CodeAnalysisOverrides;
+    merged: CodeAnalysis;
+    code_excerpt: string | null;
+    code_filename: string | null;
+    code_lang: string | null;
+    model: string | null;
+  } | null>(null);
 
   // Online runtime (migration 00023).
   const [experimentMode, setExperimentMode] = useState<"offline" | "online" | "hybrid">(
@@ -546,6 +575,30 @@ export function ExperimentForm({
           setSubmitting(false);
           return;
         }
+
+        // If the analyzer accumulated state for a not-yet-created
+        // experiment, persist it now that we have the row id. Failure
+        // here is non-fatal — the experiment is created either way.
+        if (pendingOfflineCode && experimentMode !== "online") {
+          try {
+            await fetch(`/api/experiments/${data.id}/offline-code`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                code_excerpt: pendingOfflineCode.code_excerpt,
+                code_filename: pendingOfflineCode.code_filename,
+                code_lang: pendingOfflineCode.code_lang,
+                model: pendingOfflineCode.model,
+                heuristic: pendingOfflineCode.heuristic,
+                ai: pendingOfflineCode.ai,
+                overrides: pendingOfflineCode.overrides,
+              }),
+            });
+          } catch {
+            // ignore — researcher can re-save from the detail page
+          }
+        }
+
         toast("실험이 생성되었습니다.", "success");
         router.push(`/experiments/${data.id}`);
       }
@@ -1640,37 +1693,68 @@ export function ExperimentForm({
           </CardContent>
         </Card>
 
-        {/* Research metadata — required for activation (migration 00022) */}
+        {/* Research metadata — required for activation (migration 00022).
+            The manual code_repo_url + data_path fields were retired in
+            favour of the source-driven OfflineCodeAnalyzer below: the
+            researcher gives a server path or GitHub URL once, and the
+            analyzer keeps these columns in sync. The legacy fields are
+            kept as collapsed-by-default editable inputs in case the
+            analyzer can't reach the source (private repo, offline disk). */}
         <Card className="lg:col-span-2">
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-2">연구 메타데이터</h2>
             <p className="mb-4 text-xs text-muted">
-              실험을 활성화(active)하기 전에 분석 코드 저장소와 원본 데이터 경로를 반드시 지정해야 합니다.
-              draft → active 전환 시 Notion DB에도 자동으로 페이지가 생성됩니다.
+              <span className="font-medium text-foreground">아래 “오프라인 실험 코드 자동 분석”</span> 섹션에서
+              서버 경로 또는 GitHub URL 을 입력하면 코드 저장소·데이터 경로·파라미터 스키마가
+              자동으로 채워집니다. 활성화(active) 직전에 분석 결과를 검토하고 잘못된 항목을
+              수정만 해주시면 됩니다. draft → active 전환 시 Notion DB 에도 페이지가 생성됩니다.
             </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Input
-                  id="code_repo_url"
-                  label="분석 코드 저장소 *"
-                  value={codeRepoUrl}
-                  onChange={(e) => setCodeRepoUrl(e.target.value)}
-                  placeholder="https://github.com/org/repo 또는 /srv/lab/project"
-                  error={errors.code_repo_url}
-                />
-                <p className="mt-1 text-xs text-muted">GitHub URL 또는 서버 내 절대 경로.</p>
+            <div className="rounded-lg border border-dashed border-border bg-card/30 p-3 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-muted">현재 등록된 코드 저장소:</span>{" "}
+                  {codeRepoUrl ? (
+                    <code className="rounded bg-card px-1 py-0.5 text-foreground">{codeRepoUrl}</code>
+                  ) : (
+                    <span className="text-danger">미지정 — 아래 분석 섹션에서 자동 등록</span>
+                  )}
+                </div>
+                <span className="text-[10px] text-muted">
+                  데이터 경로:{" "}
+                  {dataPath ? (
+                    <code className="text-foreground">{dataPath}</code>
+                  ) : (
+                    <span className="text-amber-700">자동 생성 시 results/ 추정 사용</span>
+                  )}
+                </span>
               </div>
-              <div>
-                <Input
-                  id="data_path"
-                  label="원본 데이터 경로 *"
-                  value={dataPath}
-                  onChange={(e) => setDataPath(e.target.value)}
-                  placeholder="예: /data/lab/exp42/raw"
-                  error={errors.data_path}
-                />
-                <p className="mt-1 text-xs text-muted">raw 데이터가 저장되는 위치.</p>
-              </div>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[11px] text-muted hover:text-foreground">
+                  수동으로 직접 편집 (분석기로 도달할 수 없는 비공개 저장소·콜드 디스크 등)
+                </summary>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Input
+                      id="code_repo_url"
+                      label="분석 코드 저장소"
+                      value={codeRepoUrl}
+                      onChange={(e) => setCodeRepoUrl(e.target.value)}
+                      placeholder="https://github.com/org/repo 또는 /srv/lab/project"
+                      error={errors.code_repo_url}
+                    />
+                  </div>
+                  <div>
+                    <Input
+                      id="data_path"
+                      label="원본 데이터 경로"
+                      value={dataPath}
+                      onChange={(e) => setDataPath(e.target.value)}
+                      placeholder="예: /data/lab/exp42/raw"
+                      error={errors.data_path}
+                    />
+                  </div>
+                </div>
+              </details>
             </div>
 
             {/* Parameter schema */}
@@ -1869,6 +1953,44 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+
+        {/* Offline experiment-code analyzer (migration 00049). Hidden for
+            online-only experiments — those use the online_runtime_config
+            block above instead. */}
+        {experimentMode !== "online" && (
+          <OfflineCodeAnalyzer
+            experimentId={experiment?.id ?? null}
+            initial={
+              initialOcAnalysis
+                ? {
+                    code_excerpt: initialOcAnalysis.code_excerpt,
+                    code_filename: initialOcAnalysis.code_filename,
+                    code_lang: initialOcAnalysis.code_lang,
+                    model: initialOcAnalysis.model,
+                    heuristic: initialOcAnalysis.heuristic,
+                    ai: initialOcAnalysis.ai,
+                    overrides: initialOcAnalysis.overrides,
+                  }
+                : null
+            }
+            // Seed the source field with whatever code_repo_url already
+            // holds so that re-analysis is one click on the edit page.
+            initialSource={experiment?.code_repo_url ?? null}
+            // Keep the legacy code_repo_url column in sync with the
+            // analyzer's current source — the value the researcher
+            // typed once at the top of the analyzer.
+            onSourceChange={(s) => setCodeRepoUrl(s ?? "")}
+            onChange={setPendingOfflineCode}
+            onApplyToParameterSchema={(params) => {
+              // Merge by `key`, replacing existing entries — avoids
+              // duplicates when re-importing.
+              const map = new Map<string, ExperimentParameterSpec>();
+              for (const p of parameterSchema) map.set(p.key, p);
+              for (const p of params) map.set(p.key, p);
+              setParameterSchema(Array.from(map.values()));
+            }}
+          />
+        )}
 
         {/* Reminder schedule */}
         <Card className="lg:col-span-2">

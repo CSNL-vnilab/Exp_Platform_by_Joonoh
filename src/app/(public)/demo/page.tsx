@@ -70,6 +70,7 @@ const DEMO_EXPERIMENT: Experiment = {
   notion_project_page_id: null,
   experiment_mode: "offline",
   online_runtime_config: null,
+  offline_code_analysis: null,
   data_consent_required: false,
   created_by: "demo",
   created_at: new Date().toISOString(),
