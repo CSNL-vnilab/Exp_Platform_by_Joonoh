@@ -179,10 +179,42 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
   const { data: paymentRows } = await admin
     .from("participant_payment_info")
     .select(
-      "id, booking_group_id, bank_name, status, amount_krw, amount_overridden, submitted_at, claimed_at, period_start, period_end, participants(name)",
+      // payment_link_* columns added in migration 00051 — surface dispatch
+      // state in the panel so researchers can see who got the email and
+      // resend on failure.
+      "id, booking_group_id, bank_name, status, amount_krw, amount_overridden, submitted_at, claimed_at, period_start, period_end, payment_link_sent_at, payment_link_attempts, payment_link_last_error, name_override, participants(name)",
     )
     .eq("experiment_id", experimentId)
     .order("created_at", { ascending: true });
+
+  // Compute "all bookings in this group are completed" once for every
+  // group surfaced. Used by the panel to disable the resend button when
+  // the dispatch is not yet meaningful.
+  const groupIds = (paymentRows ?? []).map(
+    (r) => (r as unknown as { booking_group_id: string }).booking_group_id,
+  );
+  const allCompleted = new Map<string, boolean>();
+  if (groupIds.length > 0) {
+    const { data: groupBookings } = await admin
+      .from("bookings")
+      .select("booking_group_id, status")
+      .in("booking_group_id", groupIds);
+    const byGroup = new Map<string, string[]>();
+    for (const b of groupBookings ?? []) {
+      const row = b as unknown as { booking_group_id: string | null; status: string };
+      if (!row.booking_group_id) continue;
+      const list = byGroup.get(row.booking_group_id) ?? [];
+      list.push(row.status);
+      byGroup.set(row.booking_group_id, list);
+    }
+    for (const gid of groupIds) {
+      const statuses = byGroup.get(gid) ?? [];
+      allCompleted.set(
+        gid,
+        statuses.length > 0 && statuses.every((s) => s === "completed"),
+      );
+    }
+  }
 
   const payments = (paymentRows ?? []).map((r) => {
     const row = r as unknown as {
@@ -196,12 +228,16 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
       claimed_at: string | null;
       period_start: string | null;
       period_end: string | null;
+      payment_link_sent_at: string | null;
+      payment_link_attempts: number;
+      payment_link_last_error: string | null;
+      name_override: string | null;
       participants: { name: string } | null;
     };
     return {
       id: row.id,
       bookingGroupId: row.booking_group_id,
-      participantName: row.participants?.name ?? "-",
+      participantName: row.name_override?.trim() || row.participants?.name || "-",
       bankName: row.bank_name,
       status: row.status,
       amountKrw: row.amount_krw,
@@ -210,6 +246,10 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
       claimedAt: row.claimed_at,
       periodStart: row.period_start,
       periodEnd: row.period_end,
+      paymentLinkSentAt: row.payment_link_sent_at,
+      paymentLinkAttempts: row.payment_link_attempts ?? 0,
+      paymentLinkLastError: row.payment_link_last_error,
+      allBookingsCompleted: allCompleted.get(row.booking_group_id) ?? false,
     };
   });
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authorizeCronRequest } from "@/lib/auth/cron-secret";
+import { sweepPaymentInfoNotifications } from "@/lib/services/payment-info-notify.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,7 +41,36 @@ async function handle(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ ok: true, grace_days: graceDays, completed: data ?? 0 });
+    // After flipping bookings to 'completed', sweep participant_payment_info
+    // rows whose dispatch is pending. Bounded to SWEEP_LIMIT to keep this
+    // cron tick under timeout; rows missed in this tick get picked up
+    // tomorrow. Rows whose group has just *partially* completed will
+    // remain pending until the last booking is also completed.
+    let dispatch: { examined: number; sent: number; errors: number } = {
+      examined: 0,
+      sent: 0,
+      errors: 0,
+    };
+    try {
+      const sweep = await sweepPaymentInfoNotifications(admin);
+      dispatch = {
+        examined: sweep.examined,
+        sent: sweep.sent,
+        errors: sweep.errors,
+      };
+    } catch (err) {
+      console.error(
+        "[AutoCompleteCron] payment-info sweep crashed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      grace_days: graceDays,
+      completed: data ?? 0,
+      payment_info_dispatch: dispatch,
+    });
   } catch (err) {
     console.error("[AutoCompleteCron] error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

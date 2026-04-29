@@ -24,6 +24,16 @@ interface PaymentRow {
   claimedAt: string | null;
   periodStart: string | null;
   periodEnd: string | null;
+  // Auto-dispatch state for the participant-facing 정산 정보 입력 link
+  // (migration 00051). null = not yet sent, ISO = first successful send.
+  // Failed attempts surface as a small "발송 실패" badge.
+  paymentLinkSentAt: string | null;
+  paymentLinkAttempts: number;
+  paymentLinkLastError: string | null;
+  // True if every booking in this group is status='completed', meaning a
+  // resend is meaningful right now (auto-dispatch triggers off the same
+  // condition). Computed server-side off the bookings list.
+  allBookingsCompleted: boolean;
 }
 
 interface Props {
@@ -59,6 +69,32 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>("");
   const [pendingAction, startActionTransition] = useTransition();
+  const [resending, setResending] = useState<string | null>(null);
+
+  async function handleResend(r: PaymentRow) {
+    const confirmMsg = r.paymentLinkSentAt
+      ? `${r.participantName}님에게 정산 정보 입력 링크를 다시 발송할까요?\n\n기존에 발급된 링크는 만료되고 새 링크가 발송됩니다.`
+      : `${r.participantName}님에게 정산 정보 입력 링크를 발송할까요?`;
+    if (!confirm(confirmMsg)) return;
+    setResending(r.bookingGroupId);
+    try {
+      const res = await fetch(
+        `/api/experiments/${experimentId}/payment-info/${r.bookingGroupId}/resend`,
+        { method: "POST" },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast(body?.error ?? "발송에 실패했습니다.", "error");
+        return;
+      }
+      toast("정산 안내 메일을 발송했습니다.", "success");
+      setTimeout(() => window.location.reload(), 600);
+    } catch {
+      toast("네트워크 오류가 발생했습니다.", "error");
+    } finally {
+      setResending(null);
+    }
+  }
 
   const claimable = rows.filter((r) => r.status === "submitted_to_admin");
   const totalClaimable = claimable.reduce((s, r) => s + r.amountKrw, 0);
@@ -206,6 +242,7 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
                   <th className="py-2 pr-3 font-medium">지급액</th>
                   <th className="py-2 pr-3 font-medium">은행</th>
                   <th className="py-2 pr-3 font-medium">상태</th>
+                  <th className="py-2 pr-3 font-medium">안내 메일</th>
                   <th className="py-2 font-medium" />
                 </tr>
               </thead>
@@ -288,6 +325,13 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
                           {STATUS_LABEL[r.status]}
                         </span>
                       </td>
+                      <td className="py-2 pr-3">
+                        <DispatchCell
+                          row={r}
+                          busy={resending === r.bookingGroupId}
+                          onResend={() => handleResend(r)}
+                        />
+                      </td>
                       <td className="py-2">
                         {r.status !== "pending_participant" && (
                           <button
@@ -337,6 +381,96 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function DispatchCell({
+  row,
+  busy,
+  onResend,
+}: {
+  row: PaymentRow;
+  busy: boolean;
+  onResend: () => void;
+}) {
+  const submittedTerminal =
+    row.status === "submitted_to_admin" ||
+    row.status === "claimed" ||
+    row.status === "paid";
+
+  // After participant submits, the dispatch column is irrelevant (we have
+  // their info). Show a calm "제출 완료" label so the column doesn't look
+  // empty.
+  if (submittedTerminal) {
+    return <span className="text-[11px] text-emerald-700">제출 완료</span>;
+  }
+
+  if (row.paymentLinkSentAt) {
+    const ts = new Date(row.paymentLinkSentAt);
+    const niceDate = ts.toLocaleString("ko-KR", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-foreground" title={`발송 완료: ${ts.toLocaleString("ko-KR")}`}>
+          ✉️ {niceDate}
+        </span>
+        <button
+          type="button"
+          disabled={busy || !row.allBookingsCompleted}
+          onClick={onResend}
+          className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-40"
+          title={
+            row.allBookingsCompleted
+              ? "재발송 (새 링크가 발급됩니다)"
+              : "모든 세션이 완료되어야 재발송할 수 있습니다"
+          }
+        >
+          {busy ? "발송 중…" : "재발송"}
+        </button>
+      </div>
+    );
+  }
+
+  // Not yet sent. Show why (still waiting for completion / failed) + a
+  // manual trigger when applicable.
+  if (!row.allBookingsCompleted) {
+    return <span className="text-[11px] text-muted">세션 종료 대기</span>;
+  }
+
+  if (row.paymentLinkLastError) {
+    return (
+      <div className="flex items-center gap-2">
+        <span
+          className="text-[11px] text-red-600"
+          title={row.paymentLinkLastError}
+        >
+          발송 실패 ({row.paymentLinkAttempts}회)
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onResend}
+          className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] text-red-700 hover:bg-red-100 disabled:opacity-50"
+        >
+          {busy ? "발송 중…" : "다시 시도"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onResend}
+      className="rounded border border-primary/30 bg-primary/5 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-50"
+    >
+      {busy ? "발송 중…" : "안내 메일 발송"}
+    </button>
   );
 }
 

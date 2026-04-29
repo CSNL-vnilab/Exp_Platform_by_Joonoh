@@ -11,6 +11,7 @@ import {
   createReschedGCalEvent,
   runReschedulePipeline,
 } from "@/lib/services/booking.service";
+import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 
 // Valid status transitions: prevents going back from terminal states.
 // 'running' is set automatically when /run mints a completion code —
@@ -91,10 +92,12 @@ export async function PUT(
 
     // Fetch booking with experiment to verify admin ownership. Also pull
     // google_event_id + calendar id so a cancellation can clean up GCal.
+    // booking_group_id needed so we can fan out the payment-info link
+    // dispatch when the last booking in the group flips to 'completed'.
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
       .select(
-        "id, status, google_event_id, experiments(created_by, google_calendar_id)",
+        "id, status, google_event_id, booking_group_id, experiments(created_by, google_calendar_id)",
       )
       .eq("id", bookingId)
       .single();
@@ -167,6 +170,32 @@ export async function PUT(
 
     // Pending reminders are already guarded at send time: reminder.service skips
     // bookings with status='cancelled' and marks them 'sent', so no update needed.
+
+    // Fire payment-info dispatch when this booking just transitioned to
+    // 'completed'. The notify helper itself checks "all bookings in the
+    // group are completed" + "payment_link_sent_at IS NULL" so calling it
+    // on every flip is safe; multi-session groups will simply no-op until
+    // the last session completes.
+    if (status === "completed" && booking.booking_group_id) {
+      const admin = createAdminClient();
+      try {
+        const result = await notifyPaymentInfoIfReady(
+          admin,
+          booking.booking_group_id,
+        );
+        if (result.outcome === "send_failed") {
+          console.warn(
+            `[BookingPUT] payment-info dispatch failed for ${booking.booking_group_id}: ${result.detail}`,
+          );
+        }
+      } catch (err) {
+        // Never fail the status PUT because of an email error.
+        console.error(
+          "[BookingPUT] notifyPaymentInfoIfReady crashed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     return NextResponse.json({ booking: updated });
   } catch {

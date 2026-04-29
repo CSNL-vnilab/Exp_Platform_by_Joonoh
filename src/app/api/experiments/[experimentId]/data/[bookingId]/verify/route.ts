@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
+import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 
 // POST /api/experiments/:experimentId/data/:bookingId/verify
 //
@@ -35,7 +36,7 @@ export async function POST(
   const { data: booking } = await admin
     .from("bookings")
     .select(
-      "id, status, experiment_id, experiments(id, created_by)",
+      "id, status, experiment_id, booking_group_id, experiments(id, created_by)",
     )
     .eq("id", bookingId)
     .maybeSingle();
@@ -130,11 +131,28 @@ export async function POST(
       .eq("booking_id", bookingId);
   }
 
+  let didComplete = false;
   if (booking.status === "confirmed" || booking.status === "running") {
     await admin
       .from("bookings")
       .update({ status: "completed" })
       .eq("id", bookingId);
+    didComplete = true;
+  }
+
+  // Verified-and-completed transitions feed the payment-info dispatch the
+  // same way as PUT /api/bookings/[id] does. notifyPaymentInfoIfReady is
+  // idempotent: it no-ops on a multi-session group whose other sessions
+  // are still pending.
+  if (didComplete && booking.booking_group_id) {
+    try {
+      await notifyPaymentInfoIfReady(admin, booking.booking_group_id);
+    } catch (err) {
+      console.error(
+        "[Verify] payment-info dispatch crashed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });

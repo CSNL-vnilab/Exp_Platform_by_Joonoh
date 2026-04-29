@@ -779,6 +779,11 @@ export interface Database {
           name_override: string | null;
           email_override: string | null;
           phone: string | null;
+          // Payment-info dispatch state (migration 00051).
+          payment_link_sent_at: string | null;
+          payment_link_attempts: number;
+          payment_link_last_error: string | null;
+          payment_link_last_attempt_at: string | null;
           signature_path: string | null;
           signed_at: string | null;
           bankbook_path: string | null;
@@ -817,6 +822,10 @@ export interface Database {
           name_override?: string | null;
           email_override?: string | null;
           phone?: string | null;
+          payment_link_sent_at?: string | null;
+          payment_link_attempts?: number;
+          payment_link_last_error?: string | null;
+          payment_link_last_attempt_at?: string | null;
           signature_path?: string | null;
           signed_at?: string | null;
           bankbook_path?: string | null;
@@ -849,6 +858,10 @@ export interface Database {
           name_override?: string | null;
           email_override?: string | null;
           phone?: string | null;
+          payment_link_sent_at?: string | null;
+          payment_link_attempts?: number;
+          payment_link_last_error?: string | null;
+          payment_link_last_attempt_at?: string | null;
           signature_path?: string | null;
           signed_at?: string | null;
           bankbook_path?: string | null;

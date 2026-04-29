@@ -22,8 +22,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID, observationSchema } from "@/lib/utils/validation";
 import { syncObservationToNotion } from "@/lib/services/observation.service";
+import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 
 // Observations get locked out of the future path until the session actually
 // starts; we give a 10-minute grace window so a researcher who opens the
@@ -189,6 +191,31 @@ export async function PUT(
       "[Observation] notion sync crashed:",
       err instanceof Error ? err.message : err,
     );
+  }
+
+  // Auto-complete fan-out: if the RPC flipped status to 'completed', fire
+  // the payment-info link dispatch. The helper rechecks "all bookings in
+  // group completed" + idempotent send guard, so partial-completion in a
+  // multi-session group safely no-ops here too.
+  if (envelope?.auto_completed) {
+    try {
+      const { data: bookingForGroup } = await supabase
+        .from("bookings")
+        .select("booking_group_id")
+        .eq("id", bookingId)
+        .maybeSingle();
+      const bgId = (bookingForGroup as { booking_group_id: string | null } | null)
+        ?.booking_group_id;
+      if (bgId) {
+        const admin = createAdminClient();
+        await notifyPaymentInfoIfReady(admin, bgId);
+      }
+    } catch (err) {
+      console.error(
+        "[Observation] payment-info dispatch crashed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   return NextResponse.json({
