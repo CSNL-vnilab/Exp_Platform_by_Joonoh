@@ -66,9 +66,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const { data: labRow, error: labError } = await supabase
+      .from("labs")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+
+    if (labError || !labRow?.id) {
+      return NextResponse.json(
+        { error: "Lab 설정을 찾을 수 없습니다" },
+        { status: 500 }
+      );
+    }
+
     const { data, error } = await supabase
       .from("experiments")
-      .insert({ ...result.data, created_by: user.id })
+      .insert({ ...result.data, created_by: user.id, lab_id: labRow.id })
       .select()
       .single();
 
