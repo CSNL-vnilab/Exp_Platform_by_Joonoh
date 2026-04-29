@@ -51,10 +51,14 @@ export default async function PaymentInfoPage({ params }: PageProps) {
   }
 
   const supabase = createAdminClient();
+  // name_override / email_override / phone live in payment_info (migration
+  // 00050) so a participant who already started filling the form (or who
+  // re-opens after corrections) sees their last-entered values, not the
+  // potentially stale participants.* row.
   const { data: info } = await supabase
     .from("participant_payment_info")
     .select(
-      "id, booking_group_id, participant_id, experiment_id, status, period_start, period_end, amount_krw, token_hash, token_revoked_at, account_holder, bank_name, participants(name), experiments(title)",
+      "id, booking_group_id, participant_id, experiment_id, status, period_start, period_end, amount_krw, token_hash, token_revoked_at, account_holder, bank_name, name_override, email_override, phone, participants(name, email, phone), experiments(title)",
     )
     .eq("booking_group_id", verified.bookingGroupId)
     .maybeSingle<{
@@ -70,7 +74,10 @@ export default async function PaymentInfoPage({ params }: PageProps) {
       token_revoked_at: string | null;
       account_holder: string | null;
       bank_name: string | null;
-      participants: { name: string } | null;
+      name_override: string | null;
+      email_override: string | null;
+      phone: string | null;
+      participants: { name: string; email: string | null; phone: string | null } | null;
       experiments: { title: string } | null;
     }>();
 
@@ -85,7 +92,9 @@ export default async function PaymentInfoPage({ params }: PageProps) {
     return <Failure code="INVALID" />;
   }
 
-  const participantName = info.participants?.name ?? "";
+  const participantName = info.name_override ?? info.participants?.name ?? "";
+  const participantPhone = info.phone ?? info.participants?.phone ?? "";
+  const participantEmail = info.email_override ?? info.participants?.email ?? "";
   const experimentTitle = info.experiments?.title ?? "실험";
 
   if (info.status !== "pending_participant") {
@@ -146,7 +155,9 @@ export default async function PaymentInfoPage({ params }: PageProps) {
 
       <PaymentInfoForm
         token={token}
-        defaultHolder={participantName}
+        defaultName={participantName}
+        defaultPhone={participantPhone}
+        defaultEmail={participantEmail}
         experimentTitle={experimentTitle}
         amountKrw={info.amount_krw}
       />

@@ -9,6 +9,10 @@ export interface ExportParticipant {
   bookingGroupId: string;
   name: string;
   email: string | null;
+  // Korean mobile/landline as entered on the payment form (already
+  // pre-formatted by the client). Optional because legacy rows pre-00050
+  // don't have a snapshot.
+  phone: string | null;
   // Raw ciphertext triple — decrypted here, never leaves the server.
   rrnCipher: unknown;
   rrnIv: unknown;
@@ -145,6 +149,8 @@ export async function buildUploadFormWorkbook(
 //   G10 — 시작 시간
 //   I10 — 종료 시간
 //   B11 — 총 참여 시간
+//   B13 — 연락처 (added 2026-04 — row 13 is unused in lab_chore's
+//          read_participant_info, so adding a value here is non-breaking)
 //   B16 — 성명
 //   D16 — 소속
 //   E16 — 주민등록번호
@@ -191,6 +197,13 @@ export async function buildIndividualFormWorkbook(
   ws.getCell("A11").font = { bold: true };
   ws.getCell("B11").value = p.participationHours;
   ws.getCell("C11").value = "시간";
+
+  // Row 13 — 연락처 (lab_chore's reader doesn't touch this row, so the
+  // admin still gets a clean read; we just surface the phone for the
+  // human checking the form).
+  ws.getCell("A13").value = "연락처";
+  ws.getCell("A13").font = { bold: true };
+  ws.getCell("B13").value = safeCellText(p.phone ?? "");
 
   // Section header row 15
   ws.getCell("A15").value = "수령인 정보";

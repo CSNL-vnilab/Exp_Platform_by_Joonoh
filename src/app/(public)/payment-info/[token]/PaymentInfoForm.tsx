@@ -17,19 +17,29 @@ const BANKBOOK_TYPES = ["image/png", "image/jpeg", "application/pdf"];
 
 interface Props {
   token: string;
-  defaultHolder: string;
+  defaultName: string;
+  defaultPhone: string;
+  defaultEmail: string;
   experimentTitle: string;
   amountKrw: number;
 }
 
-export default function PaymentInfoForm({ token, defaultHolder }: Props) {
+export default function PaymentInfoForm({
+  token,
+  defaultName,
+  defaultPhone,
+  defaultEmail,
+}: Props) {
   const router = useRouter();
   const { toast } = useToast();
 
+  const [name, setName] = useState(defaultName);
+  const [phone, setPhone] = useState(defaultPhone);
+  const [email, setEmail] = useState(defaultEmail);
   const [rrn, setRrn] = useState("");
   const [bank, setBank] = useState(BANKS[2]);
   const [account, setAccount] = useState("");
-  const [holder, setHolder] = useState(defaultHolder);
+  const [holder, setHolder] = useState(defaultName);
   const [institution, setInstitution] = useState("서울대학교");
   const [submitting, setSubmitting] = useState(false);
 
@@ -48,6 +58,36 @@ export default function PaymentInfoForm({ token, defaultHolder }: Props) {
       setRrn(digits);
     } else {
       setRrn(`${digits.slice(0, 6)}-${digits.slice(6)}`);
+    }
+  }, []);
+
+  // Auto-format Korean mobile/landline as user types: 010-1234-5678,
+  // 02-123-4567, 031-234-5678. Server still trims/validates loosely so
+  // foreign numbers or formats we don't recognize won't be rejected.
+  const handlePhoneChange = useCallback((raw: string) => {
+    const digits = raw.replace(/\D/g, "").slice(0, 11);
+    if (digits.length < 4) {
+      setPhone(digits);
+      return;
+    }
+    if (digits.startsWith("02")) {
+      // Seoul landline: 2-3/4-4 split.
+      if (digits.length <= 5) {
+        setPhone(`${digits.slice(0, 2)}-${digits.slice(2)}`);
+      } else if (digits.length <= 9) {
+        setPhone(`${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`);
+      } else {
+        setPhone(`${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6)}`);
+      }
+      return;
+    }
+    // 010 / 011 / 031 / etc.
+    if (digits.length <= 7) {
+      setPhone(`${digits.slice(0, 3)}-${digits.slice(3)}`);
+    } else if (digits.length <= 10) {
+      setPhone(`${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`);
+    } else {
+      setPhone(`${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`);
     }
   }, []);
 
@@ -153,6 +193,18 @@ export default function PaymentInfoForm({ token, defaultHolder }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!name.trim()) {
+      toast("성명을 입력하세요.", "error");
+      return;
+    }
+    if (!phone.replace(/\D/g, "")) {
+      toast("연락처를 입력하세요.", "error");
+      return;
+    }
+    if (!email.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())) {
+      toast("올바른 이메일을 입력하세요.", "error");
+      return;
+    }
     const rrnDigits = rrn.replace(/\D/g, "");
     if (rrnDigits.length !== 13) {
       toast("주민등록번호는 13자리여야 합니다.", "error");
@@ -185,10 +237,13 @@ export default function PaymentInfoForm({ token, defaultHolder }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
           rrn: rrn.trim(),
           bankName: bank,
           accountNumber: account.trim().replace(/\s+/g, ""),
-          accountHolder: (holder || defaultHolder).trim(),
+          accountHolder: (holder || name).trim(),
           institution: institution.trim(),
           signaturePng,
           bankbook: {
@@ -220,6 +275,52 @@ export default function PaymentInfoForm({ token, defaultHolder }: Props) {
         <h2 className="text-sm font-semibold text-foreground">👤 참가자 정보</h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
+            <label htmlFor="name" className="mb-1 block text-xs font-medium text-foreground">
+              성명 <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+              required
+              autoComplete="name"
+            />
+          </div>
+          <div>
+            <label htmlFor="phone" className="mb-1 block text-xs font-medium text-foreground">
+              연락처 <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="phone"
+              type="tel"
+              inputMode="numeric"
+              value={phone}
+              onChange={(e) => handlePhoneChange(e.target.value)}
+              placeholder="010-1234-5678"
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm font-mono text-foreground focus:border-primary focus:outline-none"
+              required
+              autoComplete="tel"
+              maxLength={13}
+            />
+          </div>
+          <div>
+            <label htmlFor="email" className="mb-1 block text-xs font-medium text-foreground">
+              이메일 <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="example@snu.ac.kr"
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+              required
+              autoComplete="email"
+            />
+          </div>
+          <div>
             <label htmlFor="institution" className="mb-1 block text-xs font-medium text-foreground">
               소속 <span className="text-red-500">*</span>
             </label>
@@ -232,7 +333,7 @@ export default function PaymentInfoForm({ token, defaultHolder }: Props) {
               required
             />
           </div>
-          <div>
+          <div className="col-span-2">
             <label htmlFor="rrn" className="mb-1 block text-xs font-medium text-foreground">
               주민등록번호 <span className="text-red-500">*</span>
             </label>
@@ -301,7 +402,7 @@ export default function PaymentInfoForm({ token, defaultHolder }: Props) {
             type="text"
             value={holder}
             onChange={(e) => setHolder(e.target.value)}
-            placeholder={defaultHolder || "비워두면 이름과 동일"}
+            placeholder={name || "비워두면 성명과 동일"}
             className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
           />
           <p className="mt-1 text-xs text-muted">본인 명의 계좌여야 합니다.</p>

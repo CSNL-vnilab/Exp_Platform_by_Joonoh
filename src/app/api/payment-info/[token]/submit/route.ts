@@ -40,6 +40,9 @@ interface BankbookInput {
 }
 
 interface SubmitBody {
+  name?: unknown;
+  phone?: unknown;
+  email?: unknown;
   rrn?: unknown;
   bankName?: unknown;
   accountNumber?: unknown;
@@ -47,6 +50,19 @@ interface SubmitBody {
   institution?: unknown;
   signaturePng?: unknown;
   bankbook?: BankbookInput;
+}
+
+// Loose email shape gate — full RFC validation is overkill for a form
+// where the admin will manually copy this into a paper claim anyway.
+// Anything obviously broken (no @, no dot) gets rejected here; subtler
+// mistakes the admin can fix.
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+// Phone: digits + dashes/spaces; 8–15 digits to span Korean mobile (11),
+// landline (9-10), and international formats.
+function normalizePhoneDigits(input: string): string | null {
+  const digits = input.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) return null;
+  return digits;
 }
 
 const MAX_SIGNATURE_BYTES = 400 * 1024; // 400 KiB (signature PNGs are small)
@@ -148,6 +164,9 @@ export async function POST(
   }
 
   const {
+    name,
+    phone,
+    email,
     rrn,
     bankName,
     accountNumber,
@@ -157,6 +176,13 @@ export async function POST(
     bankbook,
   } = body;
 
+  if (!isNonEmptyString(name)) return jsonError(400, "성명을 입력해 주세요.");
+  if (!isNonEmptyString(phone)) return jsonError(400, "연락처를 입력해 주세요.");
+  if (!isNonEmptyString(email)) return jsonError(400, "이메일을 입력해 주세요.");
+  if (!EMAIL_RE.test(email.trim()) || email.trim().length > 254)
+    return jsonError(400, "이메일 형식이 올바르지 않습니다.");
+  const phoneDigits = normalizePhoneDigits(phone);
+  if (!phoneDigits) return jsonError(400, "연락처 형식이 올바르지 않습니다.");
   if (!isNonEmptyString(rrn)) return jsonError(400, "주민등록번호를 입력해 주세요.");
   if (!isNonEmptyString(institution)) return jsonError(400, "소속을 입력해 주세요.");
   if (!isNonEmptyString(bankName)) return jsonError(400, "은행을 선택해 주세요.");
@@ -168,6 +194,11 @@ export async function POST(
     return jsonError(400, "통장 사본을 첨부해 주세요.");
   if (!isNonEmptyString(bankbook.dataUrl))
     return jsonError(400, "통장 사본을 첨부해 주세요.");
+  // Cap name length so a pathological 1MB string can't reach the DB.
+  if (name.trim().length > 100)
+    return jsonError(400, "성명은 100자 이하로 입력해 주세요.");
+  if (institution.trim().length > 100)
+    return jsonError(400, "소속은 100자 이하로 입력해 주세요.");
 
   const rrnCheck = validateRrn(rrn);
   if (!rrnCheck.valid || !rrnCheck.normalized) {
@@ -285,6 +316,9 @@ export async function POST(
           ? accountHolder.trim()
           : null,
         institution: institution.trim(),
+        name_override: name.trim(),
+        email_override: email.trim(),
+        phone: phone.trim(),
         signature_path: signaturePath,
         signed_at: nowIso,
         bankbook_path: bankbookPath,

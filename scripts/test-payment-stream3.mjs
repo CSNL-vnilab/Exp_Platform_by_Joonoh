@@ -210,6 +210,7 @@ await group("Excel generators — cell-level inspection", async () => {
       bookingGroupId: `bg-${name}`,
       name,
       email: `${name}@test.local`,
+      phone: "010-1234-5678",
       rrnCipher: enc.cipher,
       rrnIv: enc.iv,
       rrnTag: enc.tag,
@@ -297,6 +298,8 @@ await group("Excel generators — cell-level inspection", async () => {
   check("G10 is firstSessionStart", iws.getCell("G10").value === "14:00");
   check("I10 is firstSessionEnd", iws.getCell("I10").value === "15:00");
   check("B11 is participationHours", iws.getCell("B11").value === 2);
+  check("A13 is 연락처 label", iws.getCell("A13").value === "연락처");
+  check("B13 is phone snapshot", iws.getCell("B13").value === "010-1234-5678");
 
   // Signature image embedded. exceljs lists images on the worksheet.
   const images = wb2.model.media.filter((m) => m.type === "image");
@@ -345,6 +348,7 @@ await group("Claim bundle ZIP shape", async () => {
       bookingGroupId: `bg-${name}`,
       name,
       email: `${name}@test.local`,
+      phone: "010-1234-5678",
       rrnCipher: enc.cipher,
       rrnIv: enc.iv,
       rrnTag: enc.tag,
@@ -586,6 +590,7 @@ await group("Excel formula-injection guard", async () => {
     bookingGroupId: "bg1",
     name: "=HYPERLINK(\"https://evil.invalid\",\"click\")",
     email: "e@e.e",
+    phone: "010-0000-0000",
     rrnCipher: enc.cipher,
     rrnIv: enc.iv,
     rrnTag: enc.tag,

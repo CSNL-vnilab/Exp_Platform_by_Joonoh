@@ -60,7 +60,9 @@ export async function GET(
   const { data: row } = await admin
     .from("participant_payment_info")
     .select(
-      "id, booking_group_id, participant_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, period_start, period_end, amount_krw, status, participants(name, email)",
+      // name_override / email_override / phone are columns added by
+      // migration 00050 to capture participant-confirmed contact info.
+      "id, booking_group_id, participant_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, period_start, period_end, amount_krw, status, name_override, email_override, phone, participants(name, email, phone)",
     )
     .eq("experiment_id", experimentId)
     .eq("booking_group_id", bookingGroupId)
@@ -103,15 +105,21 @@ export async function GET(
 
   const info = row as unknown as {
     institution: string | null;
-    participants: { name: string; email: string | null } | null;
+    name_override: string | null;
+    email_override: string | null;
+    phone: string | null;
+    participants: { name: string; email: string | null; phone: string | null } | null;
   };
-  const participantName = info.participants?.name ?? "";
+  const participantName = info.name_override ?? info.participants?.name ?? "";
+  const participantEmail = info.email_override ?? info.participants?.email ?? null;
+  const participantPhone = info.phone ?? info.participants?.phone ?? null;
 
   const participant: ExportParticipant = {
     participantId: row.participant_id,
     bookingGroupId: row.booking_group_id,
     name: participantName,
-    email: info.participants?.email ?? null,
+    email: participantEmail,
+    phone: participantPhone,
     rrnCipher: row.rrn_cipher,
     rrnIv: row.rrn_iv,
     rrnTag: row.rrn_tag,

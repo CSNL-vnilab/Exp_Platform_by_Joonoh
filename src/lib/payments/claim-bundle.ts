@@ -24,6 +24,7 @@ interface BundleRow {
   bookingGroupId: string;
   participantName: string;
   participantEmail: string | null;
+  participantPhone: string | null;
   rrnCipher: unknown;
   rrnIv: unknown;
   rrnTag: unknown;
@@ -49,7 +50,8 @@ export async function fetchClaimRows(
   let query = supabase
     .from("participant_payment_info")
     .select(
-      "participant_id, booking_group_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, bankbook_path, bankbook_mime_type, period_start, period_end, amount_krw, status, participants(name, email)",
+      // name_override / email_override / phone come from migration 00050.
+      "participant_id, booking_group_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, bankbook_path, bankbook_mime_type, period_start, period_end, amount_krw, status, name_override, email_override, phone, participants(name, email, phone)",
     )
     .eq("experiment_id", experimentId)
     .eq("status", "submitted_to_admin")
@@ -96,13 +98,17 @@ export async function fetchClaimRows(
       period_start: string | null;
       period_end: string | null;
       amount_krw: number;
-      participants: { name: string; email: string | null } | null;
+      name_override: string | null;
+      email_override: string | null;
+      phone: string | null;
+      participants: { name: string; email: string | null; phone: string | null } | null;
     };
     return {
       participantId: row.participant_id,
       bookingGroupId: row.booking_group_id,
-      participantName: row.participants?.name ?? "",
-      participantEmail: row.participants?.email ?? null,
+      participantName: row.name_override ?? row.participants?.name ?? "",
+      participantEmail: row.email_override ?? row.participants?.email ?? null,
+      participantPhone: row.phone ?? row.participants?.phone ?? null,
       rrnCipher: row.rrn_cipher,
       rrnIv: row.rrn_iv,
       rrnTag: row.rrn_tag,
@@ -274,6 +280,7 @@ export async function buildClaimBundle(
       bookingGroupId: r.bookingGroupId,
       name: r.participantName,
       email: r.participantEmail,
+      phone: r.participantPhone,
       rrnCipher: r.rrnCipher,
       rrnIv: r.rrnIv,
       rrnTag: r.rrnTag,

@@ -68,7 +68,8 @@ export async function GET(
   const { data: rows } = await admin
     .from("participant_payment_info")
     .select(
-      "id, booking_group_id, participant_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, period_start, period_end, amount_krw, status, participants(name, email)",
+      // name_override / email_override / phone added by migration 00050.
+      "id, booking_group_id, participant_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, period_start, period_end, amount_krw, status, name_override, email_override, phone, participants(name, email, phone)",
     )
     .eq("experiment_id", experimentId)
     // 'claimed' rows are included — post-청구 the researcher still needs
@@ -121,13 +122,17 @@ export async function GET(
     // form doesn't include signatures per the admin's template.
     const info = r as unknown as {
       institution: string | null;
-      participants: { name: string; email: string | null } | null;
+      name_override: string | null;
+      email_override: string | null;
+      phone: string | null;
+      participants: { name: string; email: string | null; phone: string | null } | null;
     };
     participants.push({
       participantId: r.participant_id,
       bookingGroupId: r.booking_group_id,
-      name: info.participants?.name ?? "",
-      email: info.participants?.email ?? null,
+      name: info.name_override ?? info.participants?.name ?? "",
+      email: info.email_override ?? info.participants?.email ?? null,
+      phone: info.phone ?? info.participants?.phone ?? null,
       rrnCipher: r.rrn_cipher,
       rrnIv: r.rrn_iv,
       rrnTag: r.rrn_tag,
