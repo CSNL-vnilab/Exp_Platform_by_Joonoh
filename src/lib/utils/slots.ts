@@ -50,6 +50,7 @@ export function generateAvailableSlots(
   const available: TimeSlot[] = [];
   let current = dayStart;
 
+  const now = new Date();
   while (current < dayEnd) {
     const slotEnd = addMinutes(current, sessionDurationMinutes);
 
@@ -68,7 +69,12 @@ export function generateAvailableSlots(
     const bookedCount = bookedCountPerSlot?.get(slotKey) ?? 0;
     const isFullyBooked = bookedCount >= maxParticipantsPerSlot;
 
-    if (!isBusy && !isFullyBooked) {
+    // Past slots cannot be booked — DB-layer guard returns 400 ("이미 지난
+    // 시간대는 예약할 수 없습니다"); pre-filter here so the picker doesn't
+    // show selectable cells the API will reject.
+    const isPast = current < now;
+
+    if (!isBusy && !isFullyBooked && !isPast) {
       available.push(slot);
     }
 
@@ -124,6 +130,7 @@ export function generateClassifiedSlots(
 
   const result: ClassifiedSlot[] = [];
   let current = dayStart;
+  const now = new Date();
 
   while (current < dayEnd) {
     const slotEnd = addMinutes(current, sessionDurationMinutes);
@@ -137,7 +144,17 @@ export function generateClassifiedSlots(
     const bookedCount = bookedCountPerSlot?.get(slotKey) ?? 0;
     const isFullyBooked = bookedCount >= maxParticipantsPerSlot;
 
-    const status: SlotStatus = isBusy ? "busy" : isFullyBooked ? "full" : "available";
+    // A slot whose start is in the past is unbookable — keep "full" status
+    // so the picker renders it as gray/disabled. Backend already rejects.
+    const isPast = current < now;
+
+    const status: SlotStatus = isPast
+      ? "full"
+      : isBusy
+        ? "busy"
+        : isFullyBooked
+          ? "full"
+          : "available";
     result.push({
       start: current,
       end: slotEnd,

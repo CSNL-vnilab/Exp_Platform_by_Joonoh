@@ -47,10 +47,17 @@ async function loadEnv() {
 await loadEnv();
 
 const argv = process.argv.slice(2);
-const NUM_BLOCKS = (() => {
-  const idx = argv.indexOf("--blocks");
-  if (idx >= 0 && idx + 1 < argv.length) return Math.max(1, Math.min(12, Number(argv[idx + 1])));
-  return 1;
+const argInt = (flag, dflt, [lo, hi]) => {
+  const idx = argv.indexOf(flag);
+  if (idx >= 0 && idx + 1 < argv.length) return Math.max(lo, Math.min(hi, Number(argv[idx + 1])));
+  return dflt;
+};
+const NUM_BLOCKS = argInt("--blocks", 1, [1, 12]);
+const SUBJECT = argInt("--subject", 1, [1, 999]);
+const SESSION = argInt("--session", 1, [1, 5]);
+const LABEL = (() => {
+  const idx = argv.indexOf("--label");
+  return idx >= 0 && idx + 1 < argv.length ? argv[idx + 1] : "";
 })();
 const CLEANUP = argv.includes("--cleanup");
 
@@ -96,10 +103,11 @@ async function seedExperiment() {
   const today = new Date();
   const inTwoWeeks = new Date(today.getTime() + 14 * 86_400_000);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const labelSuffix = LABEL ? ` ${LABEL}` : "";
   const { error } = await admin.from("experiments").insert({
     id: expId,
     lab_id: labId,
-    title: `[E2E-IdealObs] TimeExpOnline1_demo @ ${stamp}`,
+    title: `[E2E-IdealObs] TimeExpOnline1_demo @ ${stamp}${labelSuffix}`,
     description: "Ideal-observer e2e — clicks at vbl_respOnset + θ. Safe to delete.",
     start_date: today.toISOString().slice(0, 10),
     end_date: inTwoWeeks.toISOString().slice(0, 10),
@@ -130,24 +138,28 @@ async function seedBooking(expId) {
   const slotStart = new Date(Date.now() + 60_000);
   const slotEnd = new Date(slotStart.getTime() + 60 * 60_000);
 
-  await admin.from("participants").insert({
+  // Use bookingId in email to guarantee uniqueness across concurrent runs
+  // (Date.now() collides when N parallel processes start in the same ms).
+  const { error: pErr } = await admin.from("participants").insert({
     id: participantId,
     name: "[E2E-IdealObs] participant",
     phone: "01000000000",
-    email: `ideal-obs-${Date.now()}@example.test`,
+    email: `ideal-obs-${bookingId}@example.test`,
     gender: "other",
     birthdate: "1990-01-01",
   });
-  await admin.from("bookings").insert({
+  if (pErr) throw new Error("participant insert: " + pErr.message);
+  const { error: bErr } = await admin.from("bookings").insert({
     id: bookingId,
     experiment_id: expId,
     participant_id: participantId,
     slot_start: slotStart.toISOString(),
     slot_end: slotEnd.toISOString(),
-    session_number: 1,
-    subject_number: 1,
+    session_number: SESSION,
+    subject_number: SUBJECT,
     status: "confirmed",
   });
+  if (bErr) throw new Error("booking insert: " + bErr.message);
 
   const issued = issueToken(bookingId);
   const { error } = await admin
@@ -161,7 +173,11 @@ async function seedBooking(expId) {
       { onConflict: "booking_id" },
     );
   if (error) throw new Error("progress upsert: " + error.message);
-  log(`seeded booking ${bookingId} (subject 1, day 1, dist=U)`);
+  // dist pattern derivation mirrors main.js: patList[subj%4] indexed by day-2 for day>=2,
+  // baseline 'U' for day=1 with subj%4==1 (subj 1,5,9...)
+  const patList = [["U", "A", "B", "U", "A"], ["U", "B", "A", "U", "B"], ["A", "U", "B", "A", "U"], ["B", "A", "U", "B", "A"]];
+  const dist = SESSION === 1 ? "U" : patList[SUBJECT % 4][SESSION - 2];
+  log(`seeded booking ${bookingId} (subject ${SUBJECT}, day ${SESSION}, dist=${dist})`);
   return { bookingId, participantId, token: issued.token };
 }
 
@@ -489,7 +505,7 @@ async function main() {
 
   const { stream } = await driveIdealObserver({ bookingId, expId, runUrl });
   const { findings, allPass } = await verifyStorageAndBias({
-    expId, subjectNumber: 1, stream,
+    expId, subjectNumber: SUBJECT, stream,
   });
 
   console.log("");
