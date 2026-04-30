@@ -204,14 +204,11 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00048_metadata_reminder_log.sql` on
-2026-04-24.
+Last applied to prod: `00051_payment_link_dispatch.sql` on
+2026-04-30.
 
 Staged for next deploy (apply after push):
-- `00047_booking_exclusion_data_quality.sql` — roadmap C4 (exclusion
-  flag + reason + data_quality enum on bookings).
-- `00048_metadata_reminder_log.sql` — rate-limit + audit log for the
-  new `/api/cron/metadata-reminders` weekly push.
+- (none — all on-disk migrations applied as of 2026-04-30)
 
 Full list: `ls supabase/migrations/`.
 
