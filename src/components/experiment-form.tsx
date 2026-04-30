@@ -559,9 +559,22 @@ export function ExperimentForm({
           data: { user },
         } = await supabase.auth.getUser();
 
+        const { data: labRow, error: labError } = await supabase
+          .from("labs")
+          .select("id")
+          .limit(1)
+          .maybeSingle();
+
+        if (labError || !labRow?.id) {
+          toast("Lab 설정을 찾을 수 없습니다.", "error");
+          setSubmitting(false);
+          return;
+        }
+
         const insertData: ExperimentInsert = {
           ...formData,
           created_by: user?.id ?? null,
+          lab_id: labRow.id,
         };
 
         const { data, error } = await supabase
