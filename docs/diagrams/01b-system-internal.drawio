@@ -1,0 +1,211 @@
+<mxfile host="Claude" modified="2026-05-01T00:00:00.000Z" agent="Claude Opus 4.7 (1M context)" version="24.0.0" type="device">
+  <diagram name="1b System Internal" id="01b-internal">
+    <mxGraphModel dx="1600" dy="1280" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1320" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="1b. 시스템 — 내부 메커니즘" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="0" width="1420" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="subtitle" value="브라우저 → end-user 인증 zone (Vercel middleware + Supabase RLS) → 미러 (외부 egress) / Cron (서비스 인증 — CRON_SECRET / launchd LAN)" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="40" y="36" width="1420" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="trust-boundary" value="🔐 End-user 인증 zone&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size: 11px;&quot;&gt;(Vercel middleware 세션 + Supabase RLS by auth.uid() — 사용자 요청 경로만 해당. Cron 은 별도 서비스 인증)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 6;fillColor=none;strokeColor=#0ea5e9;strokeWidth=2;fontSize=12;fontStyle=2;fontColor=#0369a1;verticalAlign=top;align=right;spacingTop=8;spacingRight=14;" vertex="1" parent="1">
+          <mxGeometry x="40" y="250" width="1420" height="520" as="geometry" />
+        </mxCell>
+
+        <mxCell id="browser-grp" value="💻 Browser&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size: 10px; font-weight: normal;&quot;&gt;(신뢰 경계 밖 — 자기 데이터만 RLS 통해 노출)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7faff;strokeColor=#3a87cd;strokeWidth=1.5;fontSize=14;fontStyle=1;fontColor=#1a4480;verticalAlign=top;align=left;spacingTop=8;spacingLeft=14;dashed=0;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="80" width="700" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="actor-BR" value="연구자 브라우저&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;세션 쿠키, /dashboard&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#e8f5ff;strokeColor=#3a87cd;strokeWidth=2;fontColor=#1a4480;fontSize=13;fontStyle=1" vertex="1" parent="browser-grp">
+          <mxGeometry x="40" y="55" width="280" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="actor-BP" value="참여자 브라우저&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;익명 또는 run-token, /run iframe&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#e8f5ff;strokeColor=#3a87cd;strokeWidth=2;fontColor=#1a4480;fontSize=13;fontStyle=1" vertex="1" parent="browser-grp">
+          <mxGeometry x="370" y="55" width="290" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="llm-grp" value="🧠 LLM Provider&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size: 10px; font-weight: normal;&quot;&gt;(env 분기, 외부 — 코드 본문 egress)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fbf5ff;strokeColor=#9333ea;strokeWidth=1.5;fontSize=14;fontStyle=1;fontColor=#4a1d7a;verticalAlign=top;align=left;spacingTop=8;spacingLeft=14;dashed=0;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="800" y="80" width="640" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="llm-AN" value="Anthropic API&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;ANTHROPIC_API_KEY 설정 시&lt;br&gt;(production 기본)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5e8ff;strokeColor=#9333ea;strokeWidth=2;fontColor=#4a1d7a;fontSize=13;fontStyle=1" vertex="1" parent="llm-grp">
+          <mxGeometry x="30" y="55" width="270" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="llm-OL" value="Lab Mac Ollama:11434&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;qwen3.6 / qwen3-embedding&lt;br&gt;(LAN fallback, dev only)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5e8ff;strokeColor=#9333ea;strokeWidth=1.5;fontColor=#4a1d7a;fontSize=13;fontStyle=1;dashed=1;" vertex="1" parent="llm-grp">
+          <mxGeometry x="320" y="55" width="290" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vercel-grp" value="⚡ Vercel Functions&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size: 10px; font-weight: normal;&quot;&gt;(iad1, Fluid Compute)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4fdf6;strokeColor=#28a745;strokeWidth=2;fontSize=14;fontStyle=1;fontColor=#0d4825;verticalAlign=top;align=left;spacingTop=8;spacingLeft=14;dashed=0;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="290" width="1380" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vc-MW" value="middleware.ts&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;세션 갱신&lt;br&gt;/dashboard 인가&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8fff0;strokeColor=#28a745;strokeWidth=2;fontColor=#0d4825;fontSize=12;fontStyle=1" vertex="1" parent="vercel-grp">
+          <mxGeometry x="30" y="60" width="220" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vc-APP" value="App Router&lt;br&gt;+ Server Actions&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;(/dashboard, /experiments,&lt;br&gt;/schedule, /api/...)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8fff0;strokeColor=#28a745;strokeWidth=2;fontColor=#0d4825;fontSize=12;fontStyle=1" vertex="1" parent="vercel-grp">
+          <mxGeometry x="280" y="60" width="240" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vc-BK" value="/api/bookings&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;book_slot RPC&lt;br&gt;(advisory lock)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8fff0;strokeColor=#28a745;strokeWidth=2;fontColor=#0d4825;fontSize=12;fontStyle=1" vertex="1" parent="vercel-grp">
+          <mxGeometry x="550" y="60" width="220" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vc-RUN" value="/api/.../block&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;run-token 검증&lt;br&gt;Storage put&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8fff0;strokeColor=#28a745;strokeWidth=2;fontColor=#0d4825;fontSize=12;fontStyle=1" vertex="1" parent="vercel-grp">
+          <mxGeometry x="800" y="60" width="220" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vc-AN" value="/api/.../code-analysis&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;code-bundler →&lt;br&gt;heuristics → LLM&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8fff0;strokeColor=#28a745;strokeWidth=2;fontColor=#0d4825;fontSize=12;fontStyle=1" vertex="1" parent="vercel-grp">
+          <mxGeometry x="1050" y="60" width="290" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="db-grp" value="🗄️ Supabase&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size: 10px; font-weight: normal;&quot;&gt;(RLS-enforced, EU-North-1)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5faff;strokeColor=#4a90e2;strokeWidth=2;fontSize=14;fontStyle=1;fontColor=#1a4480;verticalAlign=top;align=left;spacingTop=8;spacingLeft=14;dashed=0;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="540" width="1380" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="db-PG" value="Postgres&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;experiments / bookings&lt;br&gt;participants / run_progress&lt;br&gt;outbox / payment_info&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f0f8ff;strokeColor=#4a90e2;strokeWidth=2.5;fontColor=#1a4480;fontSize=12;fontStyle=1" vertex="1" parent="db-grp">
+          <mxGeometry x="40" y="60" width="380" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="db-ST" value="Storage&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;experiment-data&lt;br&gt;{expId}/{subj}/block_N.json&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f0f8ff;strokeColor=#4a90e2;strokeWidth=2.5;fontColor=#1a4480;fontSize=12;fontStyle=1" vertex="1" parent="db-grp">
+          <mxGeometry x="470" y="60" width="380" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="db-RT" value="Realtime&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;WSS channel&lt;br&gt;(experiment_run_progress)&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f0f8ff;strokeColor=#4a90e2;strokeWidth=2.5;fontColor=#1a4480;fontSize=12;fontStyle=1" vertex="1" parent="db-grp">
+          <mxGeometry x="900" y="65" width="440" height="125" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mirrors-grp" value="🔌 외부 미러&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size: 10px; font-weight: normal;&quot;&gt;(Vercel push, 신뢰경계 밖 — 3rd-party data egress)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ee;strokeColor=#e08a3c;strokeWidth=1.5;fontSize=14;fontStyle=1;fontColor=#7a4a1c;verticalAlign=top;align=left;spacingTop=8;spacingLeft=14;dashed=0;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="800" width="1380" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="m-NT" value="📝 Notion&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;Members + Projects&amp;Chores&lt;br&gt;PII 미저장 ✓&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e6;strokeColor=#e08a3c;strokeWidth=2;fontColor=#7a4a1c;fontSize=12;fontStyle=1" vertex="1" parent="mirrors-grp">
+          <mxGeometry x="30" y="55" width="320" height="95" as="geometry" />
+        </mxCell>
+
+        <mxCell id="m-GCx" value="📅 GCal event&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;⚠ description = PII 평문&lt;br&gt;(이름·이메일·전화)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6e6;strokeColor=#d34a2a;strokeWidth=2.5;fontColor=#7a1c1c;fontSize=12;fontStyle=1" vertex="1" parent="mirrors-grp">
+          <mxGeometry x="370" y="55" width="320" height="95" as="geometry" />
+        </mxCell>
+
+        <mxCell id="m-GMx" value="📧 Gmail 발송&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;⚠ To = 참여자 이메일&lt;br&gt;본문에 이름·일정&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6e6;strokeColor=#d34a2a;strokeWidth=2.5;fontColor=#7a1c1c;fontSize=12;fontStyle=1" vertex="1" parent="mirrors-grp">
+          <mxGeometry x="710" y="55" width="320" height="95" as="geometry" />
+        </mxCell>
+
+        <mxCell id="m-NAS" value="💾 NAS 미러&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;/Volumes/CSNL_new-1&lt;br&gt;PII 없음 (랩 LAN)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e6;strokeColor=#e08a3c;strokeWidth=2;fontColor=#7a4a1c;fontSize=12;fontStyle=1" vertex="1" parent="mirrors-grp">
+          <mxGeometry x="1050" y="55" width="300" height="95" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cron-grp" value="⏰ Cron&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size: 10px; font-weight: normal;&quot;&gt;(GHA 6 + lab Mac launchd 1 = 7개 — 별도 trust domain)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafdf0;strokeColor=#9ca36e;strokeWidth=1.5;fontSize=14;fontStyle=1;fontColor=#4a4a1c;verticalAlign=top;align=left;spacingTop=8;spacingLeft=14;dashed=0;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1000" width="1380" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cr-GHA" value="6× GitHub Actions&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;reminders / auto-complete / outbox-retry&lt;br&gt;promotion / metadata / notion-health&lt;/font&gt;" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#f5f5dc;strokeColor=#9ca36e;strokeWidth=2;fontColor=#4a4a1c;fontSize=12;fontStyle=1;size=0.1;" vertex="1" parent="cron-grp">
+          <mxGeometry x="40" y="55" width="640" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cr-LD" value="lab Mac launchd&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;매시간: Storage → NAS 복사&lt;/font&gt;" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#f5f5dc;strokeColor=#9ca36e;strokeWidth=2;fontColor=#4a4a1c;fontSize=12;fontStyle=1;size=0.1;" vertex="1" parent="cron-grp">
+          <mxGeometry x="720" y="55" width="620" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-br-mw" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#1a4480;startArrow=none;endArrow=classic;strokeColor=#3a87cd;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="actor-BR" target="vc-MW">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-bp-app" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#1a4480;startArrow=none;endArrow=classic;strokeColor=#3a87cd;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="actor-BP" target="vc-APP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-mw-app" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=none;endArrow=classic;strokeColor=#28a745;strokeWidth=2;" edge="1" parent="1" source="vc-MW" target="vc-APP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-app-bk" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=none;endArrow=classic;strokeColor=#28a745;strokeWidth=1.5;" edge="1" parent="1" source="vc-APP" target="vc-BK">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-app-run" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=none;endArrow=classic;strokeColor=#28a745;strokeWidth=1.5;" edge="1" parent="1" source="vc-APP" target="vc-RUN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-app-an" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=none;endArrow=classic;strokeColor=#28a745;strokeWidth=1.5;" edge="1" parent="1" source="vc-APP" target="vc-AN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-an-anth" value="코드 본문 + 메타" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#4a1d7a;startArrow=none;endArrow=classic;strokeColor=#9333ea;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="vc-AN" target="llm-AN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-an-ol" value="lab Mac 가능시" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#4a1d7a;startArrow=none;endArrow=classic;strokeColor=#9333ea;strokeWidth=1.5;dashed=1;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="vc-AN" target="llm-OL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-app-pg" value="SQL" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#1a4480;startArrow=none;endArrow=classic;strokeColor=#4a90e2;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="vc-APP" target="db-PG">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-bk-pg" value="book_slot()" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#1a4480;startArrow=none;endArrow=classic;strokeColor=#4a90e2;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="vc-BK" target="db-PG">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-run-pg" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=none;endArrow=classic;strokeColor=#4a90e2;strokeWidth=1.5;" edge="1" parent="1" source="vc-RUN" target="db-PG">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-run-st" value="block_N.json" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#1a4480;startArrow=none;endArrow=classic;strokeColor=#4a90e2;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="vc-RUN" target="db-ST">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-pg-rt" value="UPDATE" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#1a4480;startArrow=none;endArrow=classic;strokeColor=#4a90e2;strokeWidth=1.5;dashed=1;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="db-PG" target="db-RT">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-rt-br" value="WSS realtime&amp;nbsp;(/live)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#1a4480;startArrow=none;endArrow=classic;strokeColor=#4a90e2;strokeWidth=3;labelBackgroundColor=#ffffff;fontStyle=1;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="db-RT" target="actor-BR">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-app-nt" value="status active" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#7a4a1c;startArrow=none;endArrow=classic;strokeColor=#e08a3c;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="vc-APP" target="m-NT">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-app-gcx" value="booking event&lt;br&gt;⚠ PII payload" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#7a1c1c;startArrow=none;endArrow=classic;strokeColor=#d34a2a;strokeWidth=2.5;labelBackgroundColor=#ffffff;fontStyle=1;" edge="1" parent="1" source="vc-APP" target="m-GCx">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-app-gmx" value="알림·정산" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#7a4a1c;startArrow=none;endArrow=classic;strokeColor=#e08a3c;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="vc-APP" target="m-GMx">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-st-nas" value="hourly mirror" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#7a4a1c;startArrow=none;endArrow=classic;strokeColor=#e08a3c;strokeWidth=1.5;dashed=1;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="db-ST" target="m-NAS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-gha-pg" value="reminders·auto-complete·promotion" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#4a4a1c;startArrow=none;endArrow=classic;strokeColor=#9ca36e;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="cr-GHA" target="db-PG">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-gha-nt" value="health probe" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#4a4a1c;startArrow=none;endArrow=classic;strokeColor=#9ca36e;strokeWidth=1.5;dashed=1;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="cr-GHA" target="m-NT">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e-ld-nas" value="rsync" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;fontColor=#4a4a1c;startArrow=none;endArrow=classic;strokeColor=#9ca36e;strokeWidth=2;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="cr-LD" target="m-NAS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend" value="&lt;b&gt;범례&lt;/b&gt;&amp;nbsp;&amp;nbsp;실선=동기 호출&amp;nbsp;|&amp;nbsp;점선=비동기·조건부&amp;nbsp;|&amp;nbsp;굵은 파랑=Realtime WSS (참여자 토큰 인증)&amp;nbsp;|&amp;nbsp;빨강=PII 평문 노출&amp;nbsp;|&amp;nbsp;올리브=Cron (별도 trust)&amp;nbsp;|&amp;nbsp;파선 박스=end-user 인증 zone" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontColor=#475569;fillColor=#f8fafc;strokeColor=#cbd5e1;rounded=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1190" width="1380" height="42" as="geometry" />
+        </mxCell>
+
+        <mxCell id="footnote" value="&lt;b&gt;정정 (소스 검증):&lt;/b&gt;&amp;nbsp; ① &lt;code&gt;code-bundler.ts&lt;/code&gt; · &lt;code&gt;code-heuristics.ts&lt;/code&gt; · &lt;code&gt;code-ai-analyzer.ts&lt;/code&gt; 는 Vercel server-side 모듈 (lab Mac 아님)&amp;nbsp; ② LLM provider = env 분기, production 은 Anthropic 기본&amp;nbsp; ③ Notion·GCal·Gmail 동기화는 DB 트리거 없음 (Vercel 명시 push)&amp;nbsp; ④ Cron 7개 = GHA 6 + lab Mac launchd 1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#475569;fillColor=#fefce8;strokeColor=#facc15;rounded=1;whiteSpace=wrap;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1240" width="1380" height="50" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

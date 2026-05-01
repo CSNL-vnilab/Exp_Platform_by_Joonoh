@@ -21,6 +21,18 @@
 
 ## 1a. System Architecture — 사용자가 보는 것
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./diagrams/01a-system-user-visible-dark.svg">
+  <img alt="System architecture: user-visible view" src="./diagrams/01a-system-user-visible.svg">
+</picture>
+
+> 편집 가능 원본: [`diagrams/01a-system-user-visible.drawio`](./diagrams/01a-system-user-visible.drawio) — drawio.com 또는 Drawio Desktop 으로 열기.
+
+5개 외부 노드. 연구자/참여자 → Vercel 앱 → Supabase. 외부로는 Google Calendar (이벤트 + FreeBusy) 와 Gmail (알림) 둘만.
+
+<details>
+<summary>Mermaid source (diff 추적용 — .drawio 와 함께 보존)</summary>
+
 ```mermaid
 flowchart TB
   subgraph Users["👥 사용자"]
@@ -57,9 +69,24 @@ flowchart TB
   class GC,GM external
 ```
 
-5개 외부 노드. 연구자/참여자 → Vercel 앱 → Supabase. 외부로는 Google Calendar (이벤트 + FreeBusy) 와 Gmail (알림) 둘만.
+</details>
 
 ## 1b. System Architecture — 내부 메커니즘
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./diagrams/01b-system-internal-dark.svg">
+  <img alt="System architecture: internal mechanism" src="./diagrams/01b-system-internal.svg">
+</picture>
+
+> 편집 가능 원본: [`diagrams/01b-system-internal.drawio`](./diagrams/01b-system-internal.drawio). 파선 박스 = **인증 신뢰 경계** (Vercel middleware 세션 + Supabase RLS). 안쪽 데이터는 인증된 호출에만 노출됨. 박스 밖: Browser (untrusted client), LLM Provider (외부 SaaS, 코드 본문 egress), Mirrors (3rd-party data egress 포함), Cron runners (별도 trust domain — GHA 토큰 / lab Mac launchd).
+
+**핵심 정정:**
+- `code-bundler.ts`, `code-heuristics.ts`, `code-ai-analyzer.ts` 는 **Vercel server-side 모듈** (`src/lib/experiments/*`). lab Mac 에 있는 건 **Ollama 인스턴스 1개**뿐.
+- LLM provider 는 환경변수로 분기: `LLM_PROVIDER=ollama` (lab Mac LAN 접근 가능할 때) OR `ANTHROPIC_API_KEY` 설정 (cloud). **production 배포본은 사실상 Anthropic 사용**.
+- Supabase ↔ Notion / GCal / Gmail 동기화는 DB 트리거가 아니라 **Vercel API/Server Action** 에서 명시적으로 push.
+
+<details>
+<summary>Mermaid source (diff 추적용 — .drawio 와 함께 보존)</summary>
 
 ```mermaid
 flowchart TB
@@ -140,15 +167,12 @@ flowchart TB
   class MW,APP,API_BK,API_RUN,API_AN vercel
   class AN,OL provider
   class PG,ST,RT store
-  class NT,GMx,NAS mirror
-  class GCx warn
+  class NT,NAS mirror
+  class GCx,GMx warn
   class GHA,LD cron
 ```
 
-**핵심 정정:**
-- `code-bundler.ts`, `code-heuristics.ts`, `code-ai-analyzer.ts` 는 **Vercel server-side 모듈** (`src/lib/experiments/*`). lab Mac 에 있는 건 **Ollama 인스턴스 1개**뿐.
-- LLM provider 는 환경변수로 분기: `LLM_PROVIDER=ollama` (lab Mac LAN 접근 가능할 때) OR `ANTHROPIC_API_KEY` 설정 (cloud). **production 배포본은 사실상 Anthropic 사용**.
-- Supabase ↔ Notion / GCal / Gmail 동기화는 DB 트리거가 아니라 **Vercel API/Server Action** 에서 명시적으로 push.
+</details>
 
 ---
 
@@ -212,6 +236,16 @@ sequenceDiagram
 ---
 
 ## 3. Data Flow
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./diagrams/03-data-flow-dark.svg">
+  <img alt="Data flow: Sources → Process → Store → Mirrors with outbox retry path" src="./diagrams/03-data-flow.svg">
+</picture>
+
+> 편집 가능 원본: [`diagrams/03-data-flow.drawio`](./diagrams/03-data-flow.drawio). 빨강 박스/화살표 = PII 평문 노출 지점 (GCal description, Gmail body, participants/payment_info 평문 컬럼). 주황 점선 = outbox 큐 — 외부 동기화 실패 시 5분 cron 재시도.
+
+<details>
+<summary>Mermaid source (diff 추적용 — .drawio 와 함께 보존)</summary>
 
 ```mermaid
 flowchart LR
@@ -282,9 +316,11 @@ flowchart LR
   class GH,UI_R,UI_P,RUN source
   class LLM_X,HOOKS process
   class EXP,BK,PT,PRG,OBX,STX,PI store
-  class NT_M,GMM,NAS_M mirror
-  class GCM warn
+  class NT_M,NAS_M mirror
+  class GCM,GMM warn
 ```
+
+</details>
 
 ### 동기화 보장
 - **outbox 패턴**: 외부 동기화 실패 시 `outbox` 테이블에 적재 → `outbox-retry-cron` 5분마다 재시도 → 한계 도달 시 대시보드 KPI.

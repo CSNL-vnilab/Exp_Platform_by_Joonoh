@@ -8,6 +8,16 @@
 
 ## 한눈에 보기
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/diagrams/01a-system-user-visible-dark.svg">
+  <img alt="System architecture: user-visible view" src="./docs/diagrams/01a-system-user-visible.svg">
+</picture>
+
+연구자는 실험을 만들고, 참여자는 공개 링크로 접속해 주간 그리드에서 원하는 시간대를 고릅니다. 확정되는 순간 DB 기록 + Google Calendar 일정 + Gmail 안내가 동시에 진행됩니다.
+
+<details>
+<summary>Mermaid source (diff 추적용)</summary>
+
 ```mermaid
 flowchart TB
   subgraph Users["👥 사용자"]
@@ -44,7 +54,7 @@ flowchart TB
   class GC,GM external
 ```
 
-연구자는 실험을 만들고, 참여자는 공개 링크로 접속해 주간 그리드에서 원하는 시간대를 고릅니다. 확정되는 순간 DB 기록 + Google Calendar 일정 + Gmail 안내가 동시에 진행됩니다.
+</details>
 
 내부 메커니즘 (LLM 코드 분석기, 실시간 채널, outbox/cron, NAS 미러), 사용자 흐름 (자료 업로드 vs 검색), 데이터 흐름, PII 보호, 운영 한계 등은 [`docs/architecture.md`](./docs/architecture.md) 에 한 페이지로 정리되어 있습니다.
 
