@@ -50,4 +50,31 @@ Multiple Claude sessions work on this repo concurrently — all pushing to
    first: `curl -s ".../v9/projects/{id}?teamId={team}" | jq .link` —
    `null` means the App has been removed and the project needs to be
    re-linked via `POST /v9/projects/{id}/link`.
+
+7. **Never wipe another session's working tree.** The following
+   destroy unstaged or untracked work that another session may be
+   mid-edit on:
+   - `git reset --hard <anything>`
+   - `git checkout .` / `git checkout -- <path>`
+   - `git restore --source=… <path>`
+   - `git clean -f` / `git clean -fd`
+   - `git stash` _without_ first verifying the only modified files are
+     yours
+
+   Before any of these, run `git status --short` and confirm every
+   modified/untracked file traces back to your own session. If you see
+   anything you don't recognize (different scope, different feature
+   name in a recent commit message, a `.tsx`/`.ts` you never opened),
+   STOP — those are another session's in-flight changes.
+
+   If you must clear *only* your own work, use targeted forms:
+   `git restore -- <specific file>`, `git stash push -- <specific file>`,
+   `git checkout HEAD -- <specific file>`. Never the unscoped variants.
+
+   The same rule applies to `git checkout <other-branch>` when staged
+   or unstaged changes exist — that move can carry another session's
+   files onto a branch they didn't intend, or worse, abort with
+   conflicts that you then "resolve" by discarding their edits. Stash
+   only your own paths first (see above) or commit on the current
+   branch.
 <!-- END:multi-session-rules -->
