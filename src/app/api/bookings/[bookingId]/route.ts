@@ -12,6 +12,7 @@ import {
   runReschedulePipeline,
 } from "@/lib/services/booking.service";
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
+import { notifyBookingStatusChange } from "@/lib/services/booking-status-notify.service";
 
 // Valid status transitions: prevents going back from terminal states.
 // 'running' is set automatically when /run mints a completion code —
@@ -170,6 +171,30 @@ export async function PUT(
 
     // Pending reminders are already guarded at send time: reminder.service skips
     // bookings with status='cancelled' and marks them 'sent', so no update needed.
+
+    // Notify the participant when their booking flips to cancelled or
+    // no_show. Fire-and-forget — never let an SMTP/SMS failure roll back
+    // the status change. Audit/observability is in the notify service.
+    if (status === "cancelled" || status === "no_show") {
+      const admin = createAdminClient();
+      try {
+        const result = await notifyBookingStatusChange(
+          admin,
+          bookingId,
+          status,
+        );
+        if (result.outcome === "send_failed") {
+          console.warn(
+            `[BookingPUT] status-notify failed for ${bookingId} (${status}): ${result.detail}`,
+          );
+        }
+      } catch (err) {
+        console.error(
+          "[BookingPUT] notifyBookingStatusChange crashed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     // Fire payment-info dispatch when this booking just transitioned to
     // 'completed'. The notify helper itself checks "all bookings in the
