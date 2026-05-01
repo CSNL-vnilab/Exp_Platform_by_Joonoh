@@ -29,6 +29,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail as defaultSendEmail } from "@/lib/google/gmail";
 import { issuePaymentToken } from "@/lib/payments/token";
 import { buildPaymentInfoEmail } from "@/lib/services/payment-info-email-template";
+import { bytesFromSupabase, decryptToken } from "@/lib/crypto/payment-info";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -53,6 +54,14 @@ interface PaymentInfoRow {
   token_expires_at: string;
   payment_link_sent_at: string | null;
   payment_link_attempts: number;
+  payment_link_first_opened_at: string | null;
+  // Encrypted plaintext blob (P0 #6, migration 00052). Present on rows
+  // seeded after the migration. Lets us re-send the SAME URL when the
+  // participant already opened the link instead of rotating the hash.
+  token_cipher: unknown;
+  token_iv: unknown;
+  token_tag: unknown;
+  token_key_version: number | null;
   period_start: string | null;
   period_end: string | null;
   name_override: string | null;
@@ -82,7 +91,7 @@ export async function notifyPaymentInfoIfReady(
   const { data: rowRaw } = await supabase
     .from("participant_payment_info")
     .select(
-      "id, booking_group_id, experiment_id, participant_id, amount_krw, status, token_hash, token_issued_at, token_expires_at, payment_link_sent_at, payment_link_attempts, period_start, period_end, name_override, email_override",
+      "id, booking_group_id, experiment_id, participant_id, amount_krw, status, token_hash, token_issued_at, token_expires_at, payment_link_sent_at, payment_link_attempts, payment_link_first_opened_at, token_cipher, token_iv, token_tag, token_key_version, period_start, period_end, name_override, email_override",
     )
     .eq("booking_group_id", bookingGroupId)
     .maybeSingle();
@@ -155,26 +164,77 @@ export async function notifyPaymentInfoIfReady(
     return { outcome: "send_failed", bookingGroupId, detail: "experiment missing" };
   }
 
-  // 4) Always issue a fresh token. seedPaymentInfo at booking-confirm
-  // time stores only the SHA-256 hash, not the plaintext, so we cannot
-  // reuse the original token from the confirmation email — we have to
-  // mint a new one and rotate the hash. The rotation also means any
-  // captured/leaked confirmation-email link is now dead, which is the
-  // safer default. Side-effect: a participant who began filling the form
-  // on the original link will have to restart with the new email's link.
-  // Acceptable because the row is still 'pending_participant' (they
-  // haven't submitted yet by definition).
-  const issued = issuePaymentToken(bookingGroupId);
-  const tokenString = issued.token;
-  await supabase
-    .from("participant_payment_info")
-    .update({
-      token_hash: issued.hash,
-      token_issued_at: new Date(issued.issuedAt).toISOString(),
-      token_expires_at: new Date(issued.expiresAt).toISOString(),
-      token_revoked_at: null,
-    })
-    .eq("id", row.id);
+  // 4) Token strategy (P0 #6):
+  //
+  //   a) If the participant has ALREADY opened the link
+  //      (payment_link_first_opened_at != null) AND we still have the
+  //      encrypted plaintext (token_cipher != null), reuse the SAME
+  //      token. Their bookmark / open tab keeps working; the dispatch
+  //      email simply nudges them to come finish.
+  //
+  //   b) Otherwise mint a fresh token and rotate the hash. Covers the
+  //      security-conscious path (link never observed → no benefit
+  //      from preserving) AND the legacy fallback (rows seeded before
+  //      migration 00052 don't have token_cipher).
+  //
+  // Either way the email gets a working link.
+  let tokenString: string;
+  let tokenExpiresAtIso: string;
+  const cipherBytes = bytesFromSupabase(row.token_cipher);
+  const ivBytes = bytesFromSupabase(row.token_iv);
+  const tagBytes = bytesFromSupabase(row.token_tag);
+  const haveEncryptedToken =
+    cipherBytes.length > 0 &&
+    ivBytes.length > 0 &&
+    tagBytes.length > 0 &&
+    row.token_key_version != null;
+  const userAlreadyOpened = row.payment_link_first_opened_at != null;
+  let preservedToken = false;
+
+  if (userAlreadyOpened && haveEncryptedToken) {
+    try {
+      tokenString = decryptToken({
+        cipher: cipherBytes,
+        iv: ivBytes,
+        tag: tagBytes,
+        keyVersion: row.token_key_version!,
+      });
+      tokenExpiresAtIso = row.token_expires_at;
+      preservedToken = true;
+    } catch (err) {
+      // Decrypt failure (key rotated out without re-encrypt, corrupt
+      // ciphertext, etc.) — fall through to rotation rather than
+      // abort the dispatch.
+      console.warn(
+        `[PaymentInfoNotify] decryptToken failed for ${bookingGroupId}; falling back to rotation: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      const issued = issuePaymentToken(bookingGroupId);
+      tokenString = issued.token;
+      tokenExpiresAtIso = new Date(issued.expiresAt).toISOString();
+      await supabase
+        .from("participant_payment_info")
+        .update({
+          token_hash: issued.hash,
+          token_issued_at: new Date(issued.issuedAt).toISOString(),
+          token_expires_at: tokenExpiresAtIso,
+          token_revoked_at: null,
+        })
+        .eq("id", row.id);
+    }
+  } else {
+    const issued = issuePaymentToken(bookingGroupId);
+    tokenString = issued.token;
+    tokenExpiresAtIso = new Date(issued.expiresAt).toISOString();
+    await supabase
+      .from("participant_payment_info")
+      .update({
+        token_hash: issued.hash,
+        token_issued_at: new Date(issued.issuedAt).toISOString(),
+        token_expires_at: tokenExpiresAtIso,
+        token_revoked_at: null,
+      })
+      .eq("id", row.id);
+  }
 
   // 5) Researcher contact (best-effort).
   let researcher: {
@@ -214,7 +274,8 @@ export async function notifyPaymentInfoIfReady(
     periodStart: row.period_start,
     periodEnd: row.period_end,
     researcher,
-    tokenExpiresAt: new Date(issued.expiresAt).toISOString(),
+    tokenExpiresAt: tokenExpiresAtIso,
+    isReminder: preservedToken,
   });
 
   const sendResult = await mailer({

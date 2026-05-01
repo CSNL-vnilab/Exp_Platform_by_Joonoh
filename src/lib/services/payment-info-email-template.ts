@@ -26,6 +26,11 @@ export interface PaymentInfoEmailInput {
   // Token expiry as ISO string. Shown in body so the participant knows the
   // window. Defaults to "발송일 + 60일".
   tokenExpiresAt: string;
+  // True when this is the second-touch dispatch and we preserved the
+  // original token (P0 #6 — see payment-info-notify.service). Lets the
+  // template open with "확정 메일에서 보내드린 그 링크입니다" instead
+  // of repeating the original "참여해 주셔서 감사합니다" intro.
+  isReminder?: boolean;
 }
 
 export interface BuiltPaymentInfoEmail {
@@ -53,14 +58,22 @@ export function buildPaymentInfoEmail(input: PaymentInfoEmailInput): BuiltPaymen
       ? `<p style="margin:0 0 6px 0;color:#374151;">실험 기간: ${escapeHtml(input.periodStart)} ~ ${escapeHtml(input.periodEnd)}</p>`
       : "";
 
-  const subject = `[${BRAND_NAME}] ${input.experimentTitle} 참여비 정산 정보 입력 안내`;
+  const subject = input.isReminder
+    ? `[${BRAND_NAME}] ${input.experimentTitle} 참여비 정산 정보 입력 안내 (재안내)`
+    : `[${BRAND_NAME}] ${input.experimentTitle} 참여비 정산 정보 입력 안내`;
+
+  const intro = input.isReminder
+    ? `${safeName}님, <strong>${safeTitle}</strong> 실험에 참여해 주셔서 감사합니다.
+       모든 회차가 종료되어 정산 정보 입력을 다시 한번 안내드립니다.
+       확정 메일에서 보내드린 동일한 링크가 그대로 사용 가능하니, 이미 입력 중이셨다면 그대로 이어서 진행하셔도 됩니다.`
+    : `${safeName}님, <strong>${safeTitle}</strong> 실험에 참여해 주셔서 감사합니다.`;
 
   const html = `
     <div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;padding:8px;color:#111827;line-height:1.55;">
       <h2 style="margin:0 0 12px 0;font-size:18px;color:#111827;">참여비 정산 정보 입력 안내</h2>
 
-      <p style="margin:0 0 14px 0;">
-        ${safeName}님, <strong>${safeTitle}</strong> 실험에 참여해 주셔서 감사합니다.
+      <p style="margin:0 0 14px 0;word-break:keep-all;">
+        ${intro}
       </p>
 
       <div style="margin:18px 0;padding:16px 18px;background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px;">

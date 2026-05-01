@@ -87,6 +87,48 @@ export function decryptRrn(blob: {
   return dec.toString("utf8");
 }
 
+// ── Token plaintext encryption (P0 #6) ─────────────────────────────────
+//
+// `participant_payment_info.token_hash` stores SHA-256(token) which is
+// non-reversible. To support resending the SAME link to participants who
+// already opened it (so their bookmarked URL keeps working — see
+// payment-info-notify.service.ts auto-dispatch flow) we additionally
+// store the plaintext token AES-256-GCM-encrypted with the same
+// PAYMENT_INFO_KEY as RRN. Same key, same threat profile: a service-role
+// + DB compromise that grants RRN decrypt also grants token decrypt.
+// Tokens have a 60-day TTL and are revoked on submit.
+
+export interface EncryptedToken {
+  cipher: Buffer;
+  iv: Buffer;
+  tag: Buffer;
+  keyVersion: number;
+}
+
+export function encryptToken(plaintext: string): EncryptedToken {
+  const version = RRN_ACTIVE_KEY_VERSION;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", getKey(version), iv);
+  const enc = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return { cipher: enc, iv, tag, keyVersion: version };
+}
+
+export function decryptToken(blob: {
+  cipher: Buffer;
+  iv: Buffer;
+  tag: Buffer;
+  keyVersion: number;
+}): string {
+  // Same algorithm as decryptRrn; kept as a separate function for call-
+  // site clarity and so future token-only changes (e.g. AAD) don't
+  // accidentally break RRN decrypt.
+  const decipher = createDecipheriv("aes-256-gcm", getKey(blob.keyVersion), blob.iv);
+  decipher.setAuthTag(blob.tag);
+  const dec = Buffer.concat([decipher.update(blob.cipher), decipher.final()]);
+  return dec.toString("utf8");
+}
+
 // Supabase returns bytea as \x-prefixed hex or a Buffer depending on the
 // driver path. Normalize both.
 export function bytesFromSupabase(value: unknown): Buffer {

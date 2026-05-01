@@ -784,6 +784,12 @@ export interface Database {
           payment_link_attempts: number;
           payment_link_last_error: string | null;
           payment_link_last_attempt_at: string | null;
+          // Token preservation across auto-dispatch (migration 00052).
+          token_cipher: string | null;
+          token_iv: string | null;
+          token_tag: string | null;
+          token_key_version: number | null;
+          payment_link_first_opened_at: string | null;
           signature_path: string | null;
           signed_at: string | null;
           bankbook_path: string | null;
@@ -826,6 +832,11 @@ export interface Database {
           payment_link_attempts?: number;
           payment_link_last_error?: string | null;
           payment_link_last_attempt_at?: string | null;
+          token_cipher?: string | null;
+          token_iv?: string | null;
+          token_tag?: string | null;
+          token_key_version?: number | null;
+          payment_link_first_opened_at?: string | null;
           signature_path?: string | null;
           signed_at?: string | null;
           bankbook_path?: string | null;
@@ -862,6 +873,11 @@ export interface Database {
           payment_link_attempts?: number;
           payment_link_last_error?: string | null;
           payment_link_last_attempt_at?: string | null;
+          token_cipher?: string | null;
+          token_iv?: string | null;
+          token_tag?: string | null;
+          token_key_version?: number | null;
+          payment_link_first_opened_at?: string | null;
           signature_path?: string | null;
           signed_at?: string | null;
           bankbook_path?: string | null;

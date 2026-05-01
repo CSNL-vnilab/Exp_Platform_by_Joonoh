@@ -9,6 +9,7 @@ import { fromInternalEmail } from "@/lib/auth/username";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { issueRunToken } from "@/lib/experiments/run-token";
 import { issuePaymentToken } from "@/lib/payments/token";
+import { encryptToken } from "@/lib/crypto/payment-info";
 import { backfillIdentityForBooking } from "@/lib/services/participant-identity.service";
 import { buildConfirmationEmail } from "@/lib/services/booking-email-template";
 import {
@@ -194,6 +195,12 @@ async function seedPaymentInfo(
 
   try {
     const issued = issuePaymentToken(params.bookingGroupId);
+    // Encrypt the token plaintext at rest (P0 #6, migration 00052). Lets
+    // payment-info-notify.service re-send the SAME URL when the
+    // participant has already opened the link, instead of rotating the
+    // hash and breaking their bookmark/open-tab.
+    const encToken = encryptToken(issued.token);
+    const toHex = (b: Buffer) => `\\x${b.toString("hex")}`;
 
     const starts = rows.map((r) => new Date(r.slot_start));
     const ends = rows.map((r) => new Date(r.slot_end));
@@ -216,6 +223,10 @@ async function seedPaymentInfo(
         experiment_id: params.experimentId,
         booking_group_id: params.bookingGroupId,
         token_hash: issued.hash,
+        token_cipher: toHex(encToken.cipher),
+        token_iv: toHex(encToken.iv),
+        token_tag: toHex(encToken.tag),
+        token_key_version: encToken.keyVersion,
         token_issued_at: new Date(issued.issuedAt).toISOString(),
         token_expires_at: new Date(issued.expiresAt).toISOString(),
         period_start: kstDate(periodStart),

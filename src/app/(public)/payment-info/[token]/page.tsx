@@ -92,6 +92,19 @@ export default async function PaymentInfoPage({ params }: PageProps) {
     return <Failure code="INVALID" />;
   }
 
+  // Stamp first_opened_at on the first valid load (P0 #6 / migration
+  // 00052). Signals payment-info-notify.service to NOT rotate the token
+  // on the last-session auto-dispatch — the participant already has
+  // this URL in their browser/bookmark, so rotating would break it.
+  // CAS via .is(... NULL) so concurrent loads don't double-write.
+  if (info.status === "pending_participant") {
+    await supabase
+      .from("participant_payment_info")
+      .update({ payment_link_first_opened_at: new Date().toISOString() })
+      .eq("id", info.id)
+      .is("payment_link_first_opened_at", null);
+  }
+
   const participantName = info.name_override ?? info.participants?.name ?? "";
   const participantPhone = info.phone ?? info.participants?.phone ?? "";
   const participantEmail = info.email_override ?? info.participants?.email ?? "";
