@@ -8,13 +8,24 @@
 
 ## 한눈에 보기
 
-<p align="center">
-  <picture>
-    <img alt="architecture diagram" width="920" src="https://raw.githubusercontent.com/CSNL-vnilab/Exp_Platform_by_Joonoh/main/docs/architecture.svg" />
-  </picture>
-</p>
+```mermaid
+flowchart LR
+  R[연구자] --> WEB
+  P[참여자] --> WEB
+  WEB[Next.js 16 App<br/>Vercel: lab-reservation-seven.vercel.app]
+  WEB <--> DB[(Supabase<br/>Postgres + RLS<br/>+ Storage + Realtime)]
+  WEB --> GC[Google Calendar]
+  WEB --> GM[Gmail SMTP]
+  GM --> P
+  GC -. 회의 충돌 회피 .-> WEB
+
+  classDef external fill:#fff4e6,stroke:#e08a3c
+  class GC,GM external
+```
 
 연구자는 실험을 만들고, 참여자는 공개 링크로 접속해 주간 그리드에서 원하는 시간대를 고릅니다. 확정되는 순간 DB 기록 + Google Calendar 일정 + Gmail 안내가 동시에 진행됩니다.
+
+내부 메커니즘 (LLM 코드 분석기, 실시간 채널, outbox/cron, NAS 미러), 사용자 흐름 (자료 업로드 vs 검색), 데이터 흐름, PII 보호, 운영 한계 등은 [`docs/architecture.md`](./docs/architecture.md) 에 한 페이지로 정리되어 있습니다.
 
 ---
 
@@ -24,7 +35,7 @@
 - **과거 시간 예약 차단** — DB가 거절
 - **캘린더 일정과 자동 충돌 회피** — FreeBusy API로 기존 일정 빼고 슬롯 노출
 - **다회차 실험 회차 번호 자동 부여** — 날짜 순서대로 1, 2, 3회차
-- **참여자 PII는 캘린더 제목이 아닌 내부 설명 필드에만 저장**
+- **참여자 PII 는 캘린더 제목에 노출 안 됨** — 제목은 `[이니셜] 프로젝트/Sbj N/Day D` 만. 단 이벤트 description 본문에는 이름·이메일·전화가 평문으로 들어가므로 SLab 캘린더 공유 권한자에 한해 열람 가능 ([architecture.md §4](./docs/architecture.md))
 - **연구자별 권한 분리** — Supabase RLS로 자기 실험만 관리
 - **무료 운영 가능** — Supabase Free + Vercel Free + Gmail 앱 비밀번호
 
