@@ -41,7 +41,14 @@ export default function PaymentInfoForm({
   const [account, setAccount] = useState("");
   const [holder, setHolder] = useState(defaultName);
   const [institution, setInstitution] = useState("서울대학교");
-  const [submitting, setSubmitting] = useState(false);
+  // Submit stage so the long upload doesn't look frozen. fetch() doesn't
+  // expose upload progress, so we approximate with discrete labels.
+  const [submitStage, setSubmitStage] =
+    useState<"idle" | "encoding" | "sending">("idle");
+  const submitting = submitStage !== "idle";
+  // RRN visibility toggle. 뒷자리 7자리는 어깨너머 노출 우려가 있어 기본
+  // 으로 가린다. 사용자가 직접 보고 싶으면 👁 버튼으로 토글.
+  const [rrnVisible, setRrnVisible] = useState(false);
 
   const [bankbook, setBankbook] = useState<File | null>(null);
   const [bankbookPreview, setBankbookPreview] = useState<string | null>(null);
@@ -229,9 +236,18 @@ export default function PaymentInfoForm({
 
     const canvas = canvasRef.current!;
     const signaturePng = canvas.toDataURL("image/png");
-    const bankbookDataUrl = await fileToDataUrl(bankbook);
 
-    setSubmitting(true);
+    setSubmitStage("encoding");
+    let bankbookDataUrl: string;
+    try {
+      bankbookDataUrl = await fileToDataUrl(bankbook);
+    } catch {
+      toast("통장 사본을 읽는 중 오류가 발생했습니다.", "error");
+      setSubmitStage("idle");
+      return;
+    }
+
+    setSubmitStage("sending");
     try {
       const res = await fetch(`/api/payment-info/${encodeURIComponent(token)}/submit`, {
         method: "POST",
@@ -257,15 +273,18 @@ export default function PaymentInfoForm({
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         toast(body?.error ?? "제출에 실패했습니다.", "error");
-        setSubmitting(false);
+        setSubmitStage("idle");
         return;
       }
 
       toast("정산 정보가 제출되었습니다.", "success");
+      // Leave submitStage='sending' so the bar stays full while
+      // router.refresh() repaints — avoids a moment of "idle" with the
+      // form re-enabled before the success view loads.
       router.refresh();
     } catch {
       toast("네트워크 오류가 발생했습니다.", "error");
-      setSubmitting(false);
+      setSubmitStage("idle");
     }
   };
 
@@ -337,18 +356,31 @@ export default function PaymentInfoForm({
             <label htmlFor="rrn" className="mb-1 block text-xs font-medium text-foreground">
               주민등록번호 <span className="text-red-500">*</span>
             </label>
-            <input
-              id="rrn"
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={rrn}
-              onChange={(e) => handleRrnChange(e.target.value)}
-              placeholder="XXXXXX-XXXXXXX"
-              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm font-mono text-foreground focus:border-primary focus:outline-none"
-              required
-              maxLength={14}
-            />
+            <div className="relative">
+              <input
+                id="rrn"
+                // type=password 으로 토글하면 어깨너머 노출이 줄어든다.
+                // inputMode=numeric 으로 모바일 키패드는 그대로 숫자.
+                type={rrnVisible ? "text" : "password"}
+                inputMode="numeric"
+                autoComplete="off"
+                value={rrn}
+                onChange={(e) => handleRrnChange(e.target.value)}
+                placeholder="XXXXXX-XXXXXXX"
+                className="w-full rounded-lg border border-border bg-white px-3 py-2 pr-10 text-sm font-mono text-foreground focus:border-primary focus:outline-none"
+                required
+                maxLength={14}
+              />
+              <button
+                type="button"
+                onClick={() => setRrnVisible((v) => !v)}
+                aria-label={rrnVisible ? "주민등록번호 숨기기" : "주민등록번호 표시"}
+                aria-pressed={rrnVisible}
+                className="absolute inset-y-0 right-2 flex items-center px-1 text-base text-muted hover:text-foreground"
+              >
+                {rrnVisible ? "🙈" : "👁"}
+              </button>
+            </div>
           </div>
         </div>
         <p className="text-xs text-muted">
@@ -474,21 +506,53 @@ export default function PaymentInfoForm({
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerUp}
-          style={{ width: "100%", height: "140px", touchAction: "none" }}
+          // 모바일에서 한국어 흘림 서명이 좁아 보이지 않도록 170px 로
+          // 키움. 캔버스 init 은 clientHeight 기반이라 별도 조정 불필요.
+          style={{ width: "100%", height: "170px", touchAction: "none" }}
           className="block rounded-lg border border-dashed border-border bg-white"
         />
         <p className="text-xs text-muted">
-          참여자비 청구 양식의 수령인 서명란에 자동 삽입됩니다.
+          크게, 천천히 그려주세요. 마음에 들지 않으면 우측 상단 &ldquo;지우기&rdquo;로
+          다시 그릴 수 있습니다. 청구 양식의 수령인 서명란에 자동 삽입됩니다.
         </p>
       </div>
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {submitting ? "제출 중…" : "정산 정보 제출"}
-      </button>
+      <div>
+        <button
+          type="submit"
+          disabled={submitting}
+          className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitStage === "encoding"
+            ? "통장 사본 처리 중…"
+            : submitStage === "sending"
+              ? "전송 중…"
+              : "정산 정보 제출"}
+        </button>
+        {submitting && (
+          <div
+            className="mt-2 h-1 overflow-hidden rounded-full bg-muted/30"
+            role="progressbar"
+            aria-label="제출 진행 중"
+          >
+            {/* fetch() 가 upload progress 를 노출하지 않으므로 indeterminate
+                animated bar 로 사용자 안심 (특히 5MB PDF 업로드 30초 케이스).
+                styled-jsx 가 keyframe 이름을 해시하므로 inline keyframes +
+                animation 을 한 stylesheet 으로 묶어 둔다. */}
+            <div
+              className="h-full w-1/3 rounded-full bg-primary"
+              style={{ animation: "paymentSubmitProgress 1.2s ease-in-out infinite" }}
+            />
+          </div>
+        )}
+        <style>{`
+          @keyframes paymentSubmitProgress {
+            0%   { transform: translateX(-110%); }
+            50%  { transform: translateX(40%); }
+            100% { transform: translateX(310%); }
+          }
+        `}</style>
+      </div>
     </form>
   );
 }
