@@ -199,6 +199,9 @@ export function buildConfirmationEmail(
       ${prefaceBlock}
       <div style="padding:14px 18px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;margin-bottom:18px;">
         <p style="margin:0;font-size:15px;font-weight:600;color:#065f46;">✓ 실험 예약이 확정되었습니다</p>
+        <p style="margin:6px 0 0 0;font-size:13px;color:#047857;">
+          변경·취소가 필요하시면 실험 시작 <b>24시간 전까지</b> 담당 연구원에게 알려주세요.
+        </p>
       </div>
 
       <p style="margin:0 0 6px 0;">안녕하세요, ${safeName}님.</p>
