@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authorizeCronRequest } from "@/lib/auth/cron-secret";
 import { sendEmail } from "@/lib/google/gmail";
-import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { escapeHtml } from "@/lib/utils/validation";
 
 // Researcher metadata reminder cron.
@@ -89,7 +89,7 @@ function renderEmailHtml(
         이 메일은 일주일에 한 번, 기록되지 않은 필수 정보가 남아 있는 동안에만 발송됩니다. 입력을 완료하시면 다음 주부터 자동으로 중단됩니다.
       </p>
       <p style="margin:4px 0 0 0;font-size:12px;color:#9ca3af;">
-        ${escapeHtml(BRAND_NAME)} — 문의: <a href="mailto:${BRAND_CONTACT_EMAIL}" style="color:#2563eb;">${BRAND_CONTACT_EMAIL}</a>
+        ${escapeHtml(BRAND_NAME)}${brandContactEmailOrNull() ? ` — 문의: <a href="mailto:${brandContactEmailOrNull()}" style="color:#2563eb;">${brandContactEmailOrNull()}</a>` : ""}
       </p>
     </div>
   `;

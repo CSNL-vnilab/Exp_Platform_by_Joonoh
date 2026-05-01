@@ -6,7 +6,7 @@
 // 짧고 CTA 중심이다.
 
 import { escapeHtml } from "@/lib/utils/validation";
-import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 
 export interface PaymentInfoEmailInput {
   participantName: string;
@@ -40,8 +40,11 @@ export function buildPaymentInfoEmail(input: PaymentInfoEmailInput): BuiltPaymen
   const amount = input.amountKrw.toLocaleString();
 
   const researcherName = (input.researcher?.displayName ?? "").trim() || "담당 연구원";
+  // Researcher's contact email wins; fall back to lab inbox only if it's
+  // been configured (avoid leaking the placeholder address). Null when
+  // neither — the template hides the mailto line.
   const researcherContact =
-    (input.researcher?.contactEmail ?? "").trim() || BRAND_CONTACT_EMAIL;
+    (input.researcher?.contactEmail ?? "").trim() || brandContactEmailOrNull();
   const researcherPhone = (input.researcher?.phone ?? "").trim();
 
   const expiryDateKR = formatExpiryKR(input.tokenExpiresAt);
@@ -90,8 +93,11 @@ export function buildPaymentInfoEmail(input: PaymentInfoEmailInput): BuiltPaymen
 
       <p style="margin:18px 0 6px 0;font-weight:600;">담당 연구원 · 문의</p>
       <p style="margin:0;line-height:1.6;color:#374151;">
-        ${escapeHtml(researcherName)}${researcherPhone ? ` · ${escapeHtml(researcherPhone)}` : ""}<br/>
-        <a href="mailto:${researcherContact}" style="color:#2563eb;">${escapeHtml(researcherContact)}</a>
+        ${escapeHtml(researcherName)}${researcherPhone ? ` · ${escapeHtml(researcherPhone)}` : ""}${
+          researcherContact
+            ? `<br/><a href="mailto:${researcherContact}" style="color:#2563eb;">${escapeHtml(researcherContact)}</a>`
+            : ""
+        }
       </p>
 
       <p style="margin:24px 0 0 0;padding-top:14px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;">

@@ -7,7 +7,7 @@ import { sendSMS } from "@/lib/solapi/client";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
 import { fromInternalEmail } from "@/lib/auth/username";
-import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { issueRunToken } from "@/lib/experiments/run-token";
 import { issuePaymentToken } from "@/lib/payments/token";
 import { backfillIdentityForBooking } from "@/lib/services/participant-identity.service";
@@ -548,7 +548,9 @@ async function runSMS(supabase: Supabase, rows: BookingRow[]) {
   const participant = rows[0].participants;
   const experiment = rows[0].experiments;
   const firstSlot = rows[0];
-  const text = `[${BRAND_NAME}] 예약확정\n${participant.name}님, "${experiment.title}" 실험이 예약되었습니다.\n일시: ${formatDateKR(firstSlot.slot_start)} ${formatTimeKR(firstSlot.slot_start)}\n문의: ${BRAND_CONTACT_EMAIL}`;
+  const labContact = brandContactEmailOrNull();
+  const inquirySuffix = labContact ? `\n문의: ${labContact}` : "";
+  const text = `[${BRAND_NAME}] 예약확정\n${participant.name}님, "${experiment.title}" 실험이 예약되었습니다.\n일시: ${formatDateKR(firstSlot.slot_start)} ${formatTimeKR(firstSlot.slot_start)}${inquirySuffix}`;
 
   try {
     await sendSMS(participant.phone, text);
@@ -730,7 +732,10 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   const creatorContact = creator as CreatorContact | null;
   const researcherEmail =
     (creatorContact?.contact_email || creator?.email || "").trim() || null;
-  const contactLine = researcherEmail || BRAND_CONTACT_EMAIL;
+  // Researcher contact wins; lab-wide inbox is only used when actually
+  // configured (avoid leaking the placeholder address into reschedule
+  // notices). Null = "no inquiry line at all".
+  const contactLine = researcherEmail || brandContactEmailOrNull();
 
   const html = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
@@ -742,7 +747,7 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
         <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">이전 일정</td><td style="padding: 8px; border: 1px solid #ddd; color:#888; text-decoration:line-through">${escapeHtml(oldLine)}</td></tr>
         <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background:#fef3c7;">변경된 일정</td><td style="padding: 8px; border: 1px solid #ddd; background:#fef3c7;"><b>${escapeHtml(newLine)}</b></td></tr>
       </table>
-      <p>문의: ${contactLine}</p>
+      ${contactLine ? `<p>문의: ${contactLine}</p>` : ""}
     </div>
   `;
   const ccList =
@@ -760,7 +765,8 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   });
 
   if (process.env.SOLAPI_API_KEY && process.env.SOLAPI_API_SECRET) {
-    const smsText = `[${BRAND_NAME}] 예약 변경\n${participant.name}님, "${experiment.title}" 실험 ${row.session_number}회차 일정이 변경되었습니다.\n변경: ${newLine}\n문의: ${BRAND_CONTACT_EMAIL}`;
+    const smsInquiry = contactLine ? `\n문의: ${contactLine}` : "";
+    const smsText = `[${BRAND_NAME}] 예약 변경\n${participant.name}님, "${experiment.title}" 실험 ${row.session_number}회차 일정이 변경되었습니다.\n변경: ${newLine}${smsInquiry}`;
     try {
       await sendSMS(participant.phone, smsText);
       await markIntegration(supabase, row.id, "sms", { status: "completed" });

@@ -5,7 +5,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/google/gmail";
-import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { escapeHtml } from "@/lib/utils/validation";
 import { fromInternalEmail } from "@/lib/auth/username";
 import { formatDateKR } from "@/lib/utils/date";
@@ -80,7 +80,7 @@ export async function sendRegistrationApprovedEmail(
       </ul>
 
       <p style="margin:18px 0 4px 0;font-size:12px;color:#9ca3af;">
-        ${escapeHtml(BRAND_NAME)} — 문의: <a href="mailto:${BRAND_CONTACT_EMAIL}" style="color:#2563eb;">${BRAND_CONTACT_EMAIL}</a>
+        ${escapeHtml(BRAND_NAME)}${brandContactEmailOrNull() ? ` — 문의: <a href="mailto:${brandContactEmailOrNull()}" style="color:#2563eb;">${brandContactEmailOrNull()}</a>` : ""}
       </p>
     </div>
   `;
@@ -276,14 +276,25 @@ export async function sendExperimentPublishedEmail(
         참여자 모집 / 공동 운영 / 일정 조율이 필요한 경우 ${safePublisher}님께 직접 연락해 주세요.
       </p>
       <p style="margin:4px 0 0 0;font-size:12px;color:#9ca3af;">
-        ${escapeHtml(BRAND_NAME)} — 문의: <a href="mailto:${BRAND_CONTACT_EMAIL}" style="color:#2563eb;">${BRAND_CONTACT_EMAIL}</a>
+        ${escapeHtml(BRAND_NAME)}${brandContactEmailOrNull() ? ` — 문의: <a href="mailto:${brandContactEmailOrNull()}" style="color:#2563eb;">${brandContactEmailOrNull()}</a>` : ""}
       </p>
     </div>
   `;
 
+  // Lab-wide inbox is the canonical "to". Skip the send entirely if the
+  // deploy never configured one (would otherwise email contact@example.com).
+  // Individual researchers still see the publication in the admin UI.
+  const labInbox = brandContactEmailOrNull();
+  if (!labInbox) {
+    console.warn(
+      "[LabNotify] skipping experiment publish email: NEXT_PUBLIC_LAB_CONTACT_EMAIL not configured",
+    );
+    return { attempted: 0, recipients: bcc.length };
+  }
+
   try {
     const res = await sendEmail({
-      to: BRAND_CONTACT_EMAIL, // lab-wide inbox; individual members on BCC
+      to: labInbox, // lab-wide inbox; individual members on BCC
       bcc,
       subject: `[${BRAND_NAME}] 새 실험 공개 — ${experiment.title}`,
       html,

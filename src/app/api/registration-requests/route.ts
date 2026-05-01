@@ -6,16 +6,18 @@ import { encryptString } from "@/lib/crypto/symmetric";
 import { sendEmail } from "@/lib/google/gmail";
 import { USERNAME_REGEX, PASSWORD_REGEX, normalizeUsername, toInternalEmail } from "@/lib/auth/username";
 import { getCurrentProfile } from "@/lib/auth/role";
-import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Approvals are emailed to the lab's own contact inbox (same address
-// participants already see on the booking confirmation page). Override per
-// deployment with NEXT_PUBLIC_LAB_CONTACT_EMAIL.
-const APPROVAL_EMAIL =
-  process.env.LAB_APPROVAL_EMAIL || BRAND_CONTACT_EMAIL;
+// Approvals are emailed to the lab's own contact inbox. Override per
+// deployment with LAB_APPROVAL_EMAIL or NEXT_PUBLIC_LAB_CONTACT_EMAIL.
+// Returns null when neither is configured — caller skips the send rather
+// than emailing the placeholder address.
+function approvalEmail(): string | null {
+  return process.env.LAB_APPROVAL_EMAIL || brandContactEmailOrNull();
+}
 
 const bodySchema = z.object({
   username: z.string().regex(USERNAME_REGEX, "ID는 영문 3~4자여야 합니다"),
@@ -87,22 +89,27 @@ export async function POST(request: NextRequest) {
 
   // Fire-and-forget email notification. We don't block request success on
   // email delivery — the admin can still see pending rows on /users.
-  sendEmail(
-    APPROVAL_EMAIL,
-    `[${BRAND_NAME}] 연구원 등록 요청 — ${username}`,
-    `<div style="font-family:sans-serif;line-height:1.6">
-      <h2>새로운 연구원 등록 요청</h2>
-      <ul>
-        <li><b>ID:</b> ${escapeHtml(username)}</li>
-        <li><b>이름:</b> ${escapeHtml(parsed.data.displayName.trim())}</li>
-        <li><b>요청 시각:</b> ${escapeHtml(inserted.requested_at)}</li>
-      </ul>
-      <p>관리자 승인: <a href="${escapeHtml(approveUrl)}">${escapeHtml(approveUrl)}</a></p>
-      <p style="color:#666;font-size:12px">이 메일은 ${BRAND_NAME} 예약 시스템에서 자동 발송되었습니다.</p>
-    </div>`,
-  ).catch(() => {
-    // swallow — already logged in sendEmail, and DB row exists
-  });
+  // Skip if neither LAB_APPROVAL_EMAIL nor NEXT_PUBLIC_LAB_CONTACT_EMAIL
+  // is configured (would otherwise mail the placeholder).
+  const approveTo = approvalEmail();
+  if (approveTo) {
+    sendEmail(
+      approveTo,
+      `[${BRAND_NAME}] 연구원 등록 요청 — ${username}`,
+      `<div style="font-family:sans-serif;line-height:1.6">
+        <h2>새로운 연구원 등록 요청</h2>
+        <ul>
+          <li><b>ID:</b> ${escapeHtml(username)}</li>
+          <li><b>이름:</b> ${escapeHtml(parsed.data.displayName.trim())}</li>
+          <li><b>요청 시각:</b> ${escapeHtml(inserted.requested_at)}</li>
+        </ul>
+        <p>관리자 승인: <a href="${escapeHtml(approveUrl)}">${escapeHtml(approveUrl)}</a></p>
+        <p style="color:#666;font-size:12px">이 메일은 ${BRAND_NAME} 예약 시스템에서 자동 발송되었습니다.</p>
+      </div>`,
+    ).catch(() => {
+      // swallow — already logged in sendEmail, and DB row exists
+    });
+  }
 
   return NextResponse.json(
     { id: inserted.id, username: inserted.username },

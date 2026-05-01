@@ -3,7 +3,7 @@ import { sendEmail } from "@/lib/google/gmail";
 import { sendSMS } from "@/lib/solapi/client";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
-import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 
 interface ReminderRow {
   id: string;
@@ -115,7 +115,11 @@ export async function processReminders(): Promise<number> {
       (creator?.contact_email || creator?.email || "").trim() || null;
     const researcherName = creator?.display_name || "담당 연구원";
     const researcherPhone = creator?.phone || "";
-    const contactLine = researcherEmail || BRAND_CONTACT_EMAIL;
+    // Researcher's contact wins. If they've never set one, fall back to
+    // the lab-wide inbox — but only if the deploy actually configured it
+    // (otherwise we'd render a placeholder address). When neither exists,
+    // template / SMS branches conditionally hide the "문의" line entirely.
+    const contactLine = researcherEmail || brandContactEmailOrNull();
 
     const location = await getLocation(experiment.location_id);
 
@@ -162,13 +166,18 @@ export async function processReminders(): Promise<number> {
             }`
           : "";
 
+        // Hide the email line if neither researcher contact_email nor a
+        // configured lab-wide inbox is available — leaving an empty
+        // mailto: would still render as a clickable but useless link.
+        const contactEmailLine = contactLine
+          ? `<a href="mailto:${contactLine}" style="color:#2563eb;">${escapeHtml(contactLine)}</a>`
+          : "";
         const contactBlock = `
           <p style="margin:20px 0 6px 0;font-weight:600;">담당 연구원 · 문의</p>
           <p style="margin:0;line-height:1.6;">
             ${escapeHtml(researcherName)}${
               researcherPhone ? ` · ${escapeHtml(researcherPhone)}` : ""
-            }<br/>
-            <a href="mailto:${contactLine}" style="color:#2563eb;">${escapeHtml(contactLine)}</a>
+            }${contactEmailLine ? `<br/>${contactEmailLine}` : ""}
           </p>`;
 
         const html = `
@@ -221,9 +230,12 @@ export async function processReminders(): Promise<number> {
       }
 
       if (reminder.channel === "sms" || reminder.channel === "both") {
+        // Skip the "문의:" line if no real contact is available — see
+        // the email-template comment above for rationale.
+        const inquirySuffix = contactLine ? `\n문의: ${contactLine}` : "";
         const text = isEvening
-          ? `[${BRAND_NAME}] 내일 실험 안내\n${participant.name}님, 내일 ${formatTimeKR(booking.slot_start)} "${experiment.title}" 실험이 있습니다.\n문의: ${contactLine}`
-          : `[${BRAND_NAME}] 오늘 실험 안내\n${participant.name}님, 오늘 ${formatTimeKR(booking.slot_start)} "${experiment.title}" 실험이 예정되어 있습니다.\n문의: ${contactLine}`;
+          ? `[${BRAND_NAME}] 내일 실험 안내\n${participant.name}님, 내일 ${formatTimeKR(booking.slot_start)} "${experiment.title}" 실험이 있습니다.${inquirySuffix}`
+          : `[${BRAND_NAME}] 오늘 실험 안내\n${participant.name}님, 오늘 ${formatTimeKR(booking.slot_start)} "${experiment.title}" 실험이 예정되어 있습니다.${inquirySuffix}`;
         await sendSMS(participant.phone, text);
       }
 

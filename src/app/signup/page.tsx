@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { USERNAME_REGEX, PASSWORD_REGEX } from "@/lib/auth/username";
-import { BRAND_NAME, BRAND_SUBTITLE, BRAND_PI, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { BRAND_NAME, BRAND_SUBTITLE, BRAND_PI, BRAND_CONTACT_EMAIL, isBrandContactEmailPlaceholder } from "@/lib/branding";
 
 export default function SignupPage() {
   const [username, setUsername] = useState("");
@@ -104,8 +104,13 @@ export default function SignupPage() {
               <h2 className="text-lg font-semibold text-foreground">요청이 접수되었습니다</h2>
               <p className="text-sm text-muted">
                 관리자 승인 후 입력하신 ID와 비밀번호로 로그인할 수 있습니다.
-                <br />
-                승인 알림 메일이 <b>{BRAND_CONTACT_EMAIL}</b>으로 발송되었습니다.
+                {!isBrandContactEmailPlaceholder() && (
+                  <>
+                    <br />
+                    관리자에게 승인 요청 알림이 <b>{BRAND_CONTACT_EMAIL}</b>으로
+                    발송되었습니다.
+                  </>
+                )}
               </p>
               <Link href="/login" className="text-sm text-primary underline">
                 로그인 페이지로 이동

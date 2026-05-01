@@ -13,7 +13,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendSMS } from "@/lib/solapi/client";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
-import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -71,7 +71,9 @@ export async function runSMSRetry(
     return { ...base, ok: false, error: "join_missing" };
   }
 
-  const text = `[${BRAND_NAME}] 예약확정\n${row.participants.name}님, "${row.experiments.title}" 실험이 예약되었습니다.\n일시: ${formatDateKR(row.slot_start)} ${formatTimeKR(row.slot_start)}\n문의: ${BRAND_CONTACT_EMAIL}`;
+  const labContact = brandContactEmailOrNull();
+  const inquirySuffix = labContact ? `\n문의: ${labContact}` : "";
+  const text = `[${BRAND_NAME}] 예약확정\n${row.participants.name}님, "${row.experiments.title}" 실험이 예약되었습니다.\n일시: ${formatDateKR(row.slot_start)} ${formatTimeKR(row.slot_start)}${inquirySuffix}`;
 
   try {
     // B2 fix — sendSMS returns {success: false, error} on 4xx instead of
