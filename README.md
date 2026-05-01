@@ -9,17 +9,38 @@
 ## 한눈에 보기
 
 ```mermaid
-flowchart LR
-  R[연구자] --> WEB
-  P[참여자] --> WEB
-  WEB[Next.js 16 App<br/>Vercel: lab-reservation-seven.vercel.app]
-  WEB <--> DB[(Supabase<br/>Postgres + RLS<br/>+ Storage + Realtime)]
-  WEB --> GC[Google Calendar]
-  WEB --> GM[Gmail SMTP]
-  GM --> P
-  GC -. 회의 충돌 회피 .-> WEB
+flowchart TB
+  subgraph Users["👥 사용자"]
+    direction LR
+    R(("연구자"))
+    P(("참여자"))
+  end
 
-  classDef external fill:#fff4e6,stroke:#e08a3c
+  WEB["🌐 Next.js 16 App<br/><sub>lab-reservation-seven.vercel.app</sub>"]
+
+  DB[("🗄️ Supabase<br/>Postgres + RLS<br/>Storage + Realtime")]
+
+  subgraph External["🔌 외부 서비스"]
+    direction LR
+    GC["📅 Google Calendar<br/><sub>SLab 공용</sub>"]
+    GM["📧 Gmail SMTP<br/><sub>vnilab@gmail.com</sub>"]
+  end
+
+  R -- "실험 만들기·관리" --> WEB
+  P -- "예약·실험 수행" --> WEB
+  WEB <== "읽기·쓰기" ==> DB
+  WEB -- "이벤트 생성" --> GC
+  GC -. "FreeBusy" .-> WEB
+  WEB -- "알림·정산 링크" --> GM
+  GM -- "이메일 발송" --> P
+
+  classDef actor fill:#e8f5ff,stroke:#3a87cd,stroke-width:2px,color:#1a4480
+  classDef app fill:#e8fff0,stroke:#28a745,stroke-width:2px,color:#0d4825
+  classDef store fill:#f0f8ff,stroke:#4a90e2,stroke-width:2px,color:#1a4480
+  classDef external fill:#fff4e6,stroke:#e08a3c,stroke-width:2px,color:#7a4a1c
+  class R,P actor
+  class WEB app
+  class DB store
   class GC,GM external
 ```
 

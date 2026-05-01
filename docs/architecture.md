@@ -22,92 +22,127 @@
 ## 1a. System Architecture — 사용자가 보는 것
 
 ```mermaid
-flowchart LR
-  R[연구자] --> WEB
-  P[참여자] --> WEB
-  WEB[Next.js 16 App<br/>Vercel: lab-reservation-seven.vercel.app]
-  WEB <--> DB[(Supabase<br/>Postgres + RLS<br/>+ Storage + Realtime)]
-  WEB --> GC[Google Calendar]
-  WEB --> GM[Gmail SMTP]
-  GM --> P
-  GC -. 회의 충돌 회피 .-> WEB
+flowchart TB
+  subgraph Users["👥 사용자"]
+    direction LR
+    R(("연구자"))
+    P(("참여자"))
+  end
 
-  classDef external fill:#fff4e6,stroke:#e08a3c
+  WEB["🌐 Next.js 16 App<br/><sub>lab-reservation-seven.vercel.app</sub>"]
+
+  DB[("🗄️ Supabase<br/>Postgres + RLS<br/>Storage + Realtime")]
+
+  subgraph External["🔌 외부 서비스"]
+    direction LR
+    GC["📅 Google Calendar<br/><sub>SLab 공용</sub>"]
+    GM["📧 Gmail SMTP<br/><sub>vnilab@gmail.com</sub>"]
+  end
+
+  R -- "실험 만들기·관리" --> WEB
+  P -- "예약·실험 수행" --> WEB
+  WEB <== "읽기·쓰기" ==> DB
+  WEB -- "이벤트 생성" --> GC
+  GC -. "FreeBusy" .-> WEB
+  WEB -- "알림·정산 링크" --> GM
+  GM -- "이메일 발송" --> P
+
+  classDef actor fill:#e8f5ff,stroke:#3a87cd,stroke-width:2px,color:#1a4480
+  classDef app fill:#e8fff0,stroke:#28a745,stroke-width:2px,color:#0d4825
+  classDef store fill:#f0f8ff,stroke:#4a90e2,stroke-width:2px,color:#1a4480
+  classDef external fill:#fff4e6,stroke:#e08a3c,stroke-width:2px,color:#7a4a1c
+  class R,P actor
+  class WEB app
+  class DB store
   class GC,GM external
 ```
 
-5개 노드. 연구자가 실험을 만들고 참여자가 예약·참여, 데이터는 Supabase, 알림은 Gmail, 일정은 Google Calendar. 이게 보이는 전부.
+5개 외부 노드. 연구자/참여자 → Vercel 앱 → Supabase. 외부로는 Google Calendar (이벤트 + FreeBusy) 와 Gmail (알림) 둘만.
 
 ## 1b. System Architecture — 내부 메커니즘
 
 ```mermaid
 flowchart TB
-  subgraph Browser["Browser"]
-    direction TB
-    BR[연구자 브라우저]
-    BP[참여자 브라우저<br/>+ /run iframe sandbox]
+  subgraph Browser["💻 Browser"]
+    direction LR
+    BR(("연구자<br/>브라우저"))
+    BP(("참여자<br/>브라우저<br/>+ /run iframe"))
   end
 
-  subgraph Vercel["Vercel Functions (iad1)"]
+  subgraph Vercel["⚡ Vercel Functions <sub>(iad1)</sub>"]
     direction TB
-    MW[middleware.ts<br/>Supabase 세션 갱신<br/>+ /experiments /dashboard 인가]
-    APP[App Router pages<br/>+ Server Actions]
-    API_BK[/api/bookings<br/>book_slot RPC]
-    API_RUN[/api/experiments/.../block<br/>token 검증 + storage put]
-    API_AN[/api/experiments/code-analysis<br/>분석기 오케스트레이션]
+    MW["middleware.ts<br/><sub>세션 갱신 + /dashboard 인가</sub>"]
+    APP["App Router + Server Actions"]
+    API_BK["/api/bookings<br/><sub>book_slot RPC</sub>"]
+    API_RUN["/api/.../block<br/><sub>token 검증 + storage put</sub>"]
+    API_AN["/api/.../code-analysis<br/><sub>분석기 오케스트레이션</sub>"]
   end
 
-  subgraph LLMProviders["LLM Provider (택1)"]
-    direction TB
-    OL[Lab Mac Ollama 11434<br/>qwen3.6 / qwen3-embedding<br/>LLM_PROVIDER=ollama 일 때만]
-    AN[Anthropic API<br/>ANTHROPIC_API_KEY 설정 시]
+  subgraph LLM["🧠 LLM Provider <sub>(택1, env 기반)</sub>"]
+    direction LR
+    AN["Anthropic API<br/><sub>ANTHROPIC_API_KEY 설정 시</sub>"]
+    OL["Lab Mac Ollama:11434<br/><sub>qwen3.6 / qwen3-embedding</sub>"]
   end
 
-  subgraph DB["Supabase (RLS-enforced)"]
-    direction TB
-    PG[(Postgres<br/>experiments / bookings / participants<br/>/ run_progress / outbox)]
-    ST[(Storage: experiment-data)]
-    RT[Realtime channel<br/>postgres_changes WSS]
+  subgraph DB["🗄️ Supabase <sub>(RLS-enforced)</sub>"]
+    direction LR
+    PG[("Postgres<br/>experiments / bookings<br/>/ participants / run_progress<br/>/ outbox")]
+    ST[("Storage<br/>experiment-data")]
+    RT(("Realtime<br/>WSS channel"))
   end
 
-  subgraph Mirrors["외부 미러 (Vercel 이 push)"]
-    direction TB
-    NT[(Notion<br/>Members + Projects&Chores)]
-    GCx[(Google Calendar<br/>이벤트 description<br/>= 참여자 PII 포함)]
-    GMx[(Gmail 발송 이력)]
-    NAS[(NAS<br/>/Volumes/CSNL_new-1)]
+  subgraph Mirrors["🔌 외부 미러 <sub>(Vercel 이 push)</sub>"]
+    direction LR
+    NT["📝 Notion<br/><sub>Members + Projects&Chores</sub>"]
+    GCx["📅 GCal<br/><sub>⚠ description=PII 포함</sub>"]
+    GMx["📧 Gmail<br/><sub>발송 이력</sub>"]
+    NAS["💾 NAS<br/><sub>/Volumes/CSNL_new-1</sub>"]
   end
 
-  subgraph CronWorkers["GitHub Actions cron (6 jobs) + lab Mac launchd (1)"]
-    direction TB
-    GHA["6× GHA: reminders / auto-complete /<br/>outbox-retry / promotion / metadata /<br/>notion-health"]
-    LD[launchd hourly NAS mirror]
+  subgraph Cron["⏰ Cron <sub>(GHA 6 + launchd 1)</sub>"]
+    direction LR
+    GHA["6× GitHub Actions<br/><sub>reminders / auto-complete<br/>outbox-retry / promotion<br/>metadata / notion-health</sub>"]
+    LD["launchd hourly<br/><sub>NAS mirror</sub>"]
   end
 
   BR --> MW --> APP
   BP --> APP
-  APP --> API_BK & API_RUN & API_AN
+  APP --> API_BK
+  APP --> API_RUN
+  APP --> API_AN
   API_AN --> AN
-  API_AN -. dev only .-> OL
-  API_BK & API_RUN & APP --> PG
+  API_AN -. "lab Mac 가능시" .-> OL
+  APP --> PG
+  API_BK --> PG
+  API_RUN --> PG
   API_RUN --> ST
-  PG -. UPDATE → push .-> RT
-  RT -. WSS realtime .-> BR
+  PG -. "UPDATE" .-> RT
+  RT == "WSS realtime" ==> BR
 
-  APP -- "status active 시" --> NT
-  APP -- "booking → event" --> GCx
+  APP -- "status active" --> NT
+  APP -- "booking event" --> GCx
   APP -- "알림·정산" --> GMx
-  APP -- "지급 링크 등" --> GMx
 
   GHA --> PG
-  GHA -. health 체크 .-> NT
+  GHA -. "health" .-> NT
   LD --> NAS
-  ST -. nightly mirror .-> NAS
+  ST -. "hourly mirror" .-> NAS
 
-  classDef provider fill:#fff4e6,stroke:#e08a3c
-  classDef store fill:#f0f8ff,stroke:#4a90e2
-  class OL,AN,NT,GCx,GMx,NAS provider
+  classDef actor fill:#e8f5ff,stroke:#3a87cd,stroke-width:2px,color:#1a4480
+  classDef vercel fill:#e8fff0,stroke:#28a745,stroke-width:1.5px,color:#0d4825
+  classDef provider fill:#f5e8ff,stroke:#9333ea,stroke-width:1.5px,color:#4a1d7a
+  classDef store fill:#f0f8ff,stroke:#4a90e2,stroke-width:2px,color:#1a4480
+  classDef mirror fill:#fff4e6,stroke:#e08a3c,stroke-width:1.5px,color:#7a4a1c
+  classDef warn fill:#ffe6e6,stroke:#d34a2a,stroke-width:2px,color:#7a1c1c
+  classDef cron fill:#f5f5dc,stroke:#9ca36e,stroke-width:1.5px,color:#4a4a1c
+
+  class BR,BP actor
+  class MW,APP,API_BK,API_RUN,API_AN vercel
+  class AN,OL provider
   class PG,ST,RT store
+  class NT,GMx,NAS mirror
+  class GCx warn
+  class GHA,LD cron
 ```
 
 **핵심 정정:**
@@ -180,40 +215,41 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  subgraph Sources["입력원"]
+  subgraph Sources["📥 입력원"]
     direction TB
-    GH[GitHub repo / NAS path]
-    UI_R[연구자 UI 입력]
-    UI_P[참여자 UI 입력<br/>이름·연락처·이메일·동의]
-    RUN[참여자 실험 수행]
+    GH["GitHub repo<br/>/ NAS path"]
+    UI_R["연구자 UI 입력"]
+    UI_P["참여자 UI 입력<br/><sub>이름·연락처·이메일·동의</sub>"]
+    RUN["참여자 실험 수행"]
   end
 
-  subgraph Process["가공 (Vercel API)"]
+  subgraph Process["⚙️ 가공 <sub>(Vercel API)</sub>"]
     direction TB
-    LLM_X[LLM extract<br/>Ollama or Anthropic]
-    HOOKS[__timeexpHooks__<br/>이벤트 스트림]
+    LLM_X["LLM extract<br/><sub>Ollama or Anthropic</sub>"]
+    HOOKS["__timeexpHooks__<br/><sub>이벤트 스트림</sub>"]
   end
 
-  subgraph Store["1차 저장 (Supabase, RLS-enforced)"]
+  subgraph Store["🗄️ 1차 저장 <sub>(Supabase, RLS)</sub>"]
     direction TB
-    EXP[(experiments<br/>+ parameter_schema)]
-    BK[(bookings + booking_group_id)]
-    PT[(participants<br/>+ participant_lab_identity HMAC)]
-    PRG[(experiment_run_progress)]
-    OBX[(outbox<br/>외부 동기화 큐)]
-    STX[(Storage: experiment-data<br/>{expId}/{subj}/block_N.json)]
-    PI[(payment_info + claim_bundle)]
+    EXP[("experiments<br/><sub>+ parameter_schema</sub>")]
+    BK[("bookings<br/><sub>+ booking_group_id</sub>")]
+    PT[("participants<br/><sub>+ identity HMAC</sub>")]
+    PRG[("run_progress<br/><sub>+ blocks_submitted</sub>")]
+    OBX[("outbox<br/><sub>동기화 큐</sub>")]
+    STX[("Storage<br/><sub>{expId}/{subj}/block_N.json</sub>")]
+    PI[("payment_info<br/><sub>+ claim_bundle</sub>")]
   end
 
-  subgraph Mirrors["미러 (PII 중복지점)"]
+  subgraph Mirrors["🔌 미러 <sub>(PII 중복지점)</sub>"]
     direction TB
-    NT_M[(Notion: SLab DB + Projects DB<br/>실험명 + 회차 + 참여자 식별번호)]
-    GCM[(GCal event<br/>title=PII free,<br/>⚠ description=PII full)]
-    GMM[(Gmail 발송 이력<br/>To: 참여자 이메일)]
-    NAS_M[(NAS<br/>storage 미러)]
+    NT_M["📝 Notion<br/><sub>SLab + Projects</sub>"]
+    GCM["📅 GCal event<br/><sub>⚠ description=PII full</sub>"]
+    GMM["📧 Gmail 발송<br/><sub>To: 참여자</sub>"]
+    NAS_M["💾 NAS<br/><sub>storage 미러</sub>"]
   end
 
-  GH --> LLM_X --> EXP
+  GH --> LLM_X
+  LLM_X --> EXP
   UI_R --> EXP
   UI_P --> PT
   UI_P --> BK
@@ -223,23 +259,30 @@ flowchart LR
   HOOKS --> STX
   HOOKS --> PRG
 
-  EXP -- via Vercel --> NT_M
-  BK -- via Vercel --> NT_M
-  BK -- via Vercel --> GCM
-  PRG -- via Vercel --> GMM
-  PI -- via Vercel --> GMM
+  EXP -- "via Vercel" --> NT_M
+  BK -- "via Vercel" --> NT_M
+  BK -- "via Vercel" --> GCM
+  PRG -- "via Vercel" --> GMM
+  PI -- "via Vercel" --> GMM
 
-  EXP & BK & PRG -.->|동기화 실패시 retry| OBX
-  OBX -.->|outbox-retry-cron| NT_M
-  OBX -.->|outbox-retry-cron| GMM
+  EXP -. "fail → retry" .-> OBX
+  BK -. "fail → retry" .-> OBX
+  PRG -. "fail → retry" .-> OBX
+  OBX == "5min cron" ==> NT_M
+  OBX == "5min cron" ==> GMM
 
-  STX -. launchd hourly .-> NAS_M
+  STX -. "hourly launchd" .-> NAS_M
 
-  classDef store fill:#f0f8ff,stroke:#4a90e2
-  classDef mirror fill:#fff4e6,stroke:#e08a3c
-  classDef warn stroke:#d34a2a,stroke-width:2px
+  classDef source fill:#fffbe6,stroke:#b8860b,stroke-width:1.5px,color:#5a3a00
+  classDef process fill:#e8fff0,stroke:#28a745,stroke-width:1.5px,color:#0d4825
+  classDef store fill:#f0f8ff,stroke:#4a90e2,stroke-width:2px,color:#1a4480
+  classDef mirror fill:#fff4e6,stroke:#e08a3c,stroke-width:1.5px,color:#7a4a1c
+  classDef warn fill:#ffe6e6,stroke:#d34a2a,stroke-width:2px,color:#7a1c1c
+
+  class GH,UI_R,UI_P,RUN source
+  class LLM_X,HOOKS process
   class EXP,BK,PT,PRG,OBX,STX,PI store
-  class NT_M,GCM,GMM,NAS_M mirror
+  class NT_M,GMM,NAS_M mirror
   class GCM warn
 ```
 
