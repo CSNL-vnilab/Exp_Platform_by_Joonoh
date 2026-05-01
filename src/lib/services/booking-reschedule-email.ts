@@ -156,7 +156,7 @@ export function buildRescheduleEmail(input: RescheduleEmailInput): BuiltReschedu
         갑작스러운 변경에 양해 부탁드립니다.
       </p>
 
-      <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;">
+      <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:15px;">
         <tr>
           <td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;width:120px;">실험명</td>
           <td style="padding:10px 12px;border:1px solid #e5e7eb;word-break:keep-all;">${safeTitle}</td>

@@ -206,7 +206,7 @@ export function buildConfirmationEmail(
         <b>${safeTitle}</b> 실험에 참여 신청해 주셔서 진심으로 감사드립니다. 아래 일정으로 예약이 확정되었습니다.
       </p>
 
-      <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;">
+      <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:15px;">
         <tr><td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;width:110px;">실험명</td><td style="padding:10px 12px;border:1px solid #e5e7eb;">${safeTitle}</td></tr>
         ${feeLine}
       </table>

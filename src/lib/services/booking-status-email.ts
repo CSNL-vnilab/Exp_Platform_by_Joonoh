@@ -141,7 +141,7 @@ export function buildCancellationEmail(input: BookingStatusEmailInput): BuiltSta
         부득이한 사정으로 일정을 진행하지 못하게 된 점 양해 부탁드립니다.
       </p>
 
-      <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;">
+      <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:15px;">
         <tr>
           <td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;width:120px;">실험명</td>
           <td style="padding:10px 12px;border:1px solid #e5e7eb;">${safeTitle}</td>
@@ -193,7 +193,7 @@ export function buildNoShowEmail(input: BookingStatusEmailInput): BuiltStatusEma
         피치 못할 사정이 있으셨다면 담당 연구원에게 알려 주세요.
       </p>
 
-      <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;">
+      <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:15px;">
         <tr>
           <td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;width:120px;">실험명</td>
           <td style="padding:10px 12px;border:1px solid #e5e7eb;">${safeTitle}</td>

@@ -196,7 +196,7 @@ export async function processReminders(): Promise<number> {
               }
             </p>
 
-            <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;">
+            <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:15px;">
               <tr><td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;width:110px;">실험명</td><td style="padding:10px 12px;border:1px solid #e5e7eb;">${safeTitle}</td></tr>
               <tr><td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;">일시</td><td style="padding:10px 12px;border:1px solid #e5e7eb;">${escapeHtml(whenLine)}${sessionSuffix}</td></tr>
             </table>
