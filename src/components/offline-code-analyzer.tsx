@@ -214,6 +214,28 @@ export function OfflineCodeAnalyzer({
     [heuristic, ai, overrides],
   );
 
+  // Suppress heuristic warnings whose claim was already contradicted by
+  // a downstream AI / user contribution. Example: "조작 변수 후보를
+  // 찾지 못했습니다" loses its meaning once the AI has populated factors.
+  // Keep AI / user warnings unconditionally — those are genuine notes.
+  const filteredWarnings = useMemo(() => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const w of merged.warnings ?? []) {
+      // dedupe on exact text
+      if (seen.has(w)) continue;
+      // suppress contradicted heuristic boilerplate
+      if (/조작 변수.*찾지 못/.test(w) && merged.factors.length > 0) continue;
+      if (/저장 변수.*찾지 못/.test(w) && merged.saved_variables.length > 0) continue;
+      if (/파라미터.*찾지 못/.test(w) && merged.parameters.length > 0) continue;
+      if (/블럭당 트라이얼.*추정하지 못/.test(w) && merged.meta.n_trials_per_block != null) continue;
+      if (/블럭 수.*추정하지 못/.test(w) && (merged.meta.n_blocks != null || (merged.meta.block_phases ?? []).length > 0)) continue;
+      seen.add(w);
+      out.push(w);
+    }
+    return out;
+  }, [merged]);
+
   useEffect(() => {
     onChange?.({
       heuristic,
@@ -713,18 +735,21 @@ export function OfflineCodeAnalyzer({
                 >
                   {analyzing ? "분석 중…" : "소스에서 분석 실행"}
                 </Button>
-                <Button
+                <span className="text-[11px] text-muted">
+                  서버에서 디렉토리 스캔 / GitHub tarball 받아 핵심 파일만 추려 분석합니다.
+                </span>
+                {/* 휴리스틱-only 모드는 일반 연구자에게는 noise — 개발/
+                    AI 백엔드 다운 케이스에만 유용. tiny ghost link 으로
+                    숨겨두되 필요할 때 즉시 호출 가능. */}
+                <button
                   type="button"
-                  size="sm"
-                  variant="secondary"
                   onClick={() => runFromSource("heuristic")}
                   disabled={analyzing || !source.trim()}
+                  className="ml-auto text-[10px] text-muted underline hover:text-foreground disabled:opacity-50"
+                  title="AI 호출 없이 정규식만으로 즉시 결과 — 빠르지만 정확도 낮음 (개발/디버그용)"
                 >
-                  휴리스틱만 (빠름)
-                </Button>
-                <span className="text-[11px] text-muted">
-                  서버에서 git clone / 디렉토리 스캔 후 자동으로 핵심 파일만 추려 분석합니다.
-                </span>
+                  AI 없이 빠른 미리보기
+                </button>
               </div>
 
               {sourceInfo && (
@@ -920,12 +945,13 @@ export function OfflineCodeAnalyzer({
 
             {hasAnalysis && (
               <>
-                {/* warnings */}
-                {merged.warnings.length > 0 && (
+                {/* warnings — heuristic boilerplate already contradicted
+                    by the AI/user is auto-suppressed (see filteredWarnings) */}
+                {filteredWarnings.length > 0 && (
                   <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-                    <div className="mb-1 font-medium">분석 경고</div>
+                    <div className="mb-1 font-medium">분석 경고 / 코멘트</div>
                     <ul className="list-disc space-y-0.5 pl-5">
-                      {merged.warnings.map((w, i) => (
+                      {filteredWarnings.map((w, i) => (
                         <li key={i}>{w}</li>
                       ))}
                     </ul>
@@ -1423,7 +1449,7 @@ export function OfflineCodeAnalyzer({
                                     }),
                                   }))
                                 }
-                                placeholder="ms, deg, …"
+                                placeholder="—"
                                 className={inputCls}
                               />
                             </Td>

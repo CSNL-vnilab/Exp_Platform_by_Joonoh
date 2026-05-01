@@ -196,7 +196,18 @@ export async function resolveProvider(
     (process.env.ANTHROPIC_API_KEY ? "anthropic" : "ollama");
 
   if (target === "anthropic") {
-    return new AnthropicProvider({ model: opts.anthropicModel });
+    // Symmetric fallback: if Anthropic is unconfigured AND Ollama is
+    // reachable, fall through to Ollama instead of throwing on every
+    // analyzer call (review item #5). The reverse direction already
+    // does this below.
+    try {
+      return new AnthropicProvider({ model: opts.anthropicModel });
+    } catch (err) {
+      const ollamaP = new OllamaProvider(await pickOllamaModel(opts.ollamaModel));
+      const h = await ollamaP.health();
+      if (h.ok) return ollamaP;
+      throw err;
+    }
   }
 
   // ollama: verify the host is reachable; auto-pick the right model tag

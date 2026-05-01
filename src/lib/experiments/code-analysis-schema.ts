@@ -35,13 +35,18 @@ export type Framework = (typeof SUPPORTED_FRAMEWORKS)[number];
 
 const intOrNull = z.number().int().min(0).max(1_000_000).nullable();
 const numOrNull = z.number().min(0).max(1_000_000).nullable();
-const shortStr = z.string().max(120);
-const longStr = z.string().max(2000);
+// Generous string caps with auto-truncation: the model occasionally
+// emits long descriptive labels (e.g. multi-line `applies_when`,
+// stimulus formula `seed`). Hard-rejecting the whole record on a few
+// extra characters wastes a 200-second analysis run, so we accept
+// anything stringy and trim on parse.
+const shortStr = z.string().max(2000).transform((s) => s.slice(0, 500));
+const longStr = z.string().max(20000).transform((s) => s.slice(0, 4000));
 
 export const FactorSchema = z.object({
   name: z.string().min(1).max(64),
-  type: z.enum(["categorical", "continuous", "ordinal"]).default("categorical"),
-  levels: z.array(shortStr).max(64).default([]),
+  type: z.enum(["categorical", "continuous", "ordinal"]).catch("categorical").default("categorical"),
+  levels: z.array(shortStr).max(64).catch([]).default([]),
   // role: where in the design this IV sits.
   //   between_subject — varies across participants (e.g. group, age)
   //   within_subject  — varies within a participant across sessions/days
@@ -60,17 +65,18 @@ export const FactorSchema = z.object({
       "derived",
       "unknown",
     ])
+    .catch("unknown")
     .optional()
     .default("unknown"),
   description: longStr.nullable().default(null),
-  line_hint: z.number().int().min(0).max(1_000_000).nullable().default(null),
+  line_hint: z.union([z.number().int().min(0).max(1_000_000), z.string().max(200)]).nullable().default(null),
 });
 
 export type Factor = z.infer<typeof FactorSchema>;
 
 export const ParameterSchema = z.object({
   name: z.string().min(1).max(64),
-  type: z.enum(["number", "string", "boolean", "array", "other"]).default("other"),
+  type: z.enum(["number", "string", "boolean", "array", "other"]).catch("other").default("other"),
   default: z.string().max(200).nullable().default(null),
   unit: shortStr.nullable().default(null),
   // Provenance tag: "constant" (single value used throughout), "vector"
@@ -80,10 +86,11 @@ export const ParameterSchema = z.object({
   // "par.StairTrainTest = [1 1 2 2 3 3]" (block-kind partition).
   shape: z
     .enum(["constant", "vector", "expression", "input", "unknown"])
+    .catch("unknown")
     .optional()
     .default("unknown"),
   description: longStr.nullable().default(null),
-  line_hint: z.number().int().min(0).max(1_000_000).nullable().default(null),
+  line_hint: z.union([z.number().int().min(0).max(1_000_000), z.string().max(200)]).nullable().default(null),
 });
 
 export type Parameter = z.infer<typeof ParameterSchema>;
@@ -109,11 +116,11 @@ export const SavedVariableSchema = z.object({
     "csv-row",
     "json",
     "other",
-  ]).default("other"),
+  ]).catch("other").default("other"),
   unit: shortStr.nullable().default(null),
   sink: shortStr.nullable().default(null), // "data.csv", "results.mat", "ExpInfo.dat"
   description: longStr.nullable().default(null),
-  line_hint: z.number().int().min(0).max(1_000_000).nullable().default(null),
+  line_hint: z.union([z.number().int().min(0).max(1_000_000), z.string().max(200)]).nullable().default(null),
 });
 
 export type SavedVariable = z.infer<typeof SavedVariableSchema>;
@@ -137,6 +144,7 @@ export const BlockPhaseSchema = z.object({
       "demo",
       "other",
     ])
+    .catch("other")
     .default("other"),
   // Human-readable label, e.g. "Day1 training", "Day2~5 test (dist=A/B)"
   label: shortStr.nullable().default(null),
@@ -175,13 +183,13 @@ export const SUPPORTED_GENRES = [
 export type DomainGenre = (typeof SUPPORTED_GENRES)[number];
 
 export const AnalysisMetaSchema = z.object({
-  language: z.enum(SUPPORTED_LANGS).default("other"),
-  framework: z.enum(SUPPORTED_FRAMEWORKS).default("unknown"),
+  language: z.enum(SUPPORTED_LANGS).catch("other").default("other"),
+  framework: z.enum(SUPPORTED_FRAMEWORKS).catch("unknown").default("unknown"),
   // High-level experimental paradigm — orthogonal to framework.
   // The model picks one based on the task structure (stimulus →
   // response loop) and the saved-variable shape; researchers can
   // override.
-  domain_genre: z.enum(SUPPORTED_GENRES).optional().default("other"),
+  domain_genre: z.enum(SUPPORTED_GENRES).catch("other").optional().default("other"),
   // Single-value rollups (kept for back-compat + the simple case where
   // every phase has the same n_blocks/n_trials).
   n_blocks: intOrNull.default(null),
@@ -191,7 +199,7 @@ export const AnalysisMetaSchema = z.object({
   seed: shortStr.nullable().default(null),
   // Phase decomposition — when set, takes precedence over the singletons
   // above. Empty array means "single phase, see n_blocks above".
-  block_phases: z.array(BlockPhaseSchema).max(20).default([]),
+  block_phases: z.array(BlockPhaseSchema).max(20).catch([]).default([]),
   // Free-form design-matrix description for between-subject /
   // counterbalance schemes that don't fit the conditions array
   // (e.g. "subjNum mod 4 → AABB / ABBA / BABA / BBAA pattern across days").
@@ -204,11 +212,11 @@ export type AnalysisMeta = z.infer<typeof AnalysisMetaSchema>;
 
 export const CodeAnalysisSchema = z.object({
   meta: AnalysisMetaSchema.default({} as never),
-  factors: z.array(FactorSchema).max(50).default([]),
-  parameters: z.array(ParameterSchema).max(100).default([]),
-  conditions: z.array(ConditionSchema).max(200).default([]),
-  saved_variables: z.array(SavedVariableSchema).max(100).default([]),
-  warnings: z.array(z.string().max(500)).max(50).default([]),
+  factors: z.array(FactorSchema).max(50).catch([]).default([]),
+  parameters: z.array(ParameterSchema).max(100).catch([]).default([]),
+  conditions: z.array(ConditionSchema).max(200).catch([]).default([]),
+  saved_variables: z.array(SavedVariableSchema).max(100).catch([]).default([]),
+  warnings: z.array(z.string().max(500)).max(50).catch([]).default([]),
 });
 
 export type CodeAnalysis = z.infer<typeof CodeAnalysisSchema>;
@@ -294,14 +302,14 @@ export const CODE_ANALYSIS_JSON_SCHEMA_HINT = `{
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name","levels"],
+        "required": ["name","levels","role"],
         "properties": {
           "name":        { "type": "string" },
           "type":        { "enum": ["categorical","continuous","ordinal"] },
           "levels":      { "type": "array", "items": { "type": "string" } },
           "role":        { "enum": ["between_subject","within_subject","within_session","per_trial","derived","unknown"] },
           "description": { "type": ["string","null"] },
-          "line_hint":   { "type": ["integer","null"] }
+          "line_hint":   { "type": ["string","integer","null"] }
         }
       }
     },
@@ -309,7 +317,7 @@ export const CODE_ANALYSIS_JSON_SCHEMA_HINT = `{
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
+        "required": ["name","shape"],
         "properties": {
           "name":        { "type": "string" },
           "type":        { "enum": ["number","string","boolean","array","other"] },
@@ -317,7 +325,7 @@ export const CODE_ANALYSIS_JSON_SCHEMA_HINT = `{
           "unit":        { "type": ["string","null"] },
           "shape":       { "enum": ["constant","vector","expression","input","unknown"] },
           "description": { "type": ["string","null"] },
-          "line_hint":   { "type": ["integer","null"] }
+          "line_hint":   { "type": ["string","integer","null"] }
         }
       }
     },
@@ -344,7 +352,7 @@ export const CODE_ANALYSIS_JSON_SCHEMA_HINT = `{
           "unit":        { "type": ["string","null"] },
           "sink":        { "type": ["string","null"] },
           "description": { "type": ["string","null"] },
-          "line_hint":   { "type": ["integer","null"] }
+          "line_hint":   { "type": ["string","integer","null"] }
         }
       }
     },
@@ -362,10 +370,34 @@ export function mergeAnalysis(
 ): CodeAnalysis {
   const empty: CodeAnalysis = CodeAnalysisSchema.parse({});
   const base = heuristic ?? empty;
+
+  // When the AI returns a substantive parameter set, treat *generic*
+  // heuristic captures (no description, no unit, no concrete default)
+  // as noise — drop them. This avoids the UI piling `baseDir` etc on
+  // top of the AI's curated `lentrial`/`tprecue`. Heuristic items the
+  // AI re-affirmed (same name) keep both descriptions via mergeByKey.
+  //
+  // Critical: a heuristic param with a non-null `default` is *always*
+  // kept — that's a literal value the regex parser actually saw in
+  // code, and dropping it would lose researcher data on AI runs that
+  // happened not to echo the same name (review item #4).
+  const aiHasParams = (ai?.parameters?.length ?? 0) >= 3;
+  const heurParams = aiHasParams
+    ? (base.parameters ?? []).filter((p) => {
+        const aiKnows = ai?.parameters?.some((a) => a.name === p.name);
+        if (aiKnows) return true;
+        // keep if heuristic provided concrete signal: literal value,
+        // unit, or human-meaningful description.
+        if (p.default != null) return true;
+        if (p.unit || p.description) return true;
+        return false;
+      })
+    : base.parameters;
+
   const layered: CodeAnalysis = {
     meta: { ...base.meta, ...(ai?.meta ?? {}), ...(overrides?.meta ?? {}) },
     factors: mergeByKey(base.factors, ai?.factors, overrides?.factors, (f) => f.name),
-    parameters: mergeByKey(base.parameters, ai?.parameters, overrides?.parameters, (p) => p.name),
+    parameters: mergeByKey(heurParams, ai?.parameters, overrides?.parameters, (p) => p.name),
     conditions: mergeByKey(base.conditions, ai?.conditions, overrides?.conditions, (c) => c.label),
     saved_variables: mergeByKey(base.saved_variables, ai?.saved_variables, overrides?.saved_variables, (s) => s.name),
     warnings: dedupe([

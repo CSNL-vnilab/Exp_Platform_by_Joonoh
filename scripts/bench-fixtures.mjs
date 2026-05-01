@@ -80,6 +80,31 @@ const FIXTURES = {
     // expects block_phases split: 4 training + 2 test
     expects_block_phases: true,
   },
+  labjs_staircase_audiovisual: {
+    framework: "lab.js",
+    domain_genre_one_of: ["psychophysics"],
+    factors_required: ["soa", "modality"],
+    factors_bogus: ["QUEST_BETA"], // single value — should be parameter, not factor
+    parameters_required: [
+      "QUEST_BETA",
+      "QUEST_GUESS_RATE",
+      "N_TRIALS",
+      "AUDIO_DURATION_MS",
+      "VISUAL_DURATION_MS",
+      "ITI_MS",
+      "STARTING_SOA_MS",
+    ],
+    parameter_values: {
+      QUEST_BETA: 3.5,
+      N_TRIALS: 80,
+      AUDIO_DURATION_MS: 50,
+      VISUAL_DURATION_MS: 50,
+      ITI_MS: 600,
+      STARTING_SOA_MS: 100,
+    },
+    saved_required: ["soa", "response", "rt", "correct", "quest_mean", "subject_id"],
+    expects_block_phases: true,
+  },
 };
 
 // --- scoring helpers ---------------------------------------------------
@@ -87,8 +112,20 @@ function approxEq(a, b, tol = 1e-3) {
   if (a == null || b == null) return false;
   return Math.abs(Number(a) - Number(b)) <= tol;
 }
+// Fuzzy name match: exact (case-insensitive) OR the gt name is a
+// substring of the candidate (e.g. "orientation" ↔ "stim_orientation",
+// "iti" ↔ "ITI_MS"), OR vice-versa. Keeps scoring meaningful across
+// reasonable name choice differences without being trivially permissive.
 function findByName(arr, name) {
-  return (arr ?? []).find((x) => (x.name ?? "").toLowerCase() === name.toLowerCase());
+  const want = name.toLowerCase();
+  return (arr ?? []).find((x) => {
+    const got = (x.name ?? "").toLowerCase();
+    if (got === want) return true;
+    if (got.length >= 3 && want.length >= 3) {
+      if (got.includes(want) || want.includes(got)) return true;
+    }
+    return false;
+  });
 }
 function findInSaved(arr, name) {
   const k = name.toLowerCase();

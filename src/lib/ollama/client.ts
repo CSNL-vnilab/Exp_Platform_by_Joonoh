@@ -39,13 +39,38 @@ function resolveModel(explicit: string | undefined, task: Task | undefined, fall
   return modelFor(task ?? fallback);
 }
 
+// Ollama generations on a strengthened prompt can take 4-10 minutes
+// (qwen3.6 with num_predict=12288 + checklist self-verification). The
+// undici default Headers Timeout is 5 minutes, which trips before the
+// first byte arrives. We use a Node-only undici Agent with extended
+// timeouts; on non-Node runtimes (Edge) we fall back to plain fetch.
+let ollamaDispatcher: unknown = null;
+async function getDispatcher(): Promise<unknown> {
+  if (ollamaDispatcher !== null) return ollamaDispatcher;
+  try {
+    const undici = await import("undici");
+    const Agent = (undici as { Agent: new (opts: object) => unknown }).Agent;
+    ollamaDispatcher = new Agent({
+      headersTimeout: 15 * 60 * 1000, // 15 min
+      bodyTimeout: 15 * 60 * 1000,
+      keepAliveTimeout: 60_000,
+    });
+  } catch {
+    ollamaDispatcher = false;
+  }
+  return ollamaDispatcher;
+}
+
 async function ollamaFetch(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-  const res = await fetch(`${OLLAMA_HOST}${path}`, {
+  const dispatcher = await getDispatcher();
+  const init: RequestInit & { dispatcher?: unknown } = {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal,
-  });
+  };
+  if (dispatcher && dispatcher !== false) init.dispatcher = dispatcher;
+  const res = await fetch(`${OLLAMA_HOST}${path}`, init);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Ollama ${path} ${res.status}: ${text.slice(0, 200)}`);
@@ -118,6 +143,7 @@ export async function chatJson<T = unknown>(opts: ChatJsonOptions): Promise<T> {
 }
 
 function safeParseJson(s: string): unknown | null {
+  if (!s) return null;
   try {
     return JSON.parse(s);
   } catch {
@@ -127,11 +153,81 @@ function safeParseJson(s: string): unknown | null {
       try {
         return JSON.parse(m[1]);
       } catch {
+        /* fall through to repair */
+      }
+    }
+    // Last-ditch repair for late-truncated streams: find the last
+    // balanced close-brace before the cutoff. Walk forward tracking
+    // brace/bracket depth + string state, and remember the position
+    // each time we close back to depth 0. Then close any open scopes
+    // up to that position. Loses the truncated tail but salvages the
+    // top-level object — far better than nothing.
+    const repaired = repairTruncatedJson(s);
+    if (repaired) {
+      try {
+        return JSON.parse(repaired);
+      } catch {
         return null;
       }
     }
     return null;
   }
+}
+
+function repairTruncatedJson(s: string): string | null {
+  // Stack-based recovery for late-truncated streams. Earlier version
+  // tracked only an integer depth and naively emitted `}` for every
+  // open scope, producing structurally invalid JSON when an array was
+  // open at cutoff. This version tracks the actual stack of opener
+  // chars and emits matching closers in reverse stack order.
+  //
+  // Returns a parseable substring (with closers appended) covering as
+  // much of the original object as possible, or null if no safe
+  // truncation point exists.
+  const start = s.indexOf("{");
+  if (start < 0) return null;
+  const stack: string[] = []; // entries: '{' or '['
+  let inStr = false;
+  let escape = false;
+  // Last safe truncation point: position *just after* the last
+  // complete value that closed back to the outer object's depth >= 1.
+  // Setting only at depth >= 1 keeps the outer `{ ... }` intact.
+  let safeCut = -1;
+  let safeStack: string[] = [];
+  for (let i = start; i < s.length; i += 1) {
+    const c = s[i];
+    if (escape) { escape = false; continue; }
+    if (inStr) {
+      if (c === "\\") escape = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    if (c === "{" || c === "[") stack.push(c);
+    else if (c === "}" || c === "]") {
+      const top = stack.pop();
+      const expected = c === "}" ? "{" : "[";
+      if (top !== expected) return null; // malformed input -- bail
+      // After popping, if we are still inside the outer object, this
+      // is a clean truncation point (a complete value just ended).
+      if (stack.length >= 1) {
+        safeCut = i + 1;
+        safeStack = stack.slice();
+      }
+    } else if (c === "," && stack.length >= 1) {
+      safeCut = i; // drop the trailing comma when we slice
+      safeStack = stack.slice();
+    }
+  }
+  // If the cut would be inside an unterminated string, give up.
+  if (inStr) return null;
+  if (safeCut < 0) return null;
+  let trimmed = s.slice(start, safeCut).replace(/,\s*$/, "");
+  // Close scopes in reverse order with the matching closer.
+  for (let i = safeStack.length - 1; i >= 0; i -= 1) {
+    trimmed += safeStack[i] === "{" ? "}" : "]";
+  }
+  return trimmed;
 }
 
 export async function chat(opts: ChatOptions): Promise<string> {

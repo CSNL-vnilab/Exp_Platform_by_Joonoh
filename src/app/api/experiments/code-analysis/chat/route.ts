@@ -14,6 +14,7 @@ import { z } from "zod/v4";
 import { createClient } from "@/lib/supabase/server";
 import { streamChat, type ChatMessage, modelFor, ping } from "@/lib/ollama";
 import { CodeAnalysisSchema } from "@/lib/experiments/code-analysis-schema";
+import { analyzerAuthBypassActive } from "@/lib/experiments/dev-bypass";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,10 +51,15 @@ const PATCH_GRAMMAR = `사용 가능한 patch 명령:
 `;
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "인증이 필요합니다" }, { status: 401 });
+  const devBypass = analyzerAuthBypassActive();
+  if (!devBypass) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "인증이 필요합니다" }, { status: 401 });
+    }
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
