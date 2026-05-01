@@ -5,13 +5,16 @@ import { createBookingPage } from "@/lib/notion/client";
 import { sendEmail } from "@/lib/google/gmail";
 import { sendSMS } from "@/lib/solapi/client";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
-import { escapeHtml } from "@/lib/utils/validation";
 import { fromInternalEmail } from "@/lib/auth/username";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { issueRunToken } from "@/lib/experiments/run-token";
 import { issuePaymentToken } from "@/lib/payments/token";
 import { backfillIdentityForBooking } from "@/lib/services/participant-identity.service";
 import { buildConfirmationEmail } from "@/lib/services/booking-email-template";
+import {
+  buildRescheduleEmail,
+  buildRescheduleSMS,
+} from "@/lib/services/booking-reschedule-email";
 import type { ExperimentMode, OnlineRuntimeConfig } from "@/types/database";
 
 type IntegrationType = "gcal" | "notion" | "email" | "sms";
@@ -721,42 +724,81 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
     await invalidateCalendarCache(calendarId).catch(() => {});
   }
 
-  // Notify participant — email + SMS
+  // Notify participant — email + SMS. Template lives in
+  // booking-reschedule-email.ts so the structure (header box, location
+  // block, sibling-session block, researcher block, footer watermark)
+  // matches the other participant emails for inbox consistency.
   const participant = row.participants;
   const experiment = row.experiments;
-  const safeName = escapeHtml(participant.name);
-  const safeTitle = escapeHtml(experiment.title);
-  const oldLine = `${formatDateKR(params.oldSlotStart)} ${formatTimeKR(params.oldSlotStart)} - ${formatTimeKR(params.oldSlotEnd)}`;
-  const newLine = `${formatDateKR(row.slot_start)} ${formatTimeKR(row.slot_start)} - ${formatTimeKR(row.slot_end)}`;
 
   const creatorContact = creator as CreatorContact | null;
   const researcherEmail =
     (creatorContact?.contact_email || creator?.email || "").trim() || null;
-  // Researcher contact wins; lab-wide inbox is only used when actually
-  // configured (avoid leaking the placeholder address into reschedule
-  // notices). Null = "no inquiry line at all".
-  const contactLine = researcherEmail || brandContactEmailOrNull();
 
-  const html = `
-    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2>[${BRAND_NAME}] 실험 예약 변경 안내</h2>
-      <p>${safeName}님, 실험 예약 시간이 변경되었습니다.</p>
-      <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
-        <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">실험명</td><td style="padding: 8px; border: 1px solid #ddd;">${safeTitle}</td></tr>
-        <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">회차</td><td style="padding: 8px; border: 1px solid #ddd;">${row.session_number}회차</td></tr>
-        <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">이전 일정</td><td style="padding: 8px; border: 1px solid #ddd; color:#888; text-decoration:line-through">${escapeHtml(oldLine)}</td></tr>
-        <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background:#fef3c7;">변경된 일정</td><td style="padding: 8px; border: 1px solid #ddd; background:#fef3c7;"><b>${escapeHtml(newLine)}</b></td></tr>
-      </table>
-      ${contactLine ? `<p>문의: ${contactLine}</p>` : ""}
-    </div>
-  `;
+  // Pull location for offline experiments (template hides the block for
+  // online). Best-effort: a missing row falls through to no location.
+  let location: { name: string; address_lines: string[]; naver_url: string | null } | null = null;
+  if (experiment.experiment_mode !== "online" && experiment.location_id) {
+    const { data: loc } = await supabase
+      .from("experiment_locations")
+      .select("name, address_lines, naver_url")
+      .eq("id", experiment.location_id)
+      .maybeSingle();
+    location = (loc as { name: string; address_lines: string[]; naver_url: string | null } | null) ?? null;
+  }
+
+  // Sibling sessions in this booking_group, still confirmed. Lets the
+  // template say "이번 회차에만 적용됩니다" + list the others.
+  let otherActiveSessions: Array<{ slot_start: string; session_number: number }> = [];
+  const groupId = (row as unknown as { booking_group_id: string | null }).booking_group_id;
+  if (groupId) {
+    const { data: siblings } = await supabase
+      .from("bookings")
+      .select("id, slot_start, session_number, status")
+      .eq("booking_group_id", groupId)
+      .neq("id", row.id);
+    otherActiveSessions = (siblings ?? [])
+      .filter((s) => (s as { status: string }).status === "confirmed")
+      .map((s) => {
+        const r = s as { slot_start: string; session_number: number };
+        return { slot_start: r.slot_start, session_number: r.session_number };
+      })
+      .sort(
+        (a, b) => new Date(a.slot_start).getTime() - new Date(b.slot_start).getTime(),
+      );
+  }
+
+  const built = buildRescheduleEmail({
+    participant: { name: participant.name, email: participant.email },
+    experiment: {
+      title: experiment.title,
+      experiment_mode: experiment.experiment_mode,
+    },
+    booking: {
+      id: row.id,
+      session_number: row.session_number,
+      slot_start: row.slot_start,
+      slot_end: row.slot_end,
+    },
+    oldSlotStart: params.oldSlotStart,
+    oldSlotEnd: params.oldSlotEnd,
+    location,
+    researcher: {
+      display_name: creator?.display_name ?? null,
+      contact_email: creatorContact?.contact_email ?? null,
+      email: creator?.email ?? null,
+      phone: creator?.phone ?? null,
+    },
+    otherActiveSessions,
+  });
+
   const ccList =
     researcherEmail && researcherEmail !== participant.email ? [researcherEmail] : undefined;
   const emailResult = await sendEmail({
-    to: participant.email,
+    to: built.to,
     cc: ccList,
-    subject: `[${BRAND_NAME}] 실험 예약 변경 - ${experiment.title}`,
-    html,
+    subject: built.subject,
+    html: built.html,
   });
   await markIntegration(supabase, row.id, "email", {
     status: emailResult.success ? "completed" : "failed",
@@ -765,8 +807,29 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   });
 
   if (process.env.SOLAPI_API_KEY && process.env.SOLAPI_API_SECRET) {
-    const smsInquiry = contactLine ? `\n문의: ${contactLine}` : "";
-    const smsText = `[${BRAND_NAME}] 예약 변경\n${participant.name}님, "${experiment.title}" 실험 ${row.session_number}회차 일정이 변경되었습니다.\n변경: ${newLine}${smsInquiry}`;
+    const smsText = buildRescheduleSMS({
+      participant: { name: participant.name, email: participant.email },
+      experiment: {
+        title: experiment.title,
+        experiment_mode: experiment.experiment_mode,
+      },
+      booking: {
+        id: row.id,
+        session_number: row.session_number,
+        slot_start: row.slot_start,
+        slot_end: row.slot_end,
+      },
+      oldSlotStart: params.oldSlotStart,
+      oldSlotEnd: params.oldSlotEnd,
+      location,
+      researcher: {
+        display_name: creator?.display_name ?? null,
+        contact_email: creatorContact?.contact_email ?? null,
+        email: creator?.email ?? null,
+        phone: creator?.phone ?? null,
+      },
+      otherActiveSessions,
+    });
     try {
       await sendSMS(participant.phone, smsText);
       await markIntegration(supabase, row.id, "sms", { status: "completed" });
