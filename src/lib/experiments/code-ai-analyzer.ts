@@ -6,7 +6,6 @@
 
 import {
   CodeAnalysisSchema,
-  CodeAnalysisOverridesSchema,
   CODE_ANALYSIS_JSON_SCHEMA_HINT,
   SUPPORTED_FRAMEWORKS,
   SUPPORTED_GENRES,
@@ -596,8 +595,16 @@ const REFINE_REVIEW_PROMPT = [
 ].join("\n");
 
 const REFINE_CODE_BUDGET = 80_000;
-const REFINE_NUM_CTX = 65_536;
+// 32K is the safe native context for most local Ollama gemma4 / qwen
+// pulls without rope tweaks. Hosts with bigger models can override
+// via REFINEMENT_NUM_CTX env. Earlier 65K default tripped Ollama's
+// "invalid num_ctx" rejection on stock gemma4:31b pulls.
+const REFINE_NUM_CTX_DEFAULT = 32_768;
 const REFINE_NUM_PREDICT = 8_192;
+// Hard ceiling to avoid hung reviewers masquerading as success. The
+// outer try/catch in runAiAnalysis converts the AbortError to a
+// warning on the analysis output. Override via REFINEMENT_TIMEOUT_MS.
+const REFINE_TIMEOUT_MS_DEFAULT = 240_000;
 
 async function runRefinement(input: RefinementInput): Promise<RefinementOutput> {
   const reviewer = await resolveReviewProvider({
@@ -611,7 +618,7 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
     docs
       ? "참고 문서(연구자 작성):\n```\n" + docs + "\n```\n"
       : "",
-    "1차 추출 JSON (qwen3.6):",
+    "1차 추출 JSON (1차 추출기):",
     "```json",
     JSON.stringify(input.pass1, null, 2),
     "```",
@@ -633,18 +640,34 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
     { role: "user" as const, content: userContent },
   ];
 
+  const numCtx = clampPositiveInt(process.env.REFINEMENT_NUM_CTX, REFINE_NUM_CTX_DEFAULT);
+  const timeoutMs = clampPositiveInt(process.env.REFINEMENT_TIMEOUT_MS, REFINE_TIMEOUT_MS_DEFAULT);
+  // Caller's signal still wins if it fires earlier; we add an
+  // independent timeout signal so a hung Ollama call can't pin the
+  // bench / API request indefinitely.
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = input.signal
+    ? AbortSignal.any([input.signal, timeoutSignal])
+    : timeoutSignal;
+
   const t0 = Date.now();
   const text = await reviewer.chatText({
     messages,
     temperature: 0.1,
-    num_ctx: REFINE_NUM_CTX,
+    num_ctx: numCtx,
     num_predict: REFINE_NUM_PREDICT,
-    signal: input.signal,
+    signal,
   });
   const durationMs = Date.now() - t0;
 
   const { blocks } = parsePatchBlocks(text);
-  let overrides = CodeAnalysisOverridesSchema.parse(input.pass1) as CodeAnalysisOverrides;
+  // Treat pass-1 as the seed for refinement. We *don't* pre-parse
+  // through CodeAnalysisOverridesSchema — that strips defaults the
+  // canonical schema injects (factor.role, parameter.shape, etc.).
+  // The structural shape of CodeAnalysis is a strict subset of
+  // CodeAnalysisOverrides (all top-level keys present), so applyPatch
+  // can ingest it directly.
+  let working = input.pass1 as unknown as CodeAnalysisOverrides;
   let appliedCount = 0;
   let rejectedCount = 0;
   const rejectedReasons: string[] = [];
@@ -654,17 +677,26 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
       if (b.error) rejectedReasons.push(b.error);
       continue;
     }
-    const r = applyPatch(overrides, b.patch);
+    const r = applyPatch(working, b.patch);
     if (r.error) {
       rejectedCount += 1;
       rejectedReasons.push(r.error);
       continue;
     }
-    overrides = r.next;
+    working = r.next;
     appliedCount += 1;
   }
-  // Re-parse to fill defaults and guarantee CodeAnalysis shape.
-  const refinedAnalysis = CodeAnalysisSchema.parse(overrides);
+  // Re-parse to fill any missing defaults and guarantee
+  // CodeAnalysis shape. safeParse so we can attach a meaningful
+  // warning instead of dropping pass-1 results on a future merge bug.
+  const reparsed = CodeAnalysisSchema.safeParse(working);
+  const refinedAnalysis = reparsed.success ? reparsed.data : input.pass1;
+  if (!reparsed.success) {
+    refinedAnalysis.warnings = [
+      ...refinedAnalysis.warnings,
+      `2-pass: 최종 검증 실패 — 1-pass 결과로 폴백 (${reparsed.error.issues[0]?.message?.slice(0, 100) ?? "?"})`,
+    ];
+  }
   if (rejectedCount > 0) {
     refinedAnalysis.warnings = [
       ...refinedAnalysis.warnings,
@@ -680,4 +712,10 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
       durationMs,
     },
   };
+}
+
+function clampPositiveInt(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }

@@ -250,10 +250,20 @@ for (const name of fixturesArg) {
     const merged = mergeAnalysis(heuristic, ai, null);
     const sc = scoreFixture(merged, gt);
     let refineNote = "";
+    const wantRefine = (process.env.REFINEMENT ?? "").toLowerCase() === "on";
     if (r.refinement) {
       const ref = r.refinement;
       refineNote =
         ` · refine ${ref.appliedCount}±${ref.rejectedCount} (${(ref.durationMs / 1000).toFixed(1)}s, ${ref.model})`;
+    } else if (wantRefine) {
+      // Refinement was requested but threw inside runAiAnalysis; the
+      // analyzer attaches a Korean warning to the analysis. Surface
+      // it here so the bench output distinguishes "refinement off"
+      // from "refinement attempted-and-failed".
+      const fail = (ai.warnings ?? []).find((w) =>
+        /^2-pass refinement 실패/.test(w),
+      );
+      refineNote = ` · refine FAILED${fail ? `: ${fail.slice(0, 140)}` : ""}`;
     }
     console.log(
       `${(sc.pct * 100).toFixed(1).padStart(5)}% (${sc.score}/${sc.possible}) in ${(ms / 1000).toFixed(1)}s · model ${r.model}${refineNote}`,

@@ -85,22 +85,40 @@ export class OllamaProvider implements LLMProvider {
   }
 }
 
-// Resolve a model that's actually pulled on this Ollama host. Cached
-// for 60s to keep request latency low.
-let ollamaModelCache: { value: string; expires: number } | null = null;
+// Resolve a model that's actually pulled on this Ollama host. Per-tag
+// cached for 60s — *each* preferred tag gets its own cache slot so the
+// extraction pass (qwen3.6) doesn't poison the review pass (gemma4:31b)
+// or vice versa. Without a per-tag cache, the second call's `preferred`
+// argument was ignored for 60s after the first call, silently using
+// the wrong model for the second pass.
+const ollamaModelCache = new Map<string, { value: string; expires: number }>();
 export async function pickOllamaModel(preferred?: string): Promise<string> {
-  if (ollamaModelCache && ollamaModelCache.expires > Date.now()) return ollamaModelCache.value;
   const want = preferred ?? ollamaModelFor("code.analysis");
+  const cached = ollamaModelCache.get(want);
+  if (cached && cached.expires > Date.now()) return cached.value;
   const fb = OLLAMA_MODELS.codeAnalysisFallback;
   let chosen = want;
   try {
     const tags = await ollamaListModels();
     const has = (t: string) => tags.includes(t) || tags.some((x) => x.startsWith(`${t.split(":")[0]}:`));
-    if (!has(want) && has(fb)) chosen = fb;
-  } catch {
-    // network glitch — keep `want`
+    if (!has(want)) {
+      if (has(fb)) chosen = fb;
+      else {
+        // Neither requested nor fallback is pulled. Don't paper over
+        // the absence — caller's chat call would 404 anyway and the
+        // resulting error gets caught silently somewhere upstream.
+        // Throw with a clear message so the analyzer warning surfaces
+        // *which* model was missing.
+        throw new Error(
+          `Ollama 모델이 호스트에 없습니다: 요청 "${want}" / 폴백 "${fb}" — \`ollama pull ${want}\` 으로 받아주세요`,
+        );
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Ollama 모델이")) throw err;
+    // network glitch — keep `want` and let downstream fail loudly
   }
-  ollamaModelCache = { value: chosen, expires: Date.now() + 60_000 };
+  ollamaModelCache.set(want, { value: chosen, expires: Date.now() + 60_000 });
   return chosen;
 }
 
@@ -166,8 +184,13 @@ export class AnthropicProvider implements LLMProvider {
       },
       { signal: opts.signal },
     );
-    const block = res.content.find((b) => b.type === "text");
-    return block && "text" in block ? block.text : "";
+    // Concatenate ALL text blocks. Reviewer responses can interleave
+    // prose + <patch> + prose + <patch>; returning only the first block
+    // would silently drop trailing patches.
+    return res.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
   }
   async health() {
     // Cheapest possible probe — list models is rate-limited and not
@@ -289,12 +312,16 @@ export async function resolveReviewProvider(
   const envChoice =
     (process.env.REFINEMENT_PROVIDER as "ollama" | "anthropic" | undefined) ??
     null;
+  // Mirror resolveProvider: prefer Ollama (lab default — gemma4:31b is
+  // pulled), fall back to Anthropic only when no key for Ollama or
+  // user explicitly set ANTHROPIC for the review model. The earlier
+  // condition "ANTHROPIC_API_KEY && !OLLAMA_HOST" was inverted —
+  // hosts with both env vars (every dev box) silently fell to Ollama
+  // even when the user asked for the cloud reviewer.
   const target =
     explicit ??
     envChoice ??
-    (process.env.ANTHROPIC_API_KEY && !process.env.OLLAMA_HOST
-      ? "anthropic"
-      : "ollama");
+    (process.env.ANTHROPIC_API_KEY ? "anthropic" : "ollama");
 
   const ollamaTag =
     opts.ollamaModel ??
