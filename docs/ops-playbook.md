@@ -204,7 +204,7 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00053_dispatch_lock_and_status_audit.sql` on
+Last applied to prod: `00054_reschedule_propagation.sql` on
 2026-05-04.
 
 Staged for next deploy (apply after push):
