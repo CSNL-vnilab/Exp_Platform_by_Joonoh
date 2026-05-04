@@ -204,11 +204,11 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00052_payment_link_token_preserve.sql` on
-2026-05-01.
+Last applied to prod: `00053_dispatch_lock_and_status_audit.sql` on
+2026-05-04.
 
 Staged for next deploy (apply after push):
-- (none — all on-disk migrations applied as of 2026-05-01)
+- (none — all on-disk migrations applied as of 2026-05-04)
 
 Full list: `ls supabase/migrations/`.
 
