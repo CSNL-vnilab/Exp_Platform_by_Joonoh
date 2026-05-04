@@ -666,13 +666,61 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   const { data: fresh } = await supabase
     .from("bookings")
     .select(
-      "id, slot_start, slot_end, session_number, subject_number, google_event_id, notion_page_id, participants(name, phone, email), experiments(title, project_name, participation_fee, google_calendar_id, created_by, precautions, location_id, experiment_mode, online_runtime_config)",
+      "id, slot_start, slot_end, session_number, subject_number, booking_group_id, google_event_id, notion_page_id, participants(name, phone, email), experiments(title, project_name, participation_fee, google_calendar_id, created_by, precautions, location_id, experiment_mode, online_runtime_config)",
     )
     .eq("id", params.bookingId)
     .single();
   if (!fresh) return;
 
   const row = fresh as unknown as BookingRow;
+
+  // P0-Γ: propagate the reschedule to dependent rows BEFORE any other
+  // work so subsequent steps see the canonical state. Two RPCs from
+  // migration 00054:
+  //
+  //   - reschedule_reminders: rewrites reminders.scheduled_at to the
+  //     new KST day-before/day-of times. Cancels (status='cancelled')
+  //     any reminder that the new slot pushes into the past.
+  //
+  //   - propagate_payment_period: refreshes participant_payment_info's
+  //     period_start/end and amount_krw (unless researcher overrode).
+  //     Skips already-submitted rows.
+  //
+  // Both fail-soft — log errors and continue with the email/SMS work
+  // so a participant still gets the change notice even if propagation
+  // hits an unexpected schema state.
+  try {
+    const { error: remErr } = await supabase.rpc("reschedule_reminders", {
+      p_booking_id: row.id,
+      p_new_slot_start: row.slot_start,
+      p_new_slot_end: row.slot_end,
+    });
+    if (remErr) {
+      console.error("[Reschedule] reschedule_reminders rpc failed:", remErr.message);
+    }
+  } catch (err) {
+    console.error(
+      "[Reschedule] reschedule_reminders threw:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  const propagateGroupId = (row as unknown as { booking_group_id: string | null }).booking_group_id;
+  if (propagateGroupId) {
+    try {
+      const { error: payErr } = await supabase.rpc("propagate_payment_period", {
+        p_booking_group_id: propagateGroupId,
+      });
+      if (payErr) {
+        console.error("[Reschedule] propagate_payment_period rpc failed:", payErr.message);
+      }
+    } catch (err) {
+      console.error(
+        "[Reschedule] propagate_payment_period threw:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 
   // Look up experiment creator for initial
   let creator: CreatorProfile | null = null;

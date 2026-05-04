@@ -1465,6 +1465,23 @@ export interface Database {
         Args: Record<string, never>;
         Returns: Json;
       };
+      reschedule_reminders: {
+        // Migration 00054 — propagate booking slot change into pending
+        // reminder rows. Returns { success, updated, cancelled }.
+        Args: {
+          p_booking_id: string;
+          p_new_slot_start: string;
+          p_new_slot_end: string;
+        };
+        Returns: Json;
+      };
+      propagate_payment_period: {
+        // Migration 00054 — refresh participant_payment_info period_*
+        // and amount_krw from current bookings in the group. Returns
+        // { success, period_start, period_end, amount_krw, session_count }.
+        Args: { p_booking_group_id: string };
+        Returns: Json;
+      };
     };
     Enums: {
       [_ in never]: never;
