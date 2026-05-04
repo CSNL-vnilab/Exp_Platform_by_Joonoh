@@ -16,6 +16,12 @@ export interface SendEmailOptions {
   html: string;
   cc?: string | string[];
   bcc?: string | string[];
+  // C-P1-4: Reply-To header. When set, "Reply" in the recipient's
+  // mail client targets this address (typically the responsible
+  // researcher's contact_email) instead of the lab-wide GMAIL_USER
+  // inbox the mail was sent FROM. Optional: callers without a
+  // researcher contact can omit it and the From address is used.
+  replyTo?: string;
 }
 
 export async function sendEmail(
@@ -33,6 +39,7 @@ export async function sendEmail(
       to: opts.to,
       cc: opts.cc,
       bcc: opts.bcc,
+      replyTo: opts.replyTo,
       subject: opts.subject,
       html: opts.html,
     });

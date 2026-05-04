@@ -531,11 +531,18 @@ async function runEmail(
     paymentLink: paymentLink ? { url: paymentLink.url } : null,
   });
 
+  // C-P1-4: Reply-To = researcher's contact_email (or fall through to
+  // login email) so a participant who hits "Reply" goes to the right
+  // person rather than the lab-wide GMAIL_USER inbox.
+  const confirmReplyTo =
+    ((creator as CreatorContact | null)?.contact_email || creator?.email || "").trim() ||
+    undefined;
   const result = await sendEmail({
     to: built.to,
     cc: built.cc,
     subject: built.subject,
     html: built.html,
+    replyTo: confirmReplyTo,
   });
 
   for (const booking of rows) {
@@ -853,11 +860,13 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
 
   const ccList =
     researcherEmail && researcherEmail !== participant.email ? [researcherEmail] : undefined;
+  // C-P1-4 Reply-To
   const emailResult = await sendEmail({
     to: built.to,
     cc: ccList,
     subject: built.subject,
     html: built.html,
+    replyTo: researcherEmail ?? undefined,
   });
   await markIntegration(supabase, row.id, "email", {
     status: emailResult.success ? "completed" : "failed",

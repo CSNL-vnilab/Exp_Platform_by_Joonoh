@@ -40,6 +40,7 @@ type Mailer = (opts: {
   to: string;
   subject: string;
   html: string;
+  replyTo?: string;
 }) => Promise<{ success: boolean; messageId?: string; error?: string }>;
 
 interface PaymentInfoRow {
@@ -360,10 +361,14 @@ export async function notifyPaymentInfoIfReady(
     isReminder: preservedToken,
   });
 
+  // C-P1-4 Reply-To = researcher contact_email
+  const replyTo =
+    (researcher?.contactEmail ?? "").trim() || undefined;
   const sendResult = await mailer({
     to: built.to,
     subject: built.subject,
     html: built.html,
+    replyTo,
   });
 
   const nowIso = new Date().toISOString();

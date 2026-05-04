@@ -223,6 +223,7 @@ export async function processReminders(): Promise<number> {
           { title: subject },
         );
 
+        // C-P1-4 Reply-To
         await sendEmail({
           to: participant.email,
           cc:
@@ -231,6 +232,7 @@ export async function processReminders(): Promise<number> {
               : undefined,
           subject,
           html,
+          replyTo: researcherEmail ?? undefined,
         });
       }
 

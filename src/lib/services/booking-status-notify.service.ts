@@ -20,8 +20,12 @@ import {
 type Supabase = ReturnType<typeof createAdminClient>;
 
 // Injectable mailer/sms for tests (same pattern as payment-info-notify).
-type Mailer = (opts: { to: string; subject: string; html: string }) =>
-  Promise<{ success: boolean; messageId?: string; error?: string }>;
+type Mailer = (opts: {
+  to: string;
+  subject: string;
+  html: string;
+  replyTo?: string;
+}) => Promise<{ success: boolean; messageId?: string; error?: string }>;
 type Texter = (
   to: string,
   text: string,
@@ -155,10 +159,17 @@ export async function notifyBookingStatusChange(
       ? buildCancellationEmail(input)
       : buildNoShowEmail(input);
 
+  // C-P1-4 Reply-To = researcher contact_email so the participant
+  // can reply directly to the responsible researcher.
+  const replyTo =
+    (researcher?.contact_email ?? "").trim() ||
+    (researcher?.email ?? "").trim() ||
+    undefined;
   const emailResult = await mailer({
     to: built.to,
     subject: built.subject,
     html: built.html,
+    replyTo,
   });
 
   // P0-Η: persist email outcome to booking_integrations as 'status_email'
