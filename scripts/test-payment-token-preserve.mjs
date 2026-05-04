@@ -234,6 +234,92 @@ await group("falls back to rotation when decryptToken throws", async () => {
   }
 });
 
+// ── 5b. P0-Β invariant: rotation must update cipher in lockstep with hash
+await group("rotation writes new cipher matching new hash (P0-Β)", async () => {
+  const crypto = await import("../src/lib/crypto/payment-info.ts");
+  // Seed a row with a stale cipher (decrypts to "stale-token") AND
+  // first_opened_at unset → triggers the rotate branch (not preserve).
+  const staleEnc = crypto.encryptToken("stale-token-from-seed.xxx.yyy.zzz");
+  const toHex = (b) => "\\x" + b.toString("hex");
+  const { state } = freshState({
+    payment: {
+      payment_link_first_opened_at: null,
+      token_cipher: toHex(staleEnc.cipher),
+      token_iv: toHex(staleEnc.iv),
+      token_tag: toHex(staleEnc.tag),
+      token_key_version: staleEnc.keyVersion,
+    },
+  });
+  const sb = makeSb(state);
+  const stubMailer = async () => ({ success: true });
+  const { notifyPaymentInfoIfReady } = await import(
+    "../src/lib/services/payment-info-notify.service.ts"
+  );
+  await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
+
+  const row = state.participant_payment_info[0];
+  check("token_hash was rotated", row.token_hash !== "old-hash");
+  // Decrypt the new cipher and verify its sha256 matches the new hash.
+  // This is the invariant the page-level token check relies on.
+  const newCipherBytes = Buffer.from(row.token_cipher.replace(/^\\x/, ""), "hex");
+  const newIvBytes = Buffer.from(row.token_iv.replace(/^\\x/, ""), "hex");
+  const newTagBytes = Buffer.from(row.token_tag.replace(/^\\x/, ""), "hex");
+  const decrypted = crypto.decryptToken({
+    cipher: newCipherBytes,
+    iv: newIvBytes,
+    tag: newTagBytes,
+    keyVersion: row.token_key_version,
+  });
+  check("new cipher decrypts to a valid plaintext (not 'stale-token-…')",
+        !decrypted.startsWith("stale-token"),
+        `got ${decrypted.slice(0, 20)}…`);
+  const { createHash } = await import("node:crypto");
+  const expectedHash = createHash("sha256").update(decrypted).digest("hex");
+  check("new cipher's plaintext hashes to the new token_hash",
+        expectedHash === row.token_hash,
+        `cipher→${expectedHash.slice(0, 12)}…  row→${row.token_hash.slice(0, 12)}…`);
+});
+
+// Same invariant for the decrypt-fallback rotation path.
+await group("decrypt-fallback rotation writes new cipher matching new hash", async () => {
+  const { state } = freshState({
+    payment: {
+      payment_link_first_opened_at: new Date().toISOString(),
+      // corrupted cipher → triggers fallback rotation
+      token_cipher: "\\xdeadbeef",
+      token_iv: "\\xdeadbeefdeadbeefdeadbeef",
+      token_tag: "\\xdeadbeefdeadbeefdeadbeefdeadbeef",
+      token_key_version: 1,
+    },
+  });
+  const sb = makeSb(state);
+  const stubMailer = async () => ({ success: true });
+  const realWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const { notifyPaymentInfoIfReady } = await import(
+      "../src/lib/services/payment-info-notify.service.ts"
+    );
+    await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
+  } finally {
+    console.warn = realWarn;
+  }
+  const row = state.participant_payment_info[0];
+  check("cipher was replaced (no longer the bad \\xdeadbeef)",
+        !row.token_cipher.startsWith("\\xdeadbeef"));
+  const crypto = await import("../src/lib/crypto/payment-info.ts");
+  const decrypted = crypto.decryptToken({
+    cipher: Buffer.from(row.token_cipher.replace(/^\\x/, ""), "hex"),
+    iv: Buffer.from(row.token_iv.replace(/^\\x/, ""), "hex"),
+    tag: Buffer.from(row.token_tag.replace(/^\\x/, ""), "hex"),
+    keyVersion: row.token_key_version,
+  });
+  const { createHash } = await import("node:crypto");
+  const expectedHash = createHash("sha256").update(decrypted).digest("hex");
+  check("decrypted plaintext hashes to new token_hash",
+        expectedHash === row.token_hash);
+});
+
 // ── 6. email template: isReminder shapes subject + intro ──────────────
 await group("payment-info-email-template — isReminder branch", async () => {
   const m = await import("../src/lib/services/payment-info-email-template.ts");

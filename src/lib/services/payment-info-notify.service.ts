@@ -29,7 +29,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail as defaultSendEmail } from "@/lib/google/gmail";
 import { issuePaymentToken } from "@/lib/payments/token";
 import { buildPaymentInfoEmail } from "@/lib/services/payment-info-email-template";
-import { bytesFromSupabase, decryptToken } from "@/lib/crypto/payment-info";
+import { bytesFromSupabase, decryptToken, encryptToken } from "@/lib/crypto/payment-info";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -211,10 +211,22 @@ export async function notifyPaymentInfoIfReady(
       const issued = issuePaymentToken(bookingGroupId);
       tokenString = issued.token;
       tokenExpiresAtIso = new Date(issued.expiresAt).toISOString();
+      // P0-Β fix: rotate cipher in lockstep with hash. Without this, the
+      // row would keep stale ciphertext that decrypts to the OLD token,
+      // and the next dispatch would think it can preserve — but the
+      // preserved token's hash no longer matches token_hash, so the
+      // page rejects as INVALID. Encrypt the new token so cipher and
+      // hash always describe the same plaintext.
+      const enc = encryptToken(issued.token);
+      const toHex = (b: Buffer) => `\\x${b.toString("hex")}`;
       await supabase
         .from("participant_payment_info")
         .update({
           token_hash: issued.hash,
+          token_cipher: toHex(enc.cipher),
+          token_iv: toHex(enc.iv),
+          token_tag: toHex(enc.tag),
+          token_key_version: enc.keyVersion,
           token_issued_at: new Date(issued.issuedAt).toISOString(),
           token_expires_at: tokenExpiresAtIso,
           token_revoked_at: null,
@@ -225,10 +237,18 @@ export async function notifyPaymentInfoIfReady(
     const issued = issuePaymentToken(bookingGroupId);
     tokenString = issued.token;
     tokenExpiresAtIso = new Date(issued.expiresAt).toISOString();
+    // P0-Β fix — see decrypt-fallback comment above. Same lockstep
+    // requirement: write cipher with the new hash.
+    const enc = encryptToken(issued.token);
+    const toHex = (b: Buffer) => `\\x${b.toString("hex")}`;
     await supabase
       .from("participant_payment_info")
       .update({
         token_hash: issued.hash,
+        token_cipher: toHex(enc.cipher),
+        token_iv: toHex(enc.iv),
+        token_tag: toHex(enc.tag),
+        token_key_version: enc.keyVersion,
         token_issued_at: new Date(issued.issuedAt).toISOString(),
         token_expires_at: tokenExpiresAtIso,
         token_revoked_at: null,
