@@ -43,7 +43,12 @@ export const experimentSchema = z.object({
   categories: z
     .array(z.enum(CATEGORY_VALUES as [string, ...string[]]))
     .default([]),
-  location_id: z.string().uuid().nullable().optional(),
+  // zod v4 .uuid() enforces strict RFC 4122 v1-v8 — rejects fixture
+  // UUIDs like aaaaaaaa-aaaa-aaaa-aaaa-000000000001 (the seeded
+  // experiment_locations rows). The DB column is Postgres UUID so
+  // anything that fails the loose 8-4-4-4-12 hex regex below also
+  // fails INSERT — safe to relax here.
+  location_id: z.string().regex(uuidRegex, "올바른 장소 ID 형식이 아닙니다").nullable().optional(),
   weekdays: z.array(z.number().int().min(0).max(6)).min(1).default([0, 1, 2, 3, 4, 5, 6]),
   registration_deadline: z.string().datetime().nullable().optional(),
   auto_lock: z.boolean().default(true),
