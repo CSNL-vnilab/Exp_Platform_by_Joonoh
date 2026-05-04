@@ -435,19 +435,40 @@ function RescheduleModal({
             {/* Day header */}
             <div className="grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border bg-card">
               <div />
-              {currentWeekDays.map((day) => (
-                <div
-                  key={`d-${day.dateKey}`}
-                  className="flex flex-col items-center border-r border-border py-1.5 last:border-r-0"
-                >
-                  <span className="text-[10px] text-muted">
-                    {weekdayFmt.format(new Date(`${day.dateKey}T09:00:00+09:00`))}
-                  </span>
-                  <span className="text-[12px] font-semibold text-foreground">
-                    {dateFmt.format(new Date(`${day.dateKey}T09:00:00+09:00`))}
-                  </span>
-                </div>
-              ))}
+              {currentWeekDays.map((day) => {
+                // Tint Sat blue / Sun red so the researcher can spot the
+                // weekend at a glance (matches the Korean calendar
+                // convention). The KST T09:00 anchor avoids edge cases
+                // around midnight UTC.
+                const dow = new Date(
+                  `${day.dateKey}T09:00:00+09:00`,
+                ).getDay();
+                const dowCls =
+                  dow === 0
+                    ? "text-red-600"
+                    : dow === 6
+                      ? "text-blue-600"
+                      : "text-foreground";
+                const dowMutedCls =
+                  dow === 0
+                    ? "text-red-500/80"
+                    : dow === 6
+                      ? "text-blue-500/80"
+                      : "text-muted";
+                return (
+                  <div
+                    key={`d-${day.dateKey}`}
+                    className="flex flex-col items-center border-r border-border py-1.5 last:border-r-0"
+                  >
+                    <span className={`text-[10px] ${dowMutedCls}`}>
+                      {weekdayFmt.format(new Date(`${day.dateKey}T09:00:00+09:00`))}
+                    </span>
+                    <span className={`text-[12px] font-semibold ${dowCls}`}>
+                      {dateFmt.format(new Date(`${day.dateKey}T09:00:00+09:00`))}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
             {timeRows.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted">
