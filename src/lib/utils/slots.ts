@@ -9,6 +9,11 @@ export interface TimeSlot {
 export interface BusyInterval {
   start: Date;
   end: Date;
+  /** Event title from Google Calendar — surfaced in the picker UI so
+   *  the researcher knows *why* a slot is busy ("정원 회의" vs anonymous
+   *  "busy"). Optional because the freebusy.query fallback path can't
+   *  return titles. */
+  summary?: string | null;
 }
 
 interface SlotGenerationParams {
@@ -103,6 +108,10 @@ export interface ClassifiedSlot {
   status: SlotStatus;
   bookedCount: number;
   capacity: number;
+  /** When status="busy", the title of the conflicting calendar event
+   *  (if available). Lets the picker tooltip explain *why* the slot
+   *  is taken instead of just rendering it gray. */
+  busy_summary?: string | null;
 }
 
 /**
@@ -136,9 +145,10 @@ export function generateClassifiedSlots(
     const slotEnd = addMinutes(current, sessionDurationMinutes);
     if (slotEnd > dayEnd) break;
 
-    const isBusy = busyIntervals.some((busy) =>
+    const overlapping = busyIntervals.find((busy) =>
       intervalsOverlap({ start: current, end: slotEnd }, busy),
     );
+    const isBusy = !!overlapping;
 
     const slotKey = `${current.toISOString()}-${slotEnd.toISOString()}`;
     const bookedCount = bookedCountPerSlot?.get(slotKey) ?? 0;
@@ -161,6 +171,7 @@ export function generateClassifiedSlots(
       status,
       bookedCount,
       capacity: maxParticipantsPerSlot,
+      busy_summary: isBusy ? overlapping.summary ?? null : null,
     });
 
     current = addMinutes(current, incrementMinutes);
