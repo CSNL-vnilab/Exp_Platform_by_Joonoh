@@ -538,10 +538,19 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
       refinement: refined.refinement,
     };
   } catch (err) {
+    // Tag timeout vs other failures so the bench / on-call can
+    // distinguish "reviewer too slow on this host" from
+    // "reviewer model missing / non-deterministic crash". The
+    // AbortError name covers both AbortSignal.timeout and an
+    // explicit caller cancel.
+    const isTimeout =
+      err instanceof Error &&
+      (err.name === "AbortError" || /aborted|timeout/i.test(err.message));
+    const tag = isTimeout ? "[timeout]" : "[error]";
     const detail = err instanceof Error ? err.message : String(err);
     pass1.analysis.warnings = [
       ...pass1.analysis.warnings,
-      `2-pass refinement 실패 (${detail.slice(0, 120)}) — 1-pass 결과를 그대로 사용합니다.`,
+      `2-pass refinement 실패 ${tag} (${detail.slice(0, 120)}) — 1-pass 결과를 그대로 사용합니다.`,
     ];
     return pass1;
   }
@@ -623,12 +632,14 @@ const REFINE_CODE_BUDGET = 80_000;
 const REFINE_NUM_CTX_DEFAULT = 32_768;
 const REFINE_NUM_CTX_MAX = 1_048_576;
 const REFINE_NUM_PREDICT = 8_192;
-// Hard ceiling to avoid hung reviewers masquerading as success. 360s
-// covers stock gemma4:31b on Apple Silicon at our prompt size; cloud
-// reviewers (Claude Opus) typically finish in 30-60s. Override via
-// REFINEMENT_TIMEOUT_MS env when a slower box / heavier prompt
-// genuinely needs longer.
-const REFINE_TIMEOUT_MS_DEFAULT = 360_000;
+// Hard ceiling to avoid hung reviewers masquerading as success.
+// 600s (10 min) covers stock gemma4:31b on Apple Silicon for the
+// 80KB-bundle / 30KB-docs prompt size we send (smoke against
+// psychopy_estimation needed 414s end-to-end at 360s timeout, so
+// the previous 360s default was too tight). Cloud reviewers (Claude
+// Opus) typically finish in 30-60s. For faster local review at the
+// cost of some accuracy use `REFINEMENT_MODEL=gemma4:26b`.
+const REFINE_TIMEOUT_MS_DEFAULT = 600_000;
 const REFINE_TIMEOUT_MS_MAX = 30 * 60_000; // 30 min absolute ceiling
 
 async function runRefinement(input: RefinementInput): Promise<RefinementOutput> {
