@@ -262,21 +262,36 @@ function RescheduleModal({
   // Keyboard shortcuts (active only when this modal is open):
   //   ←/→  prev/next week
   //   t    jump to the current booking's week ("Today")
-  //   Esc  close (Modal handles this too, but we register it
-  //        defensively so the focus state doesn't matter)
-  // Skip when typing in an input/textarea so the researcher can still
-  // edit free-form fields without hijacking ←/→.
+  // Esc is intentionally NOT handled here — the Modal uses a native
+  // <dialog> whose built-in cancel→close already fires onClose, so
+  // an extra window-level listener would double-fire the callback.
+  //
+  // Bail conditions:
+  //   - any modifier (Cmd/Ctrl/Alt) — protects browser shortcuts
+  //     (Cmd+T new tab, Cmd+Shift+T reopen, Alt+← back, Alt+→ forward).
+  //   - input / textarea / select / contentEditable focus — researcher
+  //     keeps default cursor behaviour in form fields.
+  //   - IME composition (isComposing / keyCode 229) — Hangul input.
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      const t = e.target as Element | null;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.isComposing || e.keyCode === 229) return;
+      const tgt = e.target as Element | null;
       if (
-        t instanceof HTMLInputElement ||
-        t instanceof HTMLTextAreaElement ||
-        (t && "isContentEditable" in t && (t as HTMLElement).isContentEditable)
+        tgt instanceof HTMLInputElement ||
+        tgt instanceof HTMLTextAreaElement ||
+        tgt instanceof HTMLSelectElement
       ) {
         return;
       }
+      const editable =
+        tgt && "closest" in tgt
+          ? (tgt as Element).closest(
+              "[contenteditable=''],[contenteditable='true'],[role='textbox']",
+            )
+          : null;
+      if (editable) return;
       if (e.key === "ArrowLeft" && !atEarliest) {
         e.preventDefault();
         shiftWeek(-1);
@@ -286,16 +301,13 @@ function RescheduleModal({
       } else if (e.key === "t" || e.key === "T") {
         e.preventDefault();
         jumpToCurrent();
-      } else if (e.key === "Escape") {
-        // Don't preventDefault — let Modal's own handler also fire.
-        onClose();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-    // shiftWeek/jumpToCurrent are defined inline (no deps), so closing
-    // over the latest weekStart only requires re-binding when bounds
-    // change.
+    // shiftWeek/jumpToCurrent are inline closures over weekStart and
+    // currentSlotStart; re-bind whenever those change so the handler
+    // never reads stale state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, atEarliest, atLatest, weekStart, currentSlotStart]);
 
@@ -438,11 +450,12 @@ function RescheduleModal({
               {currentWeekDays.map((day) => {
                 // Tint Sat blue / Sun red so the researcher can spot the
                 // weekend at a glance (matches the Korean calendar
-                // convention). The KST T09:00 anchor avoids edge cases
-                // around midnight UTC.
-                const dow = new Date(
-                  `${day.dateKey}T09:00:00+09:00`,
-                ).getDay();
+                // convention). Use the existing kstDayOfWeek helper —
+                // a plain new Date(...).getDay() returns the *runtime*
+                // local timezone's day, so a viewer in the Americas
+                // would see weekend tinting shifted by one column.
+                const iso = `${day.dateKey}T09:00:00+09:00`;
+                const dow = kstDayOfWeek(iso);
                 const dowCls =
                   dow === 0
                     ? "text-red-600"
@@ -455,16 +468,17 @@ function RescheduleModal({
                     : dow === 6
                       ? "text-blue-500/80"
                       : "text-muted";
+                const date = new Date(iso);
                 return (
                   <div
                     key={`d-${day.dateKey}`}
                     className="flex flex-col items-center border-r border-border py-1.5 last:border-r-0"
                   >
                     <span className={`text-[10px] ${dowMutedCls}`}>
-                      {weekdayFmt.format(new Date(`${day.dateKey}T09:00:00+09:00`))}
+                      {weekdayFmt.format(date)}
                     </span>
                     <span className={`text-[12px] font-semibold ${dowCls}`}>
-                      {dateFmt.format(new Date(`${day.dateKey}T09:00:00+09:00`))}
+                      {dateFmt.format(date)}
                     </span>
                   </div>
                 );
