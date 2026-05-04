@@ -61,10 +61,17 @@ function kstDateKey(iso: string): string {
   return `${parts.find((p) => p.type === "year")!.value}-${parts.find((p) => p.type === "month")!.value}-${parts.find((p) => p.type === "day")!.value}`;
 }
 
+// Cached at module scope — `kstDayOfWeek` is called 7×/render in the
+// header map; allocating a fresh `Intl.DateTimeFormat` per call was
+// hot enough to flag in profiling. The formatter is locale-pinned to
+// `en-US` so the indexOf below is unaffected by the runtime locale.
+const enWeekdayShortKstFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: KST,
+  weekday: "short",
+});
+
 function kstDayOfWeek(iso: string): number {
-  const w = new Intl.DateTimeFormat("en-US", { timeZone: KST, weekday: "short" }).format(
-    new Date(iso),
-  );
+  const w = enWeekdayShortKstFmt.format(new Date(iso));
   return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(w);
 }
 
@@ -288,7 +295,7 @@ function RescheduleModal({
       const editable =
         tgt && "closest" in tgt
           ? (tgt as Element).closest(
-              "[contenteditable=''],[contenteditable='true'],[role='textbox']",
+              "[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only'],[role='textbox'],[role='searchbox'],[role='combobox']",
             )
           : null;
       if (editable) return;
@@ -305,9 +312,12 @@ function RescheduleModal({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-    // shiftWeek/jumpToCurrent are inline closures over weekStart and
-    // currentSlotStart; re-bind whenever those change so the handler
-    // never reads stale state.
+    // shiftWeek/jumpToCurrent are inline functions, recreated each
+    // render. The deps array lists their *closure inputs* (weekStart,
+    // currentSlotStart) plus the bounds checks (atEarliest,
+    // atLatest), so the handler always reads fresh state. The lint
+    // rule wants the function identities themselves in the deps,
+    // which would re-bind on every render needlessly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, atEarliest, atLatest, weekStart, currentSlotStart]);
 
