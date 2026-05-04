@@ -1482,6 +1482,13 @@ export interface Database {
         Args: { p_booking_group_id: string };
         Returns: Json;
       };
+      mark_group_completed: {
+        // Migration 00055 — flip every confirmed/running booking in
+        // the group to 'completed' in one shot. Used by the payment
+        // panel's "회차 완료 처리" button. Returns { success, updated }.
+        Args: { p_booking_group_id: string };
+        Returns: Json;
+      };
     };
     Enums: {
       [_ in never]: never;

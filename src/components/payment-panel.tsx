@@ -70,6 +70,7 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
   const [editValue, setEditValue] = useState<string>("");
   const [pendingAction, startActionTransition] = useTransition();
   const [resending, setResending] = useState<string | null>(null);
+  const [marking, setMarking] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
 
   // Backfill payment_info rows for booking_groups that ended up without
@@ -120,6 +121,45 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
       toast("네트워크 오류가 발생했습니다.", "error");
     } finally {
       setBackfilling(false);
+    }
+  }
+
+  async function handleMarkCompleted(r: PaymentRow) {
+    if (
+      !confirm(
+        `${r.participantName}님의 모든 회차를 '완료(completed)' 로 마킹할까요?\n\n` +
+          "이미 'completed' 인 회차는 그대로 유지되며, " +
+          "'confirmed' / 'running' 회차만 일괄 'completed' 로 바뀝니다. " +
+          "이후 '안내 메일 발송' 버튼이 활성화됩니다.",
+      )
+    )
+      return;
+    setMarking(r.bookingGroupId);
+    try {
+      const res = await fetch(
+        `/api/experiments/${experimentId}/payment-info/${r.bookingGroupId}/mark-completed`,
+        { method: "POST" },
+      );
+      const body = (await res.json().catch(() => null)) as {
+        success?: boolean;
+        updated?: number;
+        error?: string;
+      } | null;
+      if (!res.ok || !body?.success) {
+        toast(body?.error ?? "마킹에 실패했습니다.", "error");
+        return;
+      }
+      toast(
+        body.updated
+          ? `${body.updated}개 회차를 완료 처리했습니다.`
+          : "이미 모든 회차가 완료 상태입니다.",
+        body.updated ? "success" : "info",
+      );
+      setTimeout(() => window.location.reload(), 600);
+    } catch {
+      toast("네트워크 오류가 발생했습니다.", "error");
+    } finally {
+      setMarking(null);
     }
   }
 
@@ -393,6 +433,8 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
                           row={r}
                           busy={resending === r.bookingGroupId}
                           onResend={() => handleResend(r)}
+                          marking={marking === r.bookingGroupId}
+                          onMarkCompleted={() => handleMarkCompleted(r)}
                         />
                       </td>
                       <td className="py-2">
@@ -451,10 +493,14 @@ function DispatchCell({
   row,
   busy,
   onResend,
+  onMarkCompleted,
+  marking,
 }: {
   row: PaymentRow;
   busy: boolean;
   onResend: () => void;
+  onMarkCompleted: () => void;
+  marking: boolean;
 }) {
   const submittedTerminal =
     row.status === "submitted_to_admin" ||
@@ -499,9 +545,25 @@ function DispatchCell({
   }
 
   // Not yet sent. Show why (still waiting for completion / failed) + a
-  // manual trigger when applicable.
+  // manual trigger when applicable. When sessions aren't done, offer a
+  // shortcut "회차 완료 처리" button so the researcher doesn't have to
+  // open the observation modal for every session — common in backfilled
+  // experiments where the participant finished offline weeks ago.
   if (!row.allBookingsCompleted) {
-    return <span className="text-[11px] text-muted">세션 종료 대기</span>;
+    return (
+      <div className="flex flex-col gap-1">
+        <span className="text-[11px] text-muted">세션 종료 대기</span>
+        <button
+          type="button"
+          disabled={marking}
+          onClick={onMarkCompleted}
+          title="이 그룹의 모든 회차를 한 번에 'completed' 로 마킹합니다."
+          className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+        >
+          {marking ? "마킹 중…" : "✓ 회차 완료 처리"}
+        </button>
+      </div>
+    );
   }
 
   if (row.paymentLinkLastError) {

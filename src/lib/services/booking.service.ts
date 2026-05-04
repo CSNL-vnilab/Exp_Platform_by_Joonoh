@@ -215,7 +215,9 @@ async function seedPaymentInfo(
         month: "2-digit",
         day: "2-digit",
       }).format(d);
-    const amountKrw = fee * rows.length;
+    // experiments.participation_fee = total fee per booking_group, not
+    // per session. Multi-session experiments still pay one fee.
+    const amountKrw = fee;
 
     const { error } = await supabase.from("participant_payment_info").upsert(
       {

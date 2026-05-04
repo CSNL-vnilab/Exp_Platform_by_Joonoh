@@ -92,11 +92,15 @@ await group("happy path: 3 groups all need backfill", async () => {
   check("inserted=3", r.inserted === 3, `got ${r.inserted}`);
   check("insertFailures=0", r.insertFailures === 0);
   check("skippedNoFee=false", r.skippedNoFee === false);
-  // Verify amounts
+  // Per-group fee semantics: each group pays the experiment.participation_fee
+  // ONCE regardless of session_count. Multi-session experiments still get
+  // a single fee per booking_group.
   const g1Row = state.participant_payment_info.find((r) => r.booking_group_id === "g1");
-  check("g1 amount = fee × 2 sessions", g1Row?.amount_krw === fee * 2);
+  check("g1 amount = fee (NOT fee × 2 sessions)", g1Row?.amount_krw === fee);
   const g2Row = state.participant_payment_info.find((r) => r.booking_group_id === "g2");
-  check("g2 amount = fee × 1 session", g2Row?.amount_krw === fee);
+  check("g2 amount = fee (single session)", g2Row?.amount_krw === fee);
+  const g3Row = state.participant_payment_info.find((r) => r.booking_group_id === "g3");
+  check("g3 amount = fee (NOT fee × 2 sessions)", g3Row?.amount_krw === fee);
 });
 
 await group("idempotent: groups already with row are skipped", async () => {
@@ -150,7 +154,7 @@ await group("cancelled-only group → no row", async () => {
   check("inserted=0", r.inserted === 0);
 });
 
-await group("half-cancelled group: amount = fee × non-cancelled count", async () => {
+await group("half-cancelled group: amount = fee (per-group), period from non-cancelled", async () => {
   const state = {
     experiments: [{ id: expId, participation_fee: fee }],
     bookings: [
@@ -164,7 +168,7 @@ await group("half-cancelled group: amount = fee × non-cancelled count", async (
   const m = await import("../src/lib/payments/backfill.ts");
   await m.backfillPaymentInfoForExperiment(sb, expId);
   const row = state.participant_payment_info[0];
-  check("amount = fee × 2 (cancelled excluded)", row.amount_krw === fee * 2);
+  check("amount = fee (per-group, NOT × N)", row.amount_krw === fee);
   // Period from MIN/MAX of non-cancelled only.
   check("period_end based on non-cancelled max",
         row.period_end === "2026-04-03",

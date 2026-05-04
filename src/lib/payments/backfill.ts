@@ -128,7 +128,12 @@ export async function backfillPaymentInfoForExperiment(
     const periodStart = new Date(Math.min(...starts));
     const periodEnd = new Date(Math.max(...ends));
     const sessionCount = liveRows.length;
-    const amountKrw = fee * sessionCount;
+    // experiments.participation_fee is the TOTAL participation fee for
+    // the entire experiment regardless of session count (multi-session
+    // experiments pay one fee per completed booking_group, not per
+    // session). Earlier this multiplied fee × sessionCount which gave
+    // 450,000원 for a 5-session 90,000원 experiment.
+    const amountKrw = fee;
 
     const issued = issuePaymentToken(groupId);
     const enc = encryptToken(issued.token);
