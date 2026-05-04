@@ -535,9 +535,10 @@ export function OfflineCodeAnalyzer({
   const [chatHistory, setChatHistory] = useState<ChatTurn[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatStreaming, setChatStreaming] = useState(false);
-  const [pendingPatches, setPendingPatches] = useState<
-    Array<{ id: number; patch: Patch; summary: string }>
-  >([]);
+  type PendingPatch =
+    | { id: number; kind: "valid"; patch: Patch; summary: string }
+    | { id: number; kind: "invalid"; raw: string; error: string };
+  const [pendingPatches, setPendingPatches] = useState<PendingPatch[]>([]);
   const patchIdRef = useRef(0);
 
   const sendChat = async () => {
@@ -585,15 +586,27 @@ export function OfflineCodeAnalyzer({
       // parse patches from final
       const { prose, blocks } = parsePatchBlocks(buf);
       setChatHistory([...baseHistory, { role: "assistant", content: prose.trim() || buf }]);
-      const newPatches = blocks
-        .filter((b) => b.patch)
-        .map((b) => ({
-          id: ++patchIdRef.current,
-          patch: b.patch!,
-          summary: summarisePatch(b.patch!),
-        }));
+      const newPatches: PendingPatch[] = blocks.map((b) =>
+        b.patch
+          ? {
+              id: ++patchIdRef.current,
+              kind: "valid",
+              patch: b.patch,
+              summary: summarisePatch(b.patch),
+            }
+          : {
+              id: ++patchIdRef.current,
+              kind: "invalid",
+              raw: b.raw,
+              error: b.error ?? "검증 실패",
+            },
+      );
       if (newPatches.length > 0) {
         setPendingPatches((prev) => [...prev, ...newPatches]);
+        const invalidCount = newPatches.filter((p) => p.kind === "invalid").length;
+        if (invalidCount > 0) {
+          toast(`잘못된 patch ${invalidCount}개 거부됨 — 챗봇 사이드패널 확인`, "error");
+        }
       }
     } catch (err) {
       toast(err instanceof Error ? err.message : "채팅 실패", "error");
@@ -605,17 +618,30 @@ export function OfflineCodeAnalyzer({
 
   const acceptPatch = (id: number) => {
     const target = pendingPatches.find((p) => p.id === id);
-    if (!target) return;
-    setOverrides((prev) => applyPatch(prev, target.patch));
+    if (!target || target.kind !== "valid") return;
+    const result = applyPatch(overrides, target.patch);
+    if (result.error) {
+      toast(`패치 적용 실패: ${result.error}`, "error");
+      return;
+    }
+    setOverrides(result.next);
     setPendingPatches((prev) => prev.filter((p) => p.id !== id));
   };
   const rejectPatch = (id: number) =>
     setPendingPatches((prev) => prev.filter((p) => p.id !== id));
   const acceptAllPatches = () => {
     let next = overrides;
-    for (const p of pendingPatches) next = applyPatch(next, p.patch);
+    const errors: string[] = [];
+    for (const p of pendingPatches) {
+      if (p.kind !== "valid") continue;
+      const r = applyPatch(next, p.patch);
+      if (r.error) errors.push(`${p.summary}: ${r.error}`);
+      else next = r.next;
+    }
     setOverrides(next);
-    setPendingPatches([]);
+    // keep invalid blocks visible so the user can see what was rejected
+    setPendingPatches((prev) => prev.filter((p) => p.kind === "invalid"));
+    if (errors.length) toast(`일부 패치 적용 실패:\n${errors.join("\n")}`, "error");
   };
 
   // ---- render ---------------------------------------------------------
@@ -1796,11 +1822,11 @@ export function OfflineCodeAnalyzer({
                 ))}
               </div>
 
-              {pendingPatches.length > 0 && (
+              {pendingPatches.some((p) => p.kind === "valid") && (
                 <div className="mb-3 rounded border border-blue-300 bg-blue-50 p-2 text-xs">
                   <div className="mb-1 flex items-center justify-between">
                     <span className="font-medium text-blue-900">
-                      대기 중인 변경 {pendingPatches.length}개
+                      대기 중인 변경 {pendingPatches.filter((p) => p.kind === "valid").length}개
                     </span>
                     <button
                       type="button"
@@ -1811,27 +1837,57 @@ export function OfflineCodeAnalyzer({
                     </button>
                   </div>
                   <ul className="space-y-1">
-                    {pendingPatches.map((p) => (
-                      <li key={p.id} className="flex items-center justify-between gap-2">
-                        <span className="truncate">{p.summary}</span>
-                        <span className="flex shrink-0 gap-1">
-                          <button
-                            type="button"
-                            onClick={() => acceptPatch(p.id)}
-                            className="rounded bg-green-600 px-2 py-0.5 text-[10px] text-white hover:bg-green-700"
-                          >
-                            적용
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => rejectPatch(p.id)}
-                            className="rounded bg-gray-200 px-2 py-0.5 text-[10px] hover:bg-gray-300"
-                          >
-                            거부
-                          </button>
-                        </span>
-                      </li>
-                    ))}
+                    {pendingPatches
+                      .filter((p) => p.kind === "valid")
+                      .map((p) => (
+                        <li key={p.id} className="flex items-center justify-between gap-2">
+                          <span className="truncate">{p.summary}</span>
+                          <span className="flex shrink-0 gap-1">
+                            <button
+                              type="button"
+                              onClick={() => acceptPatch(p.id)}
+                              className="rounded bg-green-600 px-2 py-0.5 text-[10px] text-white hover:bg-green-700"
+                            >
+                              적용
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => rejectPatch(p.id)}
+                              className="rounded bg-gray-200 px-2 py-0.5 text-[10px] hover:bg-gray-300"
+                            >
+                              거부
+                            </button>
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+              {pendingPatches.some((p) => p.kind === "invalid") && (
+                <div className="mb-3 rounded border border-red-300 bg-red-50 p-2 text-xs">
+                  <div className="mb-1 font-medium text-red-900">
+                    거부된 patch {pendingPatches.filter((p) => p.kind === "invalid").length}개 — 챗봇이 잘못된 형식을 emit
+                  </div>
+                  <ul className="space-y-1.5">
+                    {pendingPatches
+                      .filter((p) => p.kind === "invalid")
+                      .map((p) => (
+                        <li key={p.id} className="space-y-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="text-red-800">{p.error}</span>
+                            <button
+                              type="button"
+                              onClick={() => rejectPatch(p.id)}
+                              className="shrink-0 rounded bg-gray-200 px-2 py-0.5 text-[10px] hover:bg-gray-300"
+                            >
+                              닫기
+                            </button>
+                          </div>
+                          <pre className="overflow-x-auto rounded bg-white p-1 font-mono text-[10px] text-foreground/70">
+                            {p.raw.length > 240 ? `${p.raw.slice(0, 240)}…` : p.raw}
+                          </pre>
+                        </li>
+                      ))}
                   </ul>
                 </div>
               )}
