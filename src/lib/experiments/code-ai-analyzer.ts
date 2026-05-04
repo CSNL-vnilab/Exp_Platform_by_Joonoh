@@ -7,9 +7,18 @@
 import {
   CodeAnalysisSchema,
   CODE_ANALYSIS_JSON_SCHEMA_HINT,
+  SUPPORTED_FRAMEWORKS,
+  SUPPORTED_GENRES,
+  SUPPORTED_LANGS,
   type CodeAnalysis,
+  type CodeAnalysisOverrides,
 } from "./code-analysis-schema";
-import { resolveProvider, type LLMProvider } from "./llm-provider";
+import { applyPatch, parsePatchBlocks } from "./code-analysis-patch";
+import {
+  resolveProvider,
+  resolveReviewProvider,
+  type LLMProvider,
+} from "./llm-provider";
 
 export interface AiAnalyzeInput {
   code: string;
@@ -31,11 +40,25 @@ export interface AiAnalyzeInput {
   systemPromptOverride?: string;
   // Override the user payload — used by the prompt bench.
   userPromptOverride?: string;
+  // Force the second-pass refinement on/off. When undefined, env
+  // REFINEMENT=on enables it, REFINEMENT=off (or unset) disables it.
+  refinement?: boolean;
+  // Override the review-pass model tag (Ollama tag or Anthropic model).
+  refinementModel?: string;
+  // Override the review-pass provider. "auto" honours env.
+  refinementProvider?: "ollama" | "anthropic" | "auto";
 }
 
 export interface AiAnalyzeResult {
   analysis: CodeAnalysis;
   model: string;
+  // Populated only when the second-pass refinement ran.
+  refinement?: {
+    model: string;
+    appliedCount: number;
+    rejectedCount: number;
+    durationMs: number;
+  };
 }
 
 const CODE_BUDGET = 80_000; // chars — fits comfortably in 32k ctx with Qwen tokenizer
@@ -366,10 +389,31 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
   // ANTHROPIC_API_KEY presence → Ollama. The bench supplies an
   // explicit model tag (Ollama path); production code lets the
   // factory pick.
-  const provider: LLMProvider = await resolveProvider({
-    override: input.provider ?? "auto",
-    ollamaModel: input.model,
-  });
+  //
+  // resolveProvider can throw — pickOllamaModel raises a clear Korean
+  // error when neither requested nor fallback model is pulled on the
+  // host. Catch that so a missing extraction model returns the
+  // heuristic + a visible warning, instead of a 500 that hides the
+  // root cause from the user.
+  let provider: LLMProvider;
+  try {
+    provider = await resolveProvider({
+      override: input.provider ?? "auto",
+      ollamaModel: input.model,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return {
+      analysis: {
+        ...input.heuristic,
+        warnings: [
+          ...input.heuristic.warnings,
+          `AI 분석 백엔드 사용 불가 (${detail.slice(0, 200)}) — 휴리스틱 결과만 반환합니다.`,
+        ],
+      },
+      model: "heuristic-only",
+    };
+  }
   const code = input.code.slice(0, CODE_BUDGET);
   const truncated = input.code.length > CODE_BUDGET;
 
@@ -457,5 +501,288 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
       `코드가 ${CODE_BUDGET.toLocaleString()}자 이상이어서 일부만 분석되었습니다.`,
     ];
   }
-  return { analysis: safe.data, model: `${provider.model} (${provider.name})` };
+
+  const pass1: AiAnalyzeResult = {
+    analysis: safe.data,
+    model: `${provider.model} (${provider.name})`,
+  };
+
+  // ---- second-pass refinement (optional) -----------------------------
+  // Env-gated A/B knob: REFINEMENT=on enables it. The reviewer model
+  // (gemma4:31b by default, or Anthropic Opus when configured) gets
+  // the pass-1 analysis + the original code and emits *only* <patch>
+  // blocks for items it would correct. Patches are validated through
+  // the same zod schema the chatbot patches use, so a hallucinated
+  // enum can't corrupt the merged view.
+  const refineEnabled =
+    input.refinement ??
+    (process.env.REFINEMENT ?? "").toLowerCase() === "on";
+  if (!refineEnabled) return pass1;
+
+  try {
+    const refined = await runRefinement({
+      pass1: pass1.analysis,
+      code,
+      filename: input.filename ?? null,
+      docs,
+      truncated,
+      provider: input.refinementProvider,
+      model: input.refinementModel,
+      signal: input.signal,
+    });
+    // Keep the primary extraction model as `model`; the reviewer model
+    // shows up under `refinement.model`.
+    return {
+      analysis: refined.analysis,
+      model: pass1.model,
+      refinement: refined.refinement,
+    };
+  } catch (err) {
+    // Tag timeout vs other failures so the bench / on-call can
+    // distinguish "reviewer too slow on this host" from
+    // "reviewer model missing / non-deterministic crash".
+    //   - AbortError: caller cancel (controller.abort).
+    //   - TimeoutError (DOMException code 23): produced by
+    //     AbortSignal.timeout() in Node 22.
+    //   - error message regex catches both providers' own messages
+    //     (e.g. Ollama undici "The operation was aborted due to
+    //     timeout") in case the underlying error class drifts.
+    const isTimeout =
+      err instanceof Error &&
+      (err.name === "AbortError" ||
+        err.name === "TimeoutError" ||
+        /aborted|timeout/i.test(err.message));
+    const tag = isTimeout ? "[timeout]" : "[error]";
+    const detail = err instanceof Error ? err.message : String(err);
+    pass1.analysis.warnings = [
+      ...pass1.analysis.warnings,
+      `2-pass refinement 실패 ${tag} (${detail.slice(0, 120)}) — 1-pass 결과를 그대로 사용합니다.`,
+    ];
+    return pass1;
+  }
+}
+
+// ---- two-pass refinement ---------------------------------------------
+//
+// runRefinement(): given a pass-1 CodeAnalysis, ask a *different* LLM
+// to act as reviewer and emit <patch> blocks for items it would change.
+// Patches go through validatePatch (PR #4) and are applied via
+// applyPatch — same channel the chatbot uses, so any hallucinated
+// enum / wrong-type value is rejected with a visible warning rather
+// than silently corrupting the merged view.
+//
+// The default reviewer is gemma4:31b on Ollama (MODELS.reviewDeep);
+// hosts can override with REFINEMENT_MODEL / REFINEMENT_PROVIDER env.
+//
+// Returns:
+//   { analysis: refined CodeAnalysis,
+//     refinement: { model, appliedCount, rejectedCount, durationMs } }
+
+interface RefinementInput {
+  pass1: CodeAnalysis;
+  code: string;
+  filename: string | null;
+  docs: string | null;
+  truncated: boolean;
+  provider?: "ollama" | "anthropic" | "auto";
+  model?: string;
+  signal?: AbortSignal;
+}
+
+interface RefinementOutput {
+  analysis: CodeAnalysis;
+  refinement: NonNullable<AiAnalyzeResult["refinement"]>;
+}
+
+const REFINE_REVIEW_PROMPT = [
+  "당신은 인지·행동 실험 코드 분석 결과를 *교차 검토*하는 리뷰어입니다.",
+  "qwen3.6 분석기가 1차 추출한 메타데이터(JSON) 와 원본 코드(다중 파일 번들) 를 입력으로 받습니다.",
+  "당신의 임무: 원본 코드를 다시 정독하고, 1차 추출이 *놓쳤거나 잘못 분류한* 항목을 찾아 patch 명령으로 emit.",
+  "",
+  "**출력 규칙 (필수)**:",
+  "1. patch 블럭만 출력. patch 외부의 텍스트, 마크다운, 설명 *모두 금지*.",
+  "2. 1차 추출이 정확하면 patch 0 개로 종료 (no-op 가 가장 안전한 응답).",
+  "3. 각 patch 는 코드 라인 근거를 가져야 함. 추측 금지 — 코드에 근거가 없으면 emit 하지 말 것.",
+  "",
+  "**우선 점검 영역**:",
+  "- factors: 누락된 IV (per-trial / within-session / between-subject), role 오분류, 단일값 변수를 IV 로 잘못 등록한 경우 (remove + parameter upsert).",
+  "- parameters: 누락된 셋업 상수 (timing, screen, paths). default 값과 unit 도 함께.",
+  "- saved_variables: 5 카테고리 — per-trial 자극, per-trial 반응, per-trial 타이밍, per-block 요약, per-session 메타. 누락된 항목 upsert.",
+  "- meta.block_phases: phase 가 여러 개인데 단일 n_blocks 로 평탄화된 경우 set_meta + (phase 정보는 단일 patch 에 못 담으므로 warnings 에 자연어 요약 — 본 grammar 에는 block_phases set 이 없음, n_blocks 만 정정).",
+  "- meta.domain_genre / framework / language: 잘못된 분류는 set_meta 로 정정.",
+  "",
+  "**사용 가능한 patch op (정확히 이 grammar — 다른 키 추가 금지)**:",
+  '<patch>{"op":"set_meta","field":"n_blocks|n_trials_per_block|total_trials|estimated_duration_min|seed|summary|framework|language","value":...}</patch>',
+  '<patch>{"op":"upsert_factor","name":"...","type":"categorical|continuous|ordinal","levels":["..."],"role":"between_subject|within_subject|within_session|per_trial|derived|unknown","description":"...","line_hint":"path:line"}</patch>',
+  '<patch>{"op":"remove_factor","name":"..."}</patch>',
+  '<patch>{"op":"upsert_parameter","name":"...","type":"number|string|boolean|array|other","default":"...","unit":"...","shape":"constant|vector|expression|input|unknown","description":"..."}</patch>',
+  '<patch>{"op":"remove_parameter","name":"..."}</patch>',
+  '<patch>{"op":"upsert_condition","label":"...","factor_assignments":{"factor":"level"},"description":"..."}</patch>',
+  '<patch>{"op":"remove_condition","label":"..."}</patch>',
+  '<patch>{"op":"upsert_saved_variable","name":"...","format":"int|float|string|bool|array|matrix|struct|csv-row|json|other","unit":"...","sink":"...","description":"..."}</patch>',
+  '<patch>{"op":"remove_saved_variable","name":"..."}</patch>',
+  "",
+  `enum 값들 (정확히 일치해야 — 오타 / 추가 enum 금지):`,
+  `- framework: ${SUPPORTED_FRAMEWORKS.join(" | ")}`,
+  `- language: ${SUPPORTED_LANGS.join(" | ")}`,
+  `- domain_genre: ${SUPPORTED_GENRES.join(" | ")}`,
+  "",
+  "분석 후 patch 를 0~30 개 범위에서 emit. 그 외 텍스트 출력 금지.",
+].join("\n");
+
+const REFINE_CODE_BUDGET = 80_000;
+// 32K is the safe native context for most local Ollama gemma4 / qwen
+// pulls without rope tweaks. Hosts with bigger models can override
+// via REFINEMENT_NUM_CTX env. Earlier 65K default tripped Ollama's
+// "invalid num_ctx" rejection on stock gemma4:31b pulls.
+const REFINE_NUM_CTX_DEFAULT = 32_768;
+const REFINE_NUM_CTX_MAX = 1_048_576;
+const REFINE_NUM_PREDICT = 8_192;
+// Hard ceiling to avoid hung reviewers masquerading as success.
+// 600s (10 min) covers stock gemma4:31b on Apple Silicon for the
+// 80KB-bundle / 30KB-docs prompt size we send (smoke against
+// psychopy_estimation needed 414s end-to-end at 360s timeout, so
+// the previous 360s default was too tight). Cloud reviewers (Claude
+// Opus) typically finish in 30-60s. For faster local review at the
+// cost of some accuracy use `REFINEMENT_MODEL=gemma4:26b`.
+const REFINE_TIMEOUT_MS_DEFAULT = 600_000;
+const REFINE_TIMEOUT_MS_MAX = 30 * 60_000; // 30 min absolute ceiling
+
+async function runRefinement(input: RefinementInput): Promise<RefinementOutput> {
+  const reviewer = await resolveReviewProvider({
+    override: input.provider ?? "auto",
+    ollamaModel: input.model,
+    anthropicModel: input.model,
+  });
+  const code = input.code.slice(0, REFINE_CODE_BUDGET);
+  const docs = (input.docs ?? "").slice(0, 30_000);
+  const userContent = [
+    docs
+      ? "참고 문서(연구자 작성):\n```\n" + docs + "\n```\n"
+      : "",
+    "1차 추출 JSON (1차 추출기):",
+    "```json",
+    JSON.stringify(input.pass1, null, 2),
+    "```",
+    "",
+    `원본 코드 번들 (filename hint: ${input.filename ?? "(unknown)"})${
+      input.truncated ? " — 코드가 잘렸으니 일부 사실은 추론 불가" : ""
+    }:`,
+    "```",
+    code,
+    "```",
+    "",
+    "위 1차 추출에서 잘못/누락된 항목만 patch 로 emit 하세요. 정확하면 0 개 emit.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const messages = [
+    { role: "system" as const, content: REFINE_REVIEW_PROMPT },
+    { role: "user" as const, content: userContent },
+  ];
+
+  const numCtx = clampPositiveInt(
+    process.env.REFINEMENT_NUM_CTX,
+    REFINE_NUM_CTX_DEFAULT,
+    REFINE_NUM_CTX_MAX,
+  );
+  const timeoutMs = clampPositiveInt(
+    process.env.REFINEMENT_TIMEOUT_MS,
+    REFINE_TIMEOUT_MS_DEFAULT,
+    REFINE_TIMEOUT_MS_MAX,
+  );
+  // Caller's signal still wins if it fires earlier; we add an
+  // independent timeout signal so a hung Ollama call can't pin the
+  // bench / API request indefinitely.
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = input.signal
+    ? AbortSignal.any([input.signal, timeoutSignal])
+    : timeoutSignal;
+
+  // Log a breadcrumb so a hung reviewer is debuggable: a minute later
+  // the user can grep server logs / bench stderr and see which model
+  // is in flight at what ctx/timeout.
+  console.error(
+    `[refine] start reviewer=${reviewer.model} (${reviewer.name}) num_ctx=${numCtx} num_predict=${REFINE_NUM_PREDICT} timeout=${timeoutMs}ms`,
+  );
+  const t0 = Date.now();
+  const text = await reviewer.chatText({
+    messages,
+    temperature: 0.1,
+    num_ctx: numCtx,
+    num_predict: REFINE_NUM_PREDICT,
+    signal,
+  });
+  const durationMs = Date.now() - t0;
+
+  const { blocks } = parsePatchBlocks(text);
+  // Treat pass-1 as the seed for refinement. We *don't* pre-parse
+  // through CodeAnalysisOverridesSchema — that strips defaults the
+  // canonical schema injects (factor.role, parameter.shape, etc.).
+  // The structural shape of CodeAnalysis is a strict subset of
+  // CodeAnalysisOverrides (all top-level keys present), so applyPatch
+  // can ingest it directly.
+  let working = input.pass1 as unknown as CodeAnalysisOverrides;
+  let appliedCount = 0;
+  let rejectedCount = 0;
+  const rejectedReasons: string[] = [];
+  for (const b of blocks) {
+    if (!b.patch) {
+      rejectedCount += 1;
+      if (b.error) rejectedReasons.push(b.error);
+      continue;
+    }
+    const r = applyPatch(working, b.patch);
+    if (r.error) {
+      rejectedCount += 1;
+      rejectedReasons.push(r.error);
+      continue;
+    }
+    working = r.next;
+    appliedCount += 1;
+  }
+  // Re-parse to fill any missing defaults and guarantee
+  // CodeAnalysis shape. safeParse so we can attach a meaningful
+  // warning instead of dropping pass-1 results on a future merge bug.
+  const reparsed = CodeAnalysisSchema.safeParse(working);
+  const refinedAnalysis = reparsed.success ? reparsed.data : input.pass1;
+  if (!reparsed.success) {
+    refinedAnalysis.warnings = [
+      ...refinedAnalysis.warnings,
+      `2-pass: 최종 검증 실패 — 1-pass 결과로 폴백 (${reparsed.error.issues[0]?.message?.slice(0, 100) ?? "?"})`,
+    ];
+  }
+  if (rejectedCount > 0) {
+    refinedAnalysis.warnings = [
+      ...refinedAnalysis.warnings,
+      `2-pass: 거부된 patch ${rejectedCount}개 (${rejectedReasons[0]?.slice(0, 80) ?? "?"})`,
+    ];
+  }
+  return {
+    analysis: refinedAnalysis,
+    refinement: {
+      model: `${reviewer.model} (${reviewer.name})`,
+      appliedCount,
+      rejectedCount,
+      durationMs,
+    },
+  };
+}
+
+function clampPositiveInt(
+  raw: string | undefined,
+  fallback: number,
+  max: number,
+): number {
+  if (!raw) return fallback;
+  // Accept only well-formed positive integers — reject decimals
+  // ("32.5"), scientific notation ("1.5e4"), and stray whitespace by
+  // requiring the parsed integer to round-trip exactly back to the
+  // input.
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return fallback;
+  const n = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, max);
 }

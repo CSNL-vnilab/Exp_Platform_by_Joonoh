@@ -410,6 +410,35 @@ docs/code-analyzer-best-practices.md
 
 ---
 
+## 7b. 2-pass refinement (PR #5, env-gated)
+
+기본 1-pass (qwen3.6 단일 패스) 의 fact 추출 정확도를 보강하기 위해, 환경변수로 켜는 review pass 를 추가했다. 켜면 분석기가 다음 흐름으로 동작:
+
+1. pass-1 — 기존 추출기 (qwen3.6 default).
+2. pass-2 — *다른* 모델 (gemma4:31b default) 이 pass-1 결과 + 원본 코드를 받아 `<patch>` 블럭만 emit.
+3. patch 들은 챗봇 patch 채널과 동일한 strict zod validator (PR #4) 를 통과 → 유효 patch 만 pass-1 위에 적용.
+4. 거부된 patch / timeout 은 `warnings` 에 한국어 1줄로 surface.
+
+### 환경변수
+
+| Var | Default | 설명 |
+|---|---|---|
+| `REFINEMENT` | (off) | `on` 일 때만 pass-2 활성. |
+| `REFINEMENT_PROVIDER` | auto | `ollama` / `anthropic` / `auto`. |
+| `REFINEMENT_MODEL` | `gemma4:31b` | Ollama 태그 또는 anthropic 모델. 빠른 review 가 필요하면 `gemma4:26b`. |
+| `ANTHROPIC_REFINEMENT_MODEL` | `ANTHROPIC_CODE_MODEL` 또는 `claude-opus-4-7` | 클라우드 review 모델 별도 지정. |
+| `REFINEMENT_NUM_CTX` | 32768 | gemma4 native ctx 한도. 큰 모델은 더 올릴 수 있음. clamp [1, 1_048_576]. |
+| `REFINEMENT_TIMEOUT_MS` | 600000 (10 min) | gemma4:31b 가 80KB+30KB 프롬프트에 ~6 min 걸릴 수 있음. clamp [1, 1_800_000]. |
+
+### 운영 노트
+
+- **bench A/B**: `REFINEMENT=on npx tsx scripts/bench-fixtures.mjs` 와 그냥 돌린 결과를 비교. bench 출력은 fixture 라인에 `· refine N±M (Xs, model)` 추가; refinement 가 throw 했으면 `· refine FAILED: <warning>` (warning 안에 `[timeout]` 또는 `[error]` 태그 포함).
+- **로깅**: refinement 시작 시 stderr 에 `[refine] start reviewer=… num_ctx=… num_predict=… timeout=…` 한 줄. 6 분 hung 일 때 grep 가능.
+- **Fall-back**: refinement 가 throw 하면 (모델 없음 / 타임아웃 / 검증 실패) 분석기는 1-pass 결과를 그대로 반환하고 warnings 에 사유를 적는다 — 절대로 분석을 실패시키지 않는다.
+- **A/B 통계 주의**: 양쪽 모두 `temperature=0.1`, RNG seed 고정 안 됨. 단일 fixture 한 번 돌린 ±1pp 차이는 sampling noise 일 수 있음 — 결정적 비교는 fixture × 3 회 평균 권장 (다음 라운드 후속).
+
+---
+
 ## 8. 한 줄 요약
 
 > 옛 “경로 두 개를 손으로 입력하세요” 가 → "주소 한 줄 + 분석 버튼 → 표를 검토하세요" 로 바뀌었고, TimeExp1 ground truth 대비 *기계 채점 가능* 항목 자동 회복률이 ~30 → 79% 로 올라갔다. 핵심 lever 는 (1) call-graph 번들러로 컨텍스트를 정제, (2) README/summary 자동 주입, (3) save-focused prompt + qwen3.6:latest. 디자인-수준 해석 (Day1=훈련-only 같은 *질적* 구분, single-value 변수가 IV 가 아님 같은 판단) 은 마지막 마일을 사람이 마무리하도록 모든 셀을 편집 가능하게 + 챗봇 1~2턴으로 patch 가능하게 만들어 두었다.
