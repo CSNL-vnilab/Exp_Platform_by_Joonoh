@@ -15,6 +15,49 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const file = process.argv[2];
+if (!file) {
+  console.error("Usage: apply-migration-mgmt.mjs <sql file>");
+  process.exit(1);
+}
+
+const sql = await readFile(file, "utf8");
+
+// Pre-flight lint: Postgres rejects any reference to a freshly-added enum
+// value within the same transaction (`55P04 unsafe use of new value`).
+// This script POSTs the whole file as one query == one transaction, so
+// the combination always fails. We hit this on 2026-05-04 with the
+// `paid_offline` enum and had to split into 00056 + 00057. Surface it
+// here with a clearer error than the raw Postgres code, *before* loading
+// .env.local — a session running this just to validate a draft SQL file
+// shouldn't need credentials present to find out it's broken.
+{
+  const stripped = sql
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/--.*$/gm, "");
+  const addValueRe =
+    /ALTER\s+TYPE\s+\w+\s+ADD\s+VALUE(?:\s+IF\s+NOT\s+EXISTS)?\s+'([^']+)'/gi;
+  for (const m of stripped.matchAll(addValueRe)) {
+    const value = m[1];
+    const tail = stripped.slice(m.index + m[0].length);
+    const usageRe = new RegExp(
+      `'${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`,
+    );
+    if (usageRe.test(tail)) {
+      console.error(
+        `Refusing ${file}: '${value}' is added with ALTER TYPE ADD VALUE and then referenced later in the same migration. Postgres requires the new enum value to be committed before any statement can resolve it (error 55P04). Split into two migrations:`,
+      );
+      console.error(`  step 1 — ALTER TYPE ADD VALUE '${value}' only`);
+      console.error(
+        `  step 2 — every CHECK / UPDATE / INSERT that references '${value}'`,
+      );
+      console.error(`Apply them in sequence (one transaction each).`);
+      process.exit(2);
+    }
+  }
+}
+
 const envText = await readFile(join(__dirname, "..", ".env.local"), "utf8");
 for (const line of envText.split("\n")) {
   const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
@@ -35,13 +78,6 @@ if (!refMatch) {
 }
 const ref = refMatch[1];
 
-const file = process.argv[2];
-if (!file) {
-  console.error("Usage: apply-migration-mgmt.mjs <sql file>");
-  process.exit(1);
-}
-
-const sql = await readFile(file, "utf8");
 console.log(`Applying ${file} (${sql.length} bytes) → ${ref}`);
 
 const endpoint = `https://api.supabase.com/v1/projects/${ref}/database/query`;
