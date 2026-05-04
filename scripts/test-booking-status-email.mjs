@@ -205,7 +205,7 @@ await group("notify service — no_recipient when participant.email empty", asyn
 });
 
 await group("notify service — happy path sends email only (no SOLAPI env)", async () => {
-  const sb = makeSupabaseStub({
+  const state = {
     bookings: [{
       id: "b-1", slot_start: "2026-05-10T05:00:00Z", slot_end: "2026-05-10T06:00:00Z",
       session_number: 1, booking_group_id: null, participant_id: "p-1", experiment_id: "e-1",
@@ -213,7 +213,9 @@ await group("notify service — happy path sends email only (no SOLAPI env)", as
       experiments: { id: "e-1", title: "T", experiment_mode: "offline", created_by: null },
     }],
     profiles: [],
-  });
+    booking_integrations: [],
+  };
+  const sb = makeSupabaseStub(state);
   const sendCalls = [];
   const smsCalls = [];
   const { notifyBookingStatusChange } = await import(
@@ -229,10 +231,18 @@ await group("notify service — happy path sends email only (no SOLAPI env)", as
   check("email sent once", sendCalls.length === 1);
   check("email recipient correct", sendCalls[0].to === "p@x.local");
   check("SMS not invoked without env", smsCalls.length === 0);
+  // P0-Η: audit row written
+  const audit = state.booking_integrations.find(
+    (r) => r.booking_id === "b-1" && r.integration_type === "status_email",
+  );
+  check("status_email audit row exists", !!audit);
+  check("audit row status=completed", audit?.status === "completed");
+  check("audit row external_id captured", audit?.external_id === "<id1>");
+  check("audit row attempts=1", audit?.attempts === 1);
 });
 
-await group("notify service — send_failed bubbles up", async () => {
-  const sb = makeSupabaseStub({
+await group("notify service — send_failed bubbles up + audit row records failure", async () => {
+  const state = {
     bookings: [{
       id: "b-1", slot_start: "2026-05-10T05:00:00Z", slot_end: "2026-05-10T06:00:00Z",
       session_number: 1, booking_group_id: null, participant_id: "p-1", experiment_id: "e-1",
@@ -240,7 +250,9 @@ await group("notify service — send_failed bubbles up", async () => {
       experiments: { id: "e-1", title: "T", experiment_mode: "offline", created_by: null },
     }],
     profiles: [],
-  });
+    booking_integrations: [],
+  };
+  const sb = makeSupabaseStub(state);
   const { notifyBookingStatusChange } = await import(
     "../src/lib/services/booking-status-notify.service.ts"
   );
@@ -251,6 +263,48 @@ await group("notify service — send_failed bubbles up", async () => {
   );
   check("outcome = send_failed", result.outcome === "send_failed");
   check("detail captured", (result.detail ?? "").includes("smtp 451"));
+  const audit = state.booking_integrations.find(
+    (r) => r.booking_id === "b-1" && r.integration_type === "status_email",
+  );
+  check("status_email audit row exists for failed send", !!audit);
+  check("audit row status=failed", audit?.status === "failed");
+  check("audit row last_error captured",
+        (audit?.last_error ?? "").includes("smtp 451"));
+});
+
+await group("notify service — re-trigger same status updates audit (no duplicate)", async () => {
+  const state = {
+    bookings: [{
+      id: "b-1", slot_start: "2026-05-10T05:00:00Z", slot_end: "2026-05-10T06:00:00Z",
+      session_number: 1, booking_group_id: null, participant_id: "p-1", experiment_id: "e-1",
+      participants: { name: "홍", email: "p@x.local", phone: "010" },
+      experiments: { id: "e-1", title: "T", experiment_mode: "offline", created_by: null },
+    }],
+    profiles: [],
+    booking_integrations: [],
+  };
+  const sb = makeSupabaseStub(state);
+  const { notifyBookingStatusChange } = await import(
+    "../src/lib/services/booking-status-notify.service.ts"
+  );
+  await notifyBookingStatusChange(
+    sb, "b-1", "cancelled",
+    async () => ({ success: false, error: "transient" }),
+    async () => ({ success: true }),
+  );
+  await notifyBookingStatusChange(
+    sb, "b-1", "cancelled",
+    async () => ({ success: true, messageId: "<id-retry>" }),
+    async () => ({ success: true }),
+  );
+  const auditRows = state.booking_integrations.filter(
+    (r) => r.booking_id === "b-1" && r.integration_type === "status_email",
+  );
+  check("only ONE audit row (upsert on conflict)", auditRows.length === 1,
+        `got ${auditRows.length}`);
+  check("audit row reflects latest attempt (status=completed)",
+        auditRows[0]?.status === "completed");
+  check("attempts incremented to 2", auditRows[0]?.attempts === 2);
 });
 
 await group("notify service — multi-session pulls siblings", async () => {
@@ -297,8 +351,9 @@ console.log(`✅ passed: ${passed}   ❌ failed: ${failed}`);
 process.exit(failed === 0 ? 0 : 1);
 
 // ── stub builder ───────────────────────────────────────────────────────
-// Mirrors the shape used in test-payment-info-notify but tightened for
-// the queries this notify service makes.
+// Phase 2c additions: upsert (booking_integrations audit) +
+// state.booking_integrations array seeded by tests so we can assert
+// audit rows appeared.
 function makeSupabaseStub(state) {
   function fromImpl(table) {
     let _filter = {};
@@ -314,6 +369,16 @@ function makeSupabaseStub(state) {
       then(resolve) {
         const rows = (state[table] ?? []).filter((r) => matches(r, _filter, _excl));
         resolve({ data: rows, error: null });
+      },
+      upsert(payload, opts) {
+        const list = (state[table] = state[table] ?? []);
+        const conflictCols = (opts?.onConflict ?? "").split(",").map((s) => s.trim());
+        const idx = conflictCols.length
+          ? list.findIndex((r) => conflictCols.every((c) => r[c] === payload[c]))
+          : -1;
+        if (idx >= 0) Object.assign(list[idx], payload);
+        else list.push({ ...payload });
+        return Promise.resolve({ error: null });
       },
     };
     return builder;

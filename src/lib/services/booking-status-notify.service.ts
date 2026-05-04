@@ -160,6 +160,17 @@ export async function notifyBookingStatusChange(
     subject: built.subject,
     html: built.html,
   });
+
+  // P0-Η: persist email outcome to booking_integrations as 'status_email'
+  // so failures aren't silent. Migration 00053 added this enum value.
+  // Use upsert with onConflict on (booking_id, integration_type) so a
+  // re-trigger of the same status flip overwrites rather than duplicates.
+  await writeStatusAudit(supabase, bookingId, "status_email", {
+    success: emailResult.success,
+    externalId: emailResult.messageId,
+    error: emailResult.error,
+  });
+
   if (!emailResult.success) {
     return {
       outcome: "send_failed",
@@ -185,11 +196,18 @@ export async function notifyBookingStatusChange(
           `[StatusNotify] SMS send failed for ${bookingId}: ${smsRes.error ?? "unknown"}`,
         );
       }
+      // P0-Η: same audit as email side.
+      await writeStatusAudit(supabase, bookingId, "status_sms", {
+        success: smsRes.success,
+        error: smsRes.error,
+      });
     } catch (err) {
-      console.warn(
-        `[StatusNotify] SMS threw for ${bookingId}:`,
-        err instanceof Error ? err.message : err,
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[StatusNotify] SMS threw for ${bookingId}: ${msg}`);
+      await writeStatusAudit(supabase, bookingId, "status_sms", {
+        success: false,
+        error: msg,
+      });
     }
   }
 
@@ -199,4 +217,53 @@ export async function notifyBookingStatusChange(
     channel,
     detail: emailResult.messageId,
   };
+}
+
+// ── audit helper ────────────────────────────────────────────────────────
+//
+// Writes a booking_integrations row for status_email / status_sms. Upsert
+// keyed on (booking_id, integration_type) — migration 00013 declared
+// that pair UNIQUE — so a re-trigger of the same transition overwrites
+// the previous attempt's outcome instead of leaving stale rows around.
+//
+// All errors swallowed: this is an audit row, not the source of truth
+// for participant notification. The status flip already happened.
+async function writeStatusAudit(
+  supabase: Supabase,
+  bookingId: string,
+  type: "status_email" | "status_sms",
+  result: { success: boolean; externalId?: string; error?: string },
+): Promise<void> {
+  try {
+    // Bump attempts — read first since we don't have an UPDATE … = X+1
+    // helper for Supabase JS at this layer.
+    const { data: existing } = await supabase
+      .from("booking_integrations")
+      .select("attempts")
+      .eq("booking_id", bookingId)
+      .eq("integration_type", type)
+      .maybeSingle();
+
+    await supabase
+      .from("booking_integrations")
+      .upsert(
+        {
+          booking_id: bookingId,
+          integration_type: type,
+          status: result.success ? "completed" : "failed",
+          attempts: ((existing as { attempts?: number } | null)?.attempts ?? 0) + 1,
+          external_id: result.externalId ?? null,
+          last_error: result.error?.slice(0, 500) ?? null,
+          processed_at: new Date().toISOString(),
+        },
+        { onConflict: "booking_id,integration_type" },
+      );
+  } catch (err) {
+    // Audit row failure is non-fatal — the status transition already
+    // succeeded and the participant either got the email or didn't.
+    console.warn(
+      `[StatusNotify] audit row write failed for ${bookingId}/${type}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
 }

@@ -170,7 +170,9 @@ export interface Database {
             | "email"
             | "sms"
             | "notion_experiment"
-            | "notion_survey";
+            | "notion_survey"
+            | "status_email"
+            | "status_sms";
           status: "pending" | "completed" | "failed" | "skipped";
           attempts: number;
           last_error: string | null;
@@ -187,7 +189,9 @@ export interface Database {
             | "email"
             | "sms"
             | "notion_experiment"
-            | "notion_survey";
+            | "notion_survey"
+            | "status_email"
+            | "status_sms";
           status?: "pending" | "completed" | "failed" | "skipped";
           attempts?: number;
           last_error?: string | null;
@@ -1377,7 +1381,9 @@ export interface Database {
             | "email"
             | "sms"
             | "notion_experiment"
-            | "notion_survey";
+            | "notion_survey"
+            | "status_email"
+            | "status_sms";
           status: "pending" | "completed" | "failed" | "skipped";
           attempts: number;
           last_error: string | null;
@@ -1417,7 +1423,9 @@ export interface Database {
             | "email"
             | "sms"
             | "notion_experiment"
-            | "notion_survey";
+            | "notion_survey"
+            | "status_email"
+            | "status_sms";
           status: "pending" | "completed" | "failed" | "skipped";
           attempts: number;
           last_error: string | null;
