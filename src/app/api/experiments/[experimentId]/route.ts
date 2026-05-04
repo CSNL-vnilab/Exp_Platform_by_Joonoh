@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { experimentSchema, isValidUUID } from "@/lib/utils/validation";
+import { experimentEditSchema, isValidUUID } from "@/lib/utils/validation";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 
 export async function GET(
@@ -105,11 +105,38 @@ export async function PUT(
       }
     }
 
-    const result = experimentSchema.partial().safeParse(body);
+    // experimentEditSchema is the partial-safe variant — zod v4 disallows
+    // .partial() on the original schema because of its top-level cross-
+    // field refine ("online/hybrid mode requires entry_url"). The
+    // cross-field check is re-applied below only when BOTH related fields
+    // are present in the patch.
+    const result = experimentEditSchema.safeParse(body);
 
     if (!result.success) {
       return NextResponse.json(
         { error: "Validation failed", issues: result.error.issues },
+        { status: 400 }
+      );
+    }
+
+    // Manual re-application of the cross-field rule for the create-path
+    // schema. Patches that don't touch experiment_mode + online_runtime_config
+    // skip this check entirely (existing-row's mode/runtime are unchanged
+    // and were validated at create time).
+    if (
+      result.data.experiment_mode !== undefined &&
+      result.data.experiment_mode !== "offline" &&
+      result.data.online_runtime_config !== undefined &&
+      !result.data.online_runtime_config?.entry_url
+    ) {
+      return NextResponse.json(
+        {
+          error: "Validation failed",
+          issues: [{
+            path: ["online_runtime_config", "entry_url"],
+            message: "온라인/하이브리드 실험은 entry_url이 필요합니다",
+          }],
+        },
         { status: 400 }
       );
     }

@@ -19,7 +19,12 @@ export const participantSchema = z.object({
   birthdate: z.string().regex(dateRegex, "올바른 생년월일 형식을 입력해주세요 (YYYY-MM-DD)"),
 });
 
-export const experimentSchema = z.object({
+// Base object schema — kept refine-free at the OBJECT level so a partial
+// version (for PUT) can be derived via .partial() without the zod-v4
+// "cannot be used on object schemas containing refinements" error.
+// Field-level .refine() chains inside individual properties are fine —
+// only object-level refinements block .partial().
+const experimentObjectSchema = z.object({
   title: z.string().min(1, "실험 제목을 입력해주세요"),
   description: z.string().optional(),
   start_date: z.string().min(1, "시작 날짜를 선택해주세요"),
@@ -183,13 +188,24 @@ export const experimentSchema = z.object({
     .nullable()
     .optional(),
   data_consent_required: z.boolean().default(false),
-}).refine(
+});
+
+// Full create-path schema — base object + the cross-field refine.
+// Used by the form (full validation before POST).
+export const experimentSchema = experimentObjectSchema.refine(
   (v) => v.experiment_mode === "offline" || !!v.online_runtime_config?.entry_url,
   {
     message: "온라인/하이브리드 실험은 entry_url이 필요합니다",
     path: ["online_runtime_config", "entry_url"],
   },
 );
+
+// Edit-path partial schema — used by PUT /api/experiments/[id]. zod v4
+// disallows .partial() on schemas with object-level refinements, so we
+// derive partial from the unrefined base. The cross-field check is
+// re-applied manually in the route when both fields are present in the
+// patch (see /api/experiments/[experimentId]/route.ts).
+export const experimentEditSchema = experimentObjectSchema.partial();
 
 export const bookingRequestSchema = z.object({
   experiment_id: z.string().uuid(),

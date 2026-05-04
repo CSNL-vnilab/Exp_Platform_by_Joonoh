@@ -59,6 +59,50 @@ for (const c of cases) {
               (!r.success ? ` issue=${r.error.issues[0]?.message}` : ""));
 }
 
+// ── experimentEditSchema (partial) — used by PUT /api/experiments/[id] ─
+//
+// Pinned because zod v4 .partial() throws on schemas with object-level
+// refinements. The original code path was experimentSchema.partial(),
+// which raised "cannot be used on object schemas containing refinements"
+// AT RUNTIME inside safeParse — escaping the route's outer try/catch
+// and surfacing as "Internal server error" to the researcher. Switching
+// to a refine-free base + .partial() fixes it; this test pins the
+// invariant so the next refactor doesn't reintroduce a top-level refine.
+console.log("\n── experimentEditSchema (partial) ──");
+
+check("does NOT throw on creation",
+      typeof m.experimentEditSchema === "object" && m.experimentEditSchema !== null);
+
+const editCases = [
+  { label: "empty patch", value: {}, expectOK: true },
+  { label: "title-only patch", value: { title: "new" }, expectOK: true },
+  {
+    label: "patch with the seeded location_id (the bug case)",
+    value: { location_id: "aaaaaaaa-aaaa-aaaa-aaaa-000000000001" },
+    expectOK: true,
+  },
+  {
+    label: "full DB-shaped row (simulated form re-submit)",
+    value: {
+      ...baseValid,
+      location_id: "aaaaaaaa-aaaa-aaaa-aaaa-000000000001",
+      participation_fee: 90000,
+      categories: ["offline_behavioral"],
+      precautions: [{ question: "test", required_answer: true }],
+      reminder_day_before_time: "18:00",
+      reminder_day_of_time: "09:00",
+    },
+    expectOK: true,
+  },
+];
+
+for (const c of editCases) {
+  const r = m.experimentEditSchema.safeParse(c.value);
+  const ok = r.success === c.expectOK;
+  check(`${c.label} → ${c.expectOK ? "accepted" : "rejected"}`, ok,
+        ok ? "" : (!r.success ? `issue=${r.error.issues[0]?.message}` : "unexpected success"));
+}
+
 console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 console.log(`✅ passed: ${passed}   ❌ failed: ${failed}`);
 process.exit(failed === 0 ? 0 : 1);
