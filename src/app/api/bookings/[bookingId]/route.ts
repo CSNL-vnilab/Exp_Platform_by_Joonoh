@@ -9,6 +9,7 @@ import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { intervalsOverlap } from "@/lib/utils/date";
 import {
   createReschedGCalEvent,
+  renumberSessionsInGroup,
   runReschedulePipeline,
 } from "@/lib/services/booking.service";
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
@@ -235,10 +236,15 @@ export async function PUT(
 // experiment owner (researcher) may reschedule. New slot must be in the
 // future, land on an allowed weekday, not clash with another confirmed
 // booking, and not overlap a busy interval on the experiment's calendar.
+//
+// Note: session_number is no longer a client-controllable field. After
+// the slot update lands we re-sort every booking in the group by date
+// and rewrite session_number 1..N (see renumberSessionsInGroup), which
+// is the right semantics: "회차" follows chronology, not whatever the
+// participant entered first.
 const rescheduleSchema = z.object({
   slot_start: z.string().datetime(),
   slot_end: z.string().datetime(),
-  session_number: z.number().int().min(1).optional(),
 });
 
 export async function PATCH(
@@ -260,7 +266,7 @@ export async function PATCH(
   const { data: booking, error: fetchErr } = await admin
     .from("bookings")
     .select(
-      "id, status, experiment_id, slot_start, slot_end, session_number, google_event_id, experiments(created_by, weekdays, max_participants_per_slot, google_calendar_id, status)",
+      "id, status, experiment_id, slot_start, slot_end, session_number, booking_group_id, google_event_id, experiments(created_by, weekdays, max_participants_per_slot, google_calendar_id, status)",
     )
     .eq("id", bookingId)
     .single();
@@ -405,15 +411,11 @@ export async function PATCH(
   const update: {
     slot_start: string;
     slot_end: string;
-    session_number?: number;
     google_event_id?: string | null;
   } = {
     slot_start: normalizedStart,
     slot_end: normalizedEnd,
   };
-  if (parsed.data.session_number !== undefined) {
-    update.session_number = parsed.data.session_number;
-  }
   if (newEventId) {
     update.google_event_id = newEventId;
   }
@@ -431,6 +433,19 @@ export async function PATCH(
     return NextResponse.json({ error: "예약 변경에 실패했습니다" }, { status: 500 });
   }
 
+  // Renumber sessions in the participant's group by date order. Multi-
+  // session participants commonly hit "1회차 was Mon, now I want it on
+  // Fri" — without this rewrite the session_number labels (and
+  // payment-info ordering) drift out of chronological order.
+  let renumberInfo: { changed: number; total: number } | null = null;
+  if (booking.booking_group_id) {
+    try {
+      renumberInfo = await renumberSessionsInGroup(booking.booking_group_id);
+    } catch (err) {
+      console.error("[Reschedule] renumber failed:", err);
+    }
+  }
+
   await runReschedulePipeline({
     bookingId,
     oldSlotStart,
@@ -441,5 +456,5 @@ export async function PATCH(
     console.error("[Reschedule] pipeline failed:", err);
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, renumber: renumberInfo });
 }

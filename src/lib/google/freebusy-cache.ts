@@ -17,16 +17,28 @@ import type { BusyInterval } from "@/lib/utils/slots";
 const TTL_MS = 5 * 60 * 1000;
 
 interface CacheRow {
-  busy_intervals: Array<{ start: string; end: string }>;
+  busy_intervals: Array<{ start: string; end: string; summary?: string | null }>;
   fetched_at: string;
 }
 
-function intervalsFromDb(rows: Array<{ start: string; end: string }>): BusyInterval[] {
-  return rows.map((r) => ({ start: new Date(r.start), end: new Date(r.end) }));
+function intervalsFromDb(
+  rows: Array<{ start: string; end: string; summary?: string | null }>,
+): BusyInterval[] {
+  return rows.map((r) => ({
+    start: new Date(r.start),
+    end: new Date(r.end),
+    summary: r.summary ?? null,
+  }));
 }
 
-function intervalsToDb(rows: BusyInterval[]): Array<{ start: string; end: string }> {
-  return rows.map((r) => ({ start: r.start.toISOString(), end: r.end.toISOString() }));
+function intervalsToDb(
+  rows: BusyInterval[],
+): Array<{ start: string; end: string; summary?: string | null }> {
+  return rows.map((r) => ({
+    start: r.start.toISOString(),
+    end: r.end.toISOString(),
+    summary: r.summary ?? null,
+  }));
 }
 
 export async function getCachedFreeBusy(

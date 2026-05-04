@@ -40,23 +40,69 @@ export async function getFreeBusy(
   calendarId: string,
   timeMin: Date,
   timeMax: Date,
-): Promise<Array<{ start: Date; end: Date }>> {
+): Promise<Array<{ start: Date; end: Date; summary?: string | null }>> {
   const trimmedId = calendarId.trim();
-  return withRetry(`freebusy(${trimmedId})`, async () => {
+  // Use events.list (not freebusy.query) so we get event titles back —
+  // the booking picker tooltip needs them ("정원 회의 시간과 겹침" beats
+  // a bare "캘린더 충돌"). events.list returns ALL events overlapping
+  // the window — we filter declined / cancelled and skip all-day rows.
+  // Falls back to freebusy.query if the service account lacks reader
+  // scope on the calendar (rare — the lab grants reader by default).
+  return withRetry(`events.list(${trimmedId})`, async () => {
     const auth = getGoogleAuth();
     const calendar = google.calendar({ version: "v3", auth });
-    const response = await calendar.freebusy.query({
-      requestBody: {
+    try {
+      const response = await calendar.events.list({
+        calendarId: trimmedId,
         timeMin: timeMin.toISOString(),
         timeMax: timeMax.toISOString(),
-        items: [{ id: trimmedId }],
-      },
-    });
-    const busy = response.data.calendars?.[trimmedId]?.busy || [];
-    return busy.map((b) => ({
-      start: new Date(b.start!),
-      end: new Date(b.end!),
-    }));
+        singleEvents: true,        // expand recurring events
+        orderBy: "startTime",
+        maxResults: 250,
+        showDeleted: false,
+      });
+      const items = response.data.items ?? [];
+      const out: Array<{ start: Date; end: Date; summary?: string | null }> = [];
+      for (const ev of items) {
+        if (ev.status === "cancelled") continue;
+        // skip events the service account explicitly declined
+        if (ev.attendees?.some((a) => a.self && a.responseStatus === "declined")) continue;
+        // skip transparent (free) events — they don't block other bookings
+        if (ev.transparency === "transparent") continue;
+        const sIso = ev.start?.dateTime ?? ev.start?.date;
+        const eIso = ev.end?.dateTime ?? ev.end?.date;
+        if (!sIso || !eIso) continue;
+        out.push({
+          start: new Date(sIso),
+          end: new Date(eIso),
+          summary: ev.summary ?? null,
+        });
+      }
+      return out;
+    } catch (err: unknown) {
+      const status =
+        (err as { code?: number; status?: number })?.code ??
+        (err as { status?: number })?.status;
+      if (status === 403 || status === 404) {
+        // Reader scope on this calendar may be missing — fall back to
+        // freebusy.query (lower scope). Loses event titles but keeps
+        // the picker functional.
+        const fb = await calendar.freebusy.query({
+          requestBody: {
+            timeMin: timeMin.toISOString(),
+            timeMax: timeMax.toISOString(),
+            items: [{ id: trimmedId }],
+          },
+        });
+        const busy = fb.data.calendars?.[trimmedId]?.busy ?? [];
+        return busy.map((b) => ({
+          start: new Date(b.start!),
+          end: new Date(b.end!),
+          summary: null,
+        }));
+      }
+      throw err;
+    }
   });
 }
 

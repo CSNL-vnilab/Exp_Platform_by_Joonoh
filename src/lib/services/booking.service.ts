@@ -853,3 +853,54 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
     }
   }
 }
+
+/**
+ * After a booking in a multi-session group is rescheduled, the in-DB
+ * session_number values can fall out of date order: e.g. participant
+ * had {1: Mon, 2: Wed, 3: Fri} and the researcher moves session 1 to
+ * Thu — now session 1 is *later* than session 2 + 3 chronologically,
+ * which breaks the "1회차 / 2회차" labels surfaced to participants and
+ * the payment-info ordering downstream.
+ *
+ * This helper sorts every confirmed booking in the group by slot_start
+ * and rewrites session_number 1..N in that order. Cancelled / no_show
+ * rows are left alone so historical data isn't disturbed. The update
+ * is idempotent — calling it after every reschedule is safe.
+ *
+ * Called from PATCH /api/bookings/[id] after the slot update succeeds.
+ * Returns the number of rows whose session_number actually changed
+ * (zero when the order was already correct).
+ */
+export async function renumberSessionsInGroup(
+  bookingGroupId: string,
+): Promise<{ changed: number; total: number }> {
+  const supabase = createAdminClient();
+  const { data: rows, error } = await supabase
+    .from("bookings")
+    .select("id, slot_start, session_number, status")
+    .eq("booking_group_id", bookingGroupId)
+    .order("slot_start", { ascending: true });
+
+  if (error || !rows || rows.length === 0) {
+    return { changed: 0, total: 0 };
+  }
+
+  // Renumber only active (confirmed/running/completed) — terminal
+  // states (cancelled/no_show) keep their original numbers so that
+  // analysis/billing audit trails don't shift.
+  const ACTIVE = new Set(["confirmed", "running", "completed"]);
+  const active = rows.filter((r) => ACTIVE.has(r.status as string));
+
+  let changed = 0;
+  for (let i = 0; i < active.length; i += 1) {
+    const want = i + 1;
+    const row = active[i] as { id: string; session_number: number };
+    if (row.session_number === want) continue;
+    const { error: upErr } = await supabase
+      .from("bookings")
+      .update({ session_number: want })
+      .eq("id", row.id);
+    if (!upErr) changed += 1;
+  }
+  return { changed, total: active.length };
+}

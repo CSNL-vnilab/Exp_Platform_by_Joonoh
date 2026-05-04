@@ -23,6 +23,9 @@ interface RangeSlot {
   status: SlotStatus;
   booked_count: number;
   capacity: number;
+  /** Calendar event title that conflicts with this slot, when status="busy".
+   *  Null when the freebusy fallback path was used (no titles available). */
+  busy_summary?: string | null;
 }
 
 function* eachDate(from: string, to: string) {
@@ -175,6 +178,7 @@ export async function GET(
         status: s.status,
         booked_count: s.bookedCount,
         capacity: s.capacity,
+        busy_summary: s.busy_summary ?? null,
       });
     }
   }
