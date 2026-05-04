@@ -13,6 +13,16 @@ Multiple Claude sessions work on this repo concurrently — all pushing to
 1. **Before pushing, `git fetch && git log HEAD..origin/main`.** Pull
    first if remote moved. Force-push to `main` is forbidden.
 
+   A pre-flight hook (`.claude/settings.json` PreToolUse →
+   `scripts/preflight-commit.sh`) backs this rule up by refusing
+   `git commit` and `git push` when (a) the current branch is not
+   `main`, or (b) `git push` is invoked while local `main` is behind
+   `origin/main`. If you genuinely need to commit on a feature branch,
+   prefix the command with `ALLOW_FEATURE_BRANCH=1`:
+
+       ALLOW_FEATURE_BRANCH=1 git commit -m "..."
+       ALLOW_FEATURE_BRANCH=1 git push origin feat/...
+
 2. **Production-affecting commits** (anything under `src/app/`, `src/lib/`,
    `supabase/migrations/`, `vercel.json`) deserve a 60-second pause after
    `git push`: Vercel concurrency cancels in-flight builds when a new
