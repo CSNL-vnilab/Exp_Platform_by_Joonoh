@@ -16,6 +16,7 @@ import { runHeuristic } from "@/lib/experiments/code-heuristics";
 import { runAiAnalysis } from "@/lib/experiments/code-ai-analyzer";
 import { mergeAnalysis } from "@/lib/experiments/code-analysis-schema";
 import { resolveProvider } from "@/lib/experiments/llm-provider";
+import { analyzerAuthBypassActive } from "@/lib/experiments/dev-bypass";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,10 +37,18 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "인증이 필요합니다" }, { status: 401 });
+  // Dev-only auth bypass for the analyzer surface. Off by default; only
+  // honoured when NODE_ENV !== "production" AND the env flag is set so a
+  // misconfigured prod build cannot accidentally expose it.
+  const devBypass = analyzerAuthBypassActive();
+  if (!devBypass) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "인증이 필요합니다" }, { status: 401 });
+    }
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));

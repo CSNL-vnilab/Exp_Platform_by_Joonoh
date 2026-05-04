@@ -15,10 +15,21 @@
 // extensions / heavy directories so a 200-MB repo doesn't blow up the
 // process.
 
-import { mkdtemp, readdir, readFile, stat, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, stat, lstat, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
+
+// Allow-list of git hosts the cloner will reach. Locks out internal
+// gitlab / SSH-mounted hosts that would let a researcher exfiltrate
+// the deploy machine's git credentials. Override via CODE_GIT_HOSTS
+// (comma-separated suffixes).
+const GIT_HOST_ALLOWLIST = (
+  process.env.CODE_GIT_HOSTS ?? "github.com,gitlab.com,bitbucket.org,codeberg.org"
+)
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
 
 const TEXT_EXT = /\.(m|py|js|mjs|ts|tsx|jsx|r|txt|md|markdown|json|ya?ml|toml|cfg|ini|sh|csv|tex)$/i;
 const SKIP_DIR = /^(\.git|node_modules|results|data|raw|figures|figs|__pycache__|dist|build|\.venv|venv|env|coverage|\.next|\.cache|tex_cache)$/;
@@ -40,13 +51,16 @@ function getAllowedRoots(): string[] {
     .map((p) => p.trim())
     .filter(Boolean)
     .map((p) => path.resolve(p));
-  // Also accept anything under the running project's `scripts/fixtures`
-  // tree — needed for the bench harness on developer laptops where
-  // CODE_SOURCE_ROOTS doesn't include the repo path. Vercel functions
-  // never resolve to this path so it doesn't widen production attack
-  // surface.
-  const fixtureRoot = path.resolve(process.cwd(), "scripts", "fixtures");
-  return [...explicit, fixtureRoot];
+  // The fixtures dir is opt-in — only when explicitly enabled AND not
+  // running in production. This was previously always-appended which
+  // meant a self-hosted prod deploy with cwd=/repo could be tricked
+  // into reading anything that landed under `scripts/fixtures` (e.g.
+  // a planted symlink). See review item #7.
+  const isProd = process.env.NODE_ENV === "production";
+  if (!isProd && process.env.ANALYZER_FIXTURE_ROOT === "1") {
+    explicit.push(path.resolve(process.cwd(), "scripts", "fixtures"));
+  }
+  return explicit;
 }
 
 function isUnderAllowedRoot(target: string): boolean {
@@ -56,6 +70,47 @@ function isUnderAllowedRoot(target: string): boolean {
     if (!rel.startsWith("..") && !path.isAbsolute(rel)) return true;
   }
   return false;
+}
+
+// Resolve symlinks before recursion. The previous walker used `stat`
+// which follows links transparently — a symlink inside an allowed
+// root could point to /etc/shadow and the walker would happily
+// readFile through it. We use lstat first to detect links, then
+// realpath the target and re-check the allow-list. Also defends
+// against symlink loops (realpath rejects them on most platforms;
+// we additionally bail on excessive depth via the maxFiles cap).
+async function safeResolveEntry(
+  abs: string,
+): Promise<{ kind: "file" | "dir" | "skip"; reason?: string; size?: number }> {
+  let lst;
+  try {
+    lst = await lstat(abs);
+  } catch (err) {
+    return { kind: "skip", reason: `lstat: ${(err as Error).message.slice(0, 60)}` };
+  }
+  if (lst.isSymbolicLink()) {
+    let real: string;
+    try {
+      real = await realpath(abs);
+    } catch {
+      return { kind: "skip", reason: "broken symlink" };
+    }
+    if (!isUnderAllowedRoot(real)) {
+      return { kind: "skip", reason: `symlink escapes allow-list → ${real}` };
+    }
+    let realSt;
+    try {
+      realSt = await stat(real);
+    } catch {
+      return { kind: "skip", reason: "symlink target unreadable" };
+    }
+    if (realSt.isDirectory()) return { kind: "dir" };
+    if (realSt.isFile()) return { kind: "file", size: realSt.size };
+    return { kind: "skip", reason: "non-regular link target" };
+  }
+  if (lst.isDirectory()) return { kind: "dir" };
+  if (lst.isFile()) return { kind: "file", size: lst.size };
+  return { kind: "skip", reason: "non-regular file" };
 }
 
 export interface FetchedFile {
@@ -101,6 +156,21 @@ export async function fetchServerPath(absPath: string): Promise<FetchResult> {
   return readDirRecursive(absPath, absPath, DEFAULT_TOTAL_CAP);
 }
 
+// Heuristic: file is binary if it contains a NUL byte in the first
+// 4KB or > 30% of those bytes are U+FFFD (replacement char). Pure
+// content-based - works for both filesystem and tarball flows.
+function looksBinary(s: string): boolean {
+  const head = s.slice(0, 4096);
+  for (let i = 0; i < head.length; i += 1) {
+    if (head.charCodeAt(i) === 0) return true;
+  }
+  let repl = 0;
+  for (let i = 0; i < head.length; i += 1) {
+    if (head.charCodeAt(i) === 0xfffd) repl += 1;
+  }
+  return repl > head.length * 0.3;
+}
+
 async function readDirRecursive(
   root: string,
   cur: string,
@@ -123,7 +193,14 @@ async function readDirRecursive(
     for (const e of entries) {
       const abs = path.join(dir, e.name);
       const rel = path.relative(root, abs).replace(/\\/g, "/");
-      if (e.isDirectory()) {
+      // Use lstat-based resolution so symlinks can't escape the
+      // allow-list (review item #1).
+      const resolved = await safeResolveEntry(abs);
+      if (resolved.kind === "skip") {
+        skipped.push({ path: rel, reason: resolved.reason ?? "skipped" });
+        continue;
+      }
+      if (resolved.kind === "dir") {
         if (SKIP_DIR.test(e.name)) {
           skipped.push({ path: rel, reason: "skipped dir" });
           continue;
@@ -132,24 +209,29 @@ async function readDirRecursive(
         if (truncated) return;
         continue;
       }
-      if (!e.isFile()) continue;
       if (!TEXT_EXT.test(e.name)) {
         skipped.push({ path: rel, reason: "binary/unknown ext" });
         continue;
       }
-      const fst = await stat(abs).catch(() => null);
-      if (!fst) continue;
-      if (fst.size > DEFAULT_FILE_CAP) {
+      const size = resolved.size ?? 0;
+      if (size > DEFAULT_FILE_CAP) {
         skipped.push({ path: rel, reason: `>${(DEFAULT_FILE_CAP / 1024).toFixed(0)}KB` });
         continue;
       }
-      if (total + fst.size > cap) {
+      if (total + size > cap) {
         truncated = true;
         skipped.push({ path: rel, reason: "total budget" });
         return;
       }
       try {
         const content = await readFile(abs, "utf8");
+        // Reject binary files masquerading as text (review item #11).
+        // A `.mat` saved as `.m`, a corrupted file, or a UTF-16 BOM
+        // file all light up the heuristic regex extractor with junk.
+        if (looksBinary(content)) {
+          skipped.push({ path: rel, reason: "binary content" });
+          continue;
+        }
         files.push({ path: rel, content });
         total += content.length;
       } catch (err) {
@@ -217,13 +299,51 @@ export async function fetchGithub(spec: GithubSpec): Promise<FetchResult> {
     const repo = ghMatch[2];
     return fetchGithubTarball(owner, repo, spec.ref ?? null, spec.url + (spec.ref ? `#${spec.ref}` : ""));
   }
-  // git CLI fallback (preserves the original behaviour for non-GitHub
-  // hosts and for environments with credentials configured)
+
+  // Host allow-list. Block any host that isn't on the configured list
+  // so a researcher pasting `https://internal-gitlab.lab.local/...`
+  // can't make the deploy machine reach internal infra (review #8).
+  let host = "";
+  try {
+    host = new URL(spec.url).host.toLowerCase();
+  } catch {
+    throw new Error(`잘못된 git URL 형식: ${spec.url.slice(0, 80)}`);
+  }
+  const hostOk = GIT_HOST_ALLOWLIST.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+  if (!hostOk) {
+    throw new Error(
+      `허용되지 않은 git 호스트: ${host}. CODE_GIT_HOSTS 환경변수에 등록된 호스트만 허용됩니다.`,
+    );
+  }
+
+  // git CLI fallback for allow-listed non-github hosts. Strip every
+  // possible source of credentials so the spawned `git` cannot use the
+  // deploy machine's keychain / askpass / .gitconfig (review #8).
   const tmp = await mkdtemp(path.join(tmpdir(), "labres-clone-"));
-  const args = ["clone", "--depth", "1", "--single-branch"];
+  const args = [
+    "-c", "core.askPass=/bin/false",
+    "-c", "credential.helper=",
+    "-c", "http.extraheader=",
+    "clone", "--depth", "1", "--single-branch",
+  ];
   if (spec.ref) args.push("--branch", spec.ref);
   args.push(spec.url, tmp);
-  await runCmd("git", args, { timeoutMs: 60_000 });
+  await runCmd("git", args, {
+    timeoutMs: 60_000,
+    env: {
+      // Only PATH + LANG; everything else (HOME, credential helpers,
+      // GIT_*, SSH_ASKPASS) deliberately unset.
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      LANG: "C",
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_ASKPASS: "/bin/false",
+      SSH_ASKPASS: "/bin/false",
+      // Empty HOME stops git from reading ~/.gitconfig and the user
+      // keychain on macOS.
+      HOME: tmp,
+      XDG_CONFIG_HOME: tmp,
+    } as unknown as NodeJS.ProcessEnv,
+  });
   const result = await readDirRecursive(tmp, tmp, DEFAULT_TOTAL_CAP);
   return {
     ...result,
@@ -265,8 +385,18 @@ async function fetchGithubTarball(
   const stripPrefix = (p: string): string => p.replace(/^[^/]+\//, "");
   for (const entry of extracted) {
     if (truncated) break;
+    if (entry.type !== "file") continue;
+    // Normalize backslash to forward-slash *before* security checks
+    // (review #9).
     const rel = stripPrefix(entry.path).replace(/\\/g, "/");
     if (!rel) continue;
+    // Path-traversal defence (review #2). Reject absolute paths and
+    // any segment-equal `..`. The tarball reader's own header parser
+    // also rejects these, but defence-in-depth.
+    if (rel.startsWith("/") || rel.split("/").includes("..")) {
+      skipped.push({ path: rel, reason: "path traversal blocked" });
+      continue;
+    }
     if (isNoiseInTarball(rel)) {
       skipped.push({ path: rel, reason: "filtered (dir/ext)" });
       continue;
@@ -281,6 +411,10 @@ async function fetchGithubTarball(
       break;
     }
     const content = entry.data.toString("utf8");
+    if (looksBinary(content)) {
+      skipped.push({ path: rel, reason: "binary content" });
+      continue;
+    }
     files.push({ path: rel, content });
     total += content.length;
   }
@@ -310,26 +444,45 @@ async function readTarballEntries(buf: Buffer): Promise<TarEntry[]> {
   const tar = gunzipSync(buf);
   const entries: TarEntry[] = [];
   let offset = 0;
+  // Carry-over from longname/pax headers that supply the path of the
+  // *next* entry. Without this, tarballs with > 100-char paths (very
+  // common on GNU tar) put the path payload into a "file" entry with
+  // the previous truncated name -- silent data corruption (review #2).
+  let pendingLongName: string | null = null;
+  let pendingPaxPath: string | null = null;
   while (offset + 512 <= tar.length) {
     const header = tar.subarray(offset, offset + 512);
-    // detect end of archive (two consecutive 512-byte zero blocks)
     if (header.every((b) => b === 0)) break;
     const name = readCString(header, 0, 100);
     const sizeOctal = readCString(header, 124, 12).trim();
     const size = parseInt(sizeOctal, 8) || 0;
+    if (size < 0 || size > tar.length) break; // malformed octal -- bail
     const typeflag = String.fromCharCode(header[156] || 0);
     const prefix = readCString(header, 345, 155);
-    const fullPath = prefix ? `${prefix}/${name}` : name;
+    let fullPath = prefix ? `${prefix}/${name}` : name;
+    if (pendingLongName) { fullPath = pendingLongName; pendingLongName = null; }
+    else if (pendingPaxPath) { fullPath = pendingPaxPath; pendingPaxPath = null; }
     offset += 512;
-    if (typeflag === "0" || typeflag === "" || typeflag === " ") {
-      const data = tar.subarray(offset, offset + size);
-      entries.push({ path: fullPath, size, type: "file", data: Buffer.from(data) });
+    const dataStart = offset;
+    const dataEnd = Math.min(offset + size, tar.length);
+    if (typeflag === "0" || typeflag === "" || typeflag === " ") {
+      entries.push({
+        path: fullPath,
+        size: dataEnd - dataStart,
+        type: "file",
+        data: Buffer.from(tar.subarray(dataStart, dataEnd)),
+      });
     } else if (typeflag === "5") {
       entries.push({ path: fullPath, size: 0, type: "dir", data: Buffer.alloc(0) });
+    } else if (typeflag === "L") {
+      pendingLongName = readCString(tar, dataStart, dataEnd - dataStart);
+    } else if (typeflag === "x") {
+      const text = tar.toString("utf8", dataStart, dataEnd);
+      const m = text.match(/(?:^|\n)\d+ path=([^\n]+)\n/);
+      if (m) pendingPaxPath = m[1];
     } else {
-      // longnames, pax, links — skip
+      // global pax ("g"), symlink ("2"), char/block/fifo (3/4/6) etc.
     }
-    // tar pads to 512-byte boundary
     offset += Math.ceil(size / 512) * 512;
   }
   return entries;
@@ -346,12 +499,15 @@ function readCString(buf: Buffer, off: number, len: number): string {
 async function runCmd(
   cmd: string,
   args: string[],
-  opts: { timeoutMs?: number; cwd?: string } = {},
+  opts: { timeoutMs?: number; cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      // Caller may pass a tightly-scoped env (e.g. clearing HOME for
+      // git fallback). Default still provides PATH so the binary can
+      // be found.
+      env: opts.env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

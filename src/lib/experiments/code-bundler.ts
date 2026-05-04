@@ -239,8 +239,19 @@ export function bundle(files: InputFile[], opts: BundleOptions = {}): BundleResu
   const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
   const dropped: BundleResult["dropped"] = [];
 
+  // Normalise Windows backslashes to forward slashes before any regex
+  // touches paths. A researcher dragging from Windows produces
+  // `.git\refs\heads\main` which the noise regex `(^|\/)\.git\//`
+  // would NOT match, smuggling the entire .git directory into the
+  // bundle (review #9). Apply at every regex consumer below by
+  // pre-normalising once here.
+  const inputs: InputFile[] = files.map((f) => ({
+    path: f.path.replace(/\\/g, "/"),
+    content: f.content,
+  }));
+
   // 1. drop noise files
-  const usable = files.filter((f) => {
+  const usable = inputs.filter((f) => {
     const reason = isNoise(f.path);
     if (reason) {
       dropped.push({ path: f.path, reason: `noise: ${reason}` });
