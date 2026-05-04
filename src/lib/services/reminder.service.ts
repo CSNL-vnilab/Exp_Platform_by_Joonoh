@@ -4,6 +4,7 @@ import { sendSMS } from "@/lib/solapi/client";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
+import { wrapEmailHtml } from "@/lib/services/email-shell";
 
 interface ReminderRow {
   id: string;
@@ -180,7 +181,9 @@ export async function processReminders(): Promise<number> {
             }${contactEmailLine ? `<br/>${contactEmailLine}` : ""}
           </p>`;
 
-        const html = `
+        // P0-Ι: <html><head> shell with color-scheme: light only
+        const html = wrapEmailHtml(
+          `
           <div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;padding:8px;color:#111827;line-height:1.55;">
             <div style="padding:14px 18px;background:${isEvening ? "#eff6ff" : "#fef3c7"};border:1px solid ${isEvening ? "#93c5fd" : "#fcd34d"};border-radius:10px;margin-bottom:18px;">
               <p style="margin:0;font-size:15px;font-weight:600;color:${isEvening ? "#1e40af" : "#92400e"};">${
@@ -216,7 +219,9 @@ export async function processReminders(): Promise<number> {
               ${BRAND_NAME} — 자동 발송된 리마인드 메일입니다.
             </p>
           </div>
-        `;
+          `,
+          { title: subject },
+        );
 
         await sendEmail({
           to: participant.email,

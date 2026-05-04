@@ -7,6 +7,7 @@
 
 import { escapeHtml } from "@/lib/utils/validation";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
+import { wrapEmailHtml } from "@/lib/services/email-shell";
 
 export interface PaymentInfoEmailInput {
   participantName: string;
@@ -68,7 +69,9 @@ export function buildPaymentInfoEmail(input: PaymentInfoEmailInput): BuiltPaymen
        확정 메일에서 보내드린 동일한 링크가 그대로 사용 가능하니, 이미 입력 중이셨다면 그대로 이어서 진행하셔도 됩니다.`
     : `${safeName}님, <strong>${safeTitle}</strong> 실험에 참여해 주셔서 감사합니다.`;
 
-  const html = `
+  // P0-Ι: <html><head> shell with color-scheme: light only
+  const html = wrapEmailHtml(
+    `
     <div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;padding:8px;color:#111827;line-height:1.55;">
       <h2 style="margin:0 0 12px 0;font-size:18px;color:#111827;">참여비 정산 정보 입력 안내</h2>
 
@@ -117,7 +120,9 @@ export function buildPaymentInfoEmail(input: PaymentInfoEmailInput): BuiltPaymen
         본 메일은 ${BRAND_NAME} 정산 시스템에서 자동 발송되었습니다. 문의는 회신이 아닌 위 담당 연구원 이메일로 부탁드립니다.
       </p>
     </div>
-  `;
+    `,
+    { title: subject },
+  );
 
   return { to: input.participantEmail, subject, html };
 }

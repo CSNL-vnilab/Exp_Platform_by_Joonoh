@@ -12,6 +12,7 @@
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
 import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
+import { wrapEmailHtml } from "@/lib/services/email-shell";
 import type { ExperimentMode } from "@/types/database";
 
 export interface EmailRunLink {
@@ -194,7 +195,11 @@ export function buildConfirmationEmail(
     ? `<p style="margin:0 0 14px 0;padding:8px 12px;background:#f3f4f6;border-radius:6px;font-size:13px;color:#374151;">${escapeHtml(input.preface)}</p>`
     : "";
 
-  const html = `
+  // P0-Ι: wrap in proper <html><head> shell so iOS Gmail / dark-mode
+  // clients honor color-scheme: light only and don't crush our light
+  // box backgrounds.
+  const html = wrapEmailHtml(
+    `
     <div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;padding:8px;color:#111827;line-height:1.55;">
       ${prefaceBlock}
       <div style="padding:14px 18px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;margin-bottom:18px;">
@@ -230,7 +235,9 @@ export function buildConfirmationEmail(
         ${BRAND_NAME} — 본 메일은 예약 신청 확인용입니다.
       </p>
     </div>
-  `;
+    `,
+    { title: `[${BRAND_NAME}] 예약 확정` },
+  );
 
   // Case-insensitive compare: Foo@x vs foo@x are the same inbox.
   const cc =

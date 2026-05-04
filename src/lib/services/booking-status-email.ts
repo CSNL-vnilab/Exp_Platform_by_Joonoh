@@ -12,6 +12,7 @@
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
+import { wrapEmailHtml } from "@/lib/services/email-shell";
 
 export interface BookingStatusEmailRow {
   id: string;
@@ -129,7 +130,9 @@ export function buildCancellationEmail(input: BookingStatusEmailInput): BuiltSta
 
   const subject = `[${BRAND_NAME}] ${input.experiment.title}${sessionSuffix} 예약이 취소되었습니다`;
 
-  const html = `
+  // P0-Ι: <html><head> shell with color-scheme: light only
+  const html = wrapEmailHtml(
+    `
     <div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;padding:8px;color:#111827;line-height:1.6;">
       <div style="padding:14px 18px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;margin-bottom:18px;">
         <p style="margin:0;font-size:15px;font-weight:600;color:#991b1b;">예약이 취소되었습니다</p>
@@ -166,7 +169,9 @@ export function buildCancellationEmail(input: BookingStatusEmailInput): BuiltSta
         ${BRAND_NAME} — 본 메일은 예약 상태 변경 시 자동 발송되었습니다.
       </p>
     </div>
-  `;
+    `,
+    { title: subject },
+  );
 
   return { to: input.participant.email, subject, html };
 }
@@ -181,7 +186,9 @@ export function buildNoShowEmail(input: BookingStatusEmailInput): BuiltStatusEma
 
   const subject = `[${BRAND_NAME}] ${input.experiment.title}${sessionSuffix} 결석이 기록되었습니다`;
 
-  const html = `
+  // P0-Ι: <html><head> shell with color-scheme: light only
+  const html = wrapEmailHtml(
+    `
     <div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;padding:8px;color:#111827;line-height:1.6;">
       <div style="padding:14px 18px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;margin-bottom:18px;">
         <p style="margin:0;font-size:15px;font-weight:600;color:#92400e;">결석이 기록되었습니다</p>
@@ -220,7 +227,9 @@ export function buildNoShowEmail(input: BookingStatusEmailInput): BuiltStatusEma
         ${BRAND_NAME} — 본 메일은 예약 상태 변경 시 자동 발송되었습니다.
       </p>
     </div>
-  `;
+    `,
+    { title: subject },
+  );
 
   return { to: input.participant.email, subject, html };
 }

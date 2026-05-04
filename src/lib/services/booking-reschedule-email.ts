@@ -12,6 +12,7 @@
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
+import { wrapEmailHtml } from "@/lib/services/email-shell";
 
 export interface RescheduleEmailExperiment {
   title: string;
@@ -144,7 +145,9 @@ export function buildRescheduleEmail(input: RescheduleEmailInput): BuiltReschedu
   const oldWhen = escapeHtml(whenLine(input.oldSlotStart, input.oldSlotEnd));
   const newWhen = escapeHtml(whenLine(input.booking.slot_start, input.booking.slot_end));
 
-  const html = `
+  // P0-Ι: <html><head> shell with color-scheme: light only
+  const html = wrapEmailHtml(
+    `
     <div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;padding:8px;color:#111827;line-height:1.6;">
       <div style="padding:14px 18px;background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;margin-bottom:18px;">
         <p style="margin:0;font-size:15px;font-weight:600;color:#92400e;">📅 실험 일정이 변경되었습니다</p>
@@ -197,7 +200,9 @@ export function buildRescheduleEmail(input: RescheduleEmailInput): BuiltReschedu
         ${BRAND_NAME} — 본 메일은 예약 일정 변경 시 자동 발송되었습니다.
       </p>
     </div>
-  `;
+    `,
+    { title: subject },
+  );
 
   return { to: input.participant.email, subject, html };
 }
