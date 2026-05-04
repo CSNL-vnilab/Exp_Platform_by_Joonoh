@@ -21,6 +21,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import {
+  chat as ollamaChat,
   chatJson as ollamaChatJson,
   ping as ollamaPing,
   modelFor as ollamaModelFor,
@@ -43,6 +44,9 @@ export interface LLMProvider {
   // Returns a parsed JSON object — provider handles schema-mode
   // / format-json / robust extraction internally.
   chatJson<T = unknown>(opts: LLMChatJsonOptions): Promise<T>;
+  // Returns raw text — used by the two-pass refinement reviewer that
+  // emits <patch>{...}</patch> blocks (intermixable prose + json).
+  chatText(opts: LLMChatJsonOptions): Promise<string>;
   health(): Promise<{ ok: boolean; detail?: string }>;
 }
 
@@ -57,6 +61,16 @@ export class OllamaProvider implements LLMProvider {
   }
   async chatJson<T>(opts: LLMChatJsonOptions): Promise<T> {
     return ollamaChatJson<T>({
+      model: this.model,
+      messages: opts.messages,
+      temperature: opts.temperature,
+      num_ctx: opts.num_ctx,
+      num_predict: opts.num_predict,
+      signal: opts.signal,
+    });
+  }
+  async chatText(opts: LLMChatJsonOptions): Promise<string> {
+    return ollamaChat({
       model: this.model,
       messages: opts.messages,
       temperature: opts.temperature,
@@ -133,6 +147,27 @@ export class AnthropicProvider implements LLMProvider {
       throw new Error(`anthropic chatJson: model returned non-JSON: ${raw.slice(0, 200)}`);
     }
     return parsed as T;
+  }
+  async chatText(opts: LLMChatJsonOptions): Promise<string> {
+    const sys = opts.messages.find((m) => m.role === "system")?.content ?? "";
+    const turns = opts.messages
+      .filter((m) => m.role !== "system")
+      .map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+    const res = await this.client.messages.create(
+      {
+        model: this.model,
+        max_tokens: opts.num_predict ?? 8192,
+        temperature: opts.temperature ?? 0.2,
+        system: sys,
+        messages: turns,
+      },
+      { signal: opts.signal },
+    );
+    const block = res.content.find((b) => b.type === "text");
+    return block && "text" in block ? block.text : "";
   }
   async health() {
     // Cheapest possible probe — list models is rate-limited and not
@@ -229,4 +264,68 @@ export async function resolveProvider(
 // Provider description for UI display ("model: claude-opus-4-7 (anthropic)").
 export function describeProvider(p: LLMProvider): string {
   return `${p.model} (${p.name})`;
+}
+
+// Resolver for the *review* (second-pass refinement) model. Distinct
+// from resolveProvider() so we can target a different — typically more
+// capable — model than the extraction pass without disturbing the
+// primary code path.
+//
+// Selection priority:
+//   1. opts.override / REFINEMENT_PROVIDER env  (ollama | anthropic | auto)
+//   2. REFINEMENT_MODEL env  → explicit Ollama tag (or anthropic model)
+//   3. default Ollama model: MODELS.reviewDeep ("gemma4:31b").
+//      Falls back via pickOllamaModel() if not pulled on this host.
+//   4. default Anthropic model: ANTHROPIC_REFINEMENT_MODEL env, else
+//      ANTHROPIC_CODE_MODEL env, else "claude-opus-4-7".
+//
+// If neither backend is reachable, throws — callers should catch and
+// fall through to the 1-pass result.
+export async function resolveReviewProvider(
+  opts: ResolveProviderOpts = {},
+): Promise<LLMProvider> {
+  const explicit =
+    opts.override && opts.override !== "auto" ? opts.override : null;
+  const envChoice =
+    (process.env.REFINEMENT_PROVIDER as "ollama" | "anthropic" | undefined) ??
+    null;
+  const target =
+    explicit ??
+    envChoice ??
+    (process.env.ANTHROPIC_API_KEY && !process.env.OLLAMA_HOST
+      ? "anthropic"
+      : "ollama");
+
+  const ollamaTag =
+    opts.ollamaModel ??
+    process.env.REFINEMENT_MODEL ??
+    OLLAMA_MODELS.reviewDeep;
+
+  const anthropicTag =
+    opts.anthropicModel ??
+    process.env.ANTHROPIC_REFINEMENT_MODEL ??
+    process.env.ANTHROPIC_CODE_MODEL ??
+    "claude-opus-4-7";
+
+  if (target === "anthropic") {
+    try {
+      return new AnthropicProvider({ model: anthropicTag });
+    } catch (err) {
+      const ollamaP = new OllamaProvider(await pickOllamaModel(ollamaTag));
+      const h = await ollamaP.health();
+      if (h.ok) return ollamaP;
+      throw err;
+    }
+  }
+  // ollama
+  const model = await pickOllamaModel(ollamaTag);
+  const p = new OllamaProvider(model);
+  const h = await p.health();
+  if (h.ok) return p;
+  if (process.env.ANTHROPIC_API_KEY) {
+    return new AnthropicProvider({ model: anthropicTag });
+  }
+  throw new Error(
+    "review LLM 백엔드를 사용할 수 없습니다 (Ollama unreachable & ANTHROPIC_API_KEY 미설정)",
+  );
 }

@@ -11,6 +11,8 @@
 //   npx tsx scripts/bench-fixtures.mjs
 //   PROVIDER=anthropic npx tsx scripts/bench-fixtures.mjs   # uses Claude Opus
 //   FIXTURES=psychopy_estimation,jspsych_decision npx tsx scripts/bench-fixtures.mjs
+//   REFINEMENT=on npx tsx scripts/bench-fixtures.mjs        # turn on 2-pass refinement
+//   REFINEMENT=on REFINEMENT_MODEL=gemma4:31b npx tsx scripts/bench-fixtures.mjs
 
 import path from "node:path";
 import { readFile, readdir } from "node:fs/promises";
@@ -247,13 +249,19 @@ for (const name of fixturesArg) {
     ms = Date.now() - t0;
     const merged = mergeAnalysis(heuristic, ai, null);
     const sc = scoreFixture(merged, gt);
+    let refineNote = "";
+    if (r.refinement) {
+      const ref = r.refinement;
+      refineNote =
+        ` · refine ${ref.appliedCount}±${ref.rejectedCount} (${(ref.durationMs / 1000).toFixed(1)}s, ${ref.model})`;
+    }
     console.log(
-      `${(sc.pct * 100).toFixed(1).padStart(5)}% (${sc.score}/${sc.possible}) in ${(ms / 1000).toFixed(1)}s · model ${r.model}`,
+      `${(sc.pct * 100).toFixed(1).padStart(5)}% (${sc.score}/${sc.possible}) in ${(ms / 1000).toFixed(1)}s · model ${r.model}${refineNote}`,
     );
     if (sc.detail.factors_bogus_present.length > 0) {
       console.log(`     bogus factors detected: ${sc.detail.factors_bogus_present.join(", ")}`);
     }
-    results.push({ name, ...sc, ms, model: r.model });
+    results.push({ name, ...sc, ms, model: r.model, refinement: r.refinement });
   } catch (err) {
     console.log(`FAIL ${(err && err.message) ? err.message.slice(0, 100) : err}`);
     results.push({ name, score: 0, possible: 1, pct: 0, ms: 0, error: String(err) });
@@ -266,12 +274,25 @@ for (const name of fixturesArg) {
 console.log("\n--- summary ---");
 let totalScore = 0;
 let totalPossible = 0;
+let totalApplied = 0;
+let totalRejected = 0;
+let totalRefineMs = 0;
 for (const r of results) {
   totalScore += r.score;
   totalPossible += r.possible;
+  if (r.refinement) {
+    totalApplied += r.refinement.appliedCount;
+    totalRejected += r.refinement.rejectedCount;
+    totalRefineMs += r.refinement.durationMs;
+  }
   console.log(
     `  ${r.name.padEnd(28)} ${(r.pct * 100).toFixed(1).padStart(5)}%  (${r.score}/${r.possible})${r.error ? "  · " + r.error.slice(0, 60) : ""}`,
   );
 }
 const overall = totalScore / Math.max(totalPossible, 1);
 console.log(`\noverall: ${(overall * 100).toFixed(1)}% (${totalScore}/${totalPossible})`);
+if (totalApplied + totalRejected > 0) {
+  console.log(
+    `refinement: ${totalApplied} applied · ${totalRejected} rejected · ${(totalRefineMs / 1000).toFixed(1)}s total`,
+  );
+}
