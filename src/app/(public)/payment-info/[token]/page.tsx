@@ -55,10 +55,12 @@ export default async function PaymentInfoPage({ params }: PageProps) {
   // 00050) so a participant who already started filling the form (or who
   // re-opens after corrections) sees their last-entered values, not the
   // potentially stale participants.* row.
+  // account_number selected so the success screen can show a masked
+  // tail (Phase 5a / C-P0-8 in the improvement plan).
   const { data: info } = await supabase
     .from("participant_payment_info")
     .select(
-      "id, booking_group_id, participant_id, experiment_id, status, period_start, period_end, amount_krw, token_hash, token_revoked_at, account_holder, bank_name, name_override, email_override, phone, participants(name, email, phone), experiments(title)",
+      "id, booking_group_id, participant_id, experiment_id, status, period_start, period_end, amount_krw, token_hash, token_revoked_at, account_holder, account_number, bank_name, name_override, email_override, phone, participants(name, email, phone), experiments(title)",
     )
     .eq("booking_group_id", verified.bookingGroupId)
     .maybeSingle<{
@@ -73,6 +75,7 @@ export default async function PaymentInfoPage({ params }: PageProps) {
       token_hash: string;
       token_revoked_at: string | null;
       account_holder: string | null;
+      account_number: string | null;
       bank_name: string | null;
       name_override: string | null;
       email_override: string | null;
@@ -111,6 +114,15 @@ export default async function PaymentInfoPage({ params }: PageProps) {
   const experimentTitle = info.experiments?.title ?? "실험";
 
   if (info.status !== "pending_participant") {
+    // C-P0-8: success screen now mentions a real disbursement window
+    // ("곧" was vague enough to spawn 1-week status pings) and shows
+    // the masked account tail so the participant can sanity-check.
+    const tail = (info.account_number ?? "").replace(/\D/g, "").slice(-4);
+    const maskedAccount = tail
+      ? `${info.bank_name ?? ""} 계좌 (****${tail})`
+      : info.bank_name
+        ? `${info.bank_name} 계좌`
+        : "등록하신 계좌";
     return (
       <div className="space-y-5">
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 text-center">
@@ -121,23 +133,37 @@ export default async function PaymentInfoPage({ params }: PageProps) {
           </div>
           <h1 className="text-xl font-bold text-emerald-800">정산 정보가 제출되었습니다</h1>
           <p className="mt-2 text-sm text-emerald-700">
-            {experimentTitle} 참여비가 곧 {info.bank_name ?? ""} 계좌로 지급될 예정입니다.
+            {experimentTitle} 참여비가 행정 처리 후 보통 <b>2~4주 이내</b>에
+            {" "}{maskedAccount}로 입금될 예정입니다.
           </p>
-          <p className="mt-1 text-xs text-emerald-700/80">
-            추가 수정이 필요하시면 담당 연구원에게 문의해 주세요.
+          <p className="mt-2 text-xs text-emerald-700/80">
+            1개월 이상 입금이 지연되거나 수정이 필요하시면 담당 연구원에게 문의해
+            주세요.
           </p>
         </div>
       </div>
     );
   }
 
-  // Surface a soft warning if the experiment period hasn't ended yet — the
-  // participant can still fill the form (sometimes people do it early to
-  // get it out of the way) but they should know the check happens server-
-  // side at submit time.
-  const now = new Date();
-  const endDate = info.period_end ? new Date(`${info.period_end}T23:59:59+09:00`) : null;
-  const sessionsStillUpcoming = endDate ? now < endDate : false;
+  // P0-Θ: hard gate when not all sessions in the booking_group have
+  // ended. Previously the form rendered with a small amber warning and
+  // the submit endpoint blocked at the network level — but the form
+  // held no draft state, so anything the participant typed (RRN, bank,
+  // signature) was silently discarded on tab close. They came back days
+  // later thinking they'd "already done the form" and had to start over.
+  // We now refuse to render the form at all when pending sessions remain
+  // and tell them precisely when they can come back.
+  const { data: groupBookings } = await supabase
+    .from("bookings")
+    .select("id, slot_end, status")
+    .eq("booking_group_id", info.booking_group_id);
+  const liveBookings = (groupBookings ?? []).filter(
+    (b) => b.status === "confirmed" || b.status === "running",
+  );
+  const lastLiveSlotEnd = liveBookings
+    .map((b) => new Date(b.slot_end).getTime())
+    .reduce<number | null>((max, t) => (max === null || t > max ? t : max), null);
+  const pendingCount = liveBookings.length;
 
   return (
     <div className="space-y-5">
@@ -159,21 +185,36 @@ export default async function PaymentInfoPage({ params }: PageProps) {
         </dl>
       </div>
 
-      {sessionsStillUpcoming && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          ⚠ 아직 실험이 완료되지 않았습니다. 모든 세션을 마치신 후 제출해 주세요.
-          지금 작성은 가능하지만, 제출은 마지막 세션 종료 후에만 처리됩니다.
+      {pendingCount > 0 ? (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-5 text-sm text-amber-900 leading-relaxed">
+          <p className="mb-2 text-base font-semibold">
+            ⚠ 아직 입력하실 시점이 아닙니다
+          </p>
+          <p className="mb-2">
+            남은 회차 <b>{pendingCount}회</b>
+            {lastLiveSlotEnd
+              ? ` · 마지막 세션 종료 예정: ${formatDateKR(new Date(lastLiveSlotEnd).toISOString())}`
+              : ""}
+          </p>
+          <p className="mb-3">
+            지금은 작성하셔도 <b>저장되지 않습니다</b>. 모든 회차 종료 후 다시
+            이 링크를 열어 한 번에 입력해 주세요. 종료 시점에 동일한 링크가
+            담긴 안내 메일도 자동 재발송됩니다.
+          </p>
+          <p className="text-xs text-amber-800/80">
+            이 메일·링크는 본인에게만 발급된 일회성 링크이니 보관해 주세요.
+          </p>
         </div>
+      ) : (
+        <PaymentInfoForm
+          token={token}
+          defaultName={participantName}
+          defaultPhone={participantPhone}
+          defaultEmail={participantEmail}
+          experimentTitle={experimentTitle}
+          amountKrw={info.amount_krw}
+        />
       )}
-
-      <PaymentInfoForm
-        token={token}
-        defaultName={participantName}
-        defaultPhone={participantPhone}
-        defaultEmail={participantEmail}
-        experimentTitle={experimentTitle}
-        amountKrw={info.amount_krw}
-      />
 
       <div className="rounded-lg border border-border bg-muted/10 p-4 text-xs leading-relaxed text-muted">
         <p className="mb-1 font-semibold text-foreground">🔒 개인정보 처리 안내</p>

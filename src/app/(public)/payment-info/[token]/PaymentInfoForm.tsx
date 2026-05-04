@@ -47,8 +47,15 @@ export default function PaymentInfoForm({
     useState<"idle" | "encoding" | "sending">("idle");
   const submitting = submitStage !== "idle";
   // RRN visibility toggle. 뒷자리 7자리는 어깨너머 노출 우려가 있어 기본
-  // 으로 가린다. 사용자가 직접 보고 싶으면 👁 버튼으로 토글.
+  // 으로 가린다. 사용자가 직접 보고 싶으면 토글 버튼으로 표시.
   const [rrnVisible, setRrnVisible] = useState(false);
+  // Inline submit error block — replaces toast for failure cases so the
+  // recovery guide stays on screen until the user dismisses it (P0-C-P1-7).
+  const [submitError, setSubmitError] = useState<{
+    title: string;
+    detail: string;
+    showRecoverySteps: boolean;
+  } | null>(null);
 
   const [bankbook, setBankbook] = useState<File | null>(null);
   const [bankbookPreview, setBankbookPreview] = useState<string | null>(null);
@@ -99,22 +106,41 @@ export default function PaymentInfoForm({
   }, []);
 
   // Canvas: retina-scale + fill white bg so toDataURL is a proper PNG.
+  // Re-init on viewport resize / orientation change so the canvas
+  // doesn't end up with stale DPR-scaled dimensions when the participant
+  // rotates their phone mid-signature (C-P1-5). Existing strokes are
+  // wiped — better than rendering them at the wrong scale and confusing
+  // the user; we surface this in the help text below the canvas.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    ctx.scale(dpr, dpr);
-    ctx.lineWidth = 2;
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "#111111";
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, w, h);
+    function initCanvas() {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      // Reset transform first, then re-scale, so re-init from a resize
+      // doesn't compound dpr scaling.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#111111";
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      hasSignedRef.current = false;
+      setHasSigned(false);
+    }
+    initCanvas();
+    window.addEventListener("resize", initCanvas);
+    window.addEventListener("orientationchange", initCanvas);
+    return () => {
+      window.removeEventListener("resize", initCanvas);
+      window.removeEventListener("orientationchange", initCanvas);
+    };
   }, []);
 
   // P0-Ε: stamp payment_link_first_opened_at via /touch — only fires
@@ -214,7 +240,11 @@ export default function PaymentInfoForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
 
+    // Field-level validation errors stay as toasts (transient, single
+    // missing field). Submit-time failures (P0-C-P1-7) move to the
+    // inline panel below the button so the recovery guide stays put.
     if (!name.trim()) {
       toast("성명을 입력하세요.", "error");
       return;
@@ -257,7 +287,11 @@ export default function PaymentInfoForm({
     try {
       bankbookDataUrl = await fileToDataUrl(bankbook);
     } catch {
-      toast("통장 사본을 읽는 중 오류가 발생했습니다.", "error");
+      setSubmitError({
+        title: "통장 사본을 읽는 중 오류가 발생했습니다",
+        detail: "다른 파일로 다시 첨부해 주세요. 문제가 계속되면 사진 크기를 줄이거나 PDF 로 변환해 보세요.",
+        showRecoverySteps: false,
+      });
       setSubmitStage("idle");
       return;
     }
@@ -287,7 +321,17 @@ export default function PaymentInfoForm({
 
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        toast(body?.error ?? "제출에 실패했습니다.", "error");
+        const message = body?.error ?? "제출에 실패했습니다.";
+        // 429 = rate limit; show retry-after if present. Otherwise
+        // generic recovery guide.
+        const isRateLimit = res.status === 429;
+        setSubmitError({
+          title: isRateLimit
+            ? "잠시 후 다시 시도해 주세요"
+            : "제출에 실패했습니다",
+          detail: message,
+          showRecoverySteps: !isRateLimit,
+        });
         setSubmitStage("idle");
         return;
       }
@@ -298,7 +342,11 @@ export default function PaymentInfoForm({
       // form re-enabled before the success view loads.
       router.refresh();
     } catch {
-      toast("네트워크 오류가 발생했습니다.", "error");
+      setSubmitError({
+        title: "전송 중 연결이 끊어졌습니다",
+        detail: "통장 사본 파일이 클수록 시간이 더 걸립니다. 아래 안내를 따라 다시 시도해 주세요.",
+        showRecoverySteps: true,
+      });
       setSubmitStage("idle");
     }
   };
@@ -374,14 +422,28 @@ export default function PaymentInfoForm({
             <div className="relative">
               <input
                 id="rrn"
-                // type=password 으로 토글하면 어깨너머 노출이 줄어든다.
-                // inputMode=numeric 으로 모바일 키패드는 그대로 숫자.
-                type={rrnVisible ? "text" : "password"}
+                // P0-Κ: type="text" + CSS -webkit-text-security:disc.
+                // The previous type="password" triggered iOS Safari's
+                // iCloud-Keychain "save password?" prompt — which would
+                // have stored the user's RRN as a password. CSS masking
+                // gives the same shoulder-surfing protection without
+                // marking the field as a credential.
+                type="text"
                 inputMode="numeric"
+                // 1Password / Bitwarden also detect "password-shaped"
+                // fields. Mark explicitly as not-a-credential.
                 autoComplete="off"
+                data-form-type="other"
+                name="participant-id-number"
                 value={rrn}
                 onChange={(e) => handleRrnChange(e.target.value)}
                 placeholder="XXXXXX-XXXXXXX"
+                style={{
+                  WebkitTextSecurity: rrnVisible ? "none" : "disc",
+                  // Firefox doesn't support -webkit-text-security; falls
+                  // back to plain text. Acceptable — Firefox mobile share
+                  // is small enough that one-button-toggle covers it.
+                } as React.CSSProperties}
                 className="w-full rounded-lg border border-border bg-white px-3 py-2 pr-10 text-sm font-mono text-foreground focus:border-primary focus:outline-none"
                 required
                 maxLength={14}
@@ -391,9 +453,44 @@ export default function PaymentInfoForm({
                 onClick={() => setRrnVisible((v) => !v)}
                 aria-label={rrnVisible ? "주민등록번호 숨기기" : "주민등록번호 표시"}
                 aria-pressed={rrnVisible}
-                className="absolute inset-y-0 right-2 flex items-center px-1 text-base text-muted hover:text-foreground"
+                className="absolute inset-y-0 right-2 flex items-center px-2 text-muted hover:text-foreground"
               >
-                {rrnVisible ? "🙈" : "👁"}
+                {/* SVG eye / eye-off icons — emoji 🙈/👁 broke on
+                    older Android phones (font fallback to ▢) and
+                    screen readers read them as "monkey" / "eye". */}
+                {rrnVisible ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
               </button>
             </div>
           </div>
@@ -499,7 +596,11 @@ export default function PaymentInfoForm({
             </div>
           )}
           <p className="mt-1 text-[11px] text-muted">
-            PDF, PNG, JPEG · 최대 5MB · 비공개 저장소에 보관됩니다.
+            PDF 또는 사진(JPEG, PNG) · 최대 5MB · 비공개 저장소에 보관됩니다.
+            <br />
+            <span className="text-foreground/70">
+              스마트폰으로 통장 첫 페이지를 직접 촬영하셔도 됩니다.
+            </span>
           </p>
         </div>
       </div>
@@ -531,6 +632,35 @@ export default function PaymentInfoForm({
           다시 그릴 수 있습니다. 청구 양식의 수령인 서명란에 자동 삽입됩니다.
         </p>
       </div>
+
+      {submitError && (
+        <div
+          role="alert"
+          className="rounded-xl border-2 border-red-200 bg-red-50 p-4 text-sm text-red-900 leading-relaxed"
+        >
+          <div className="flex items-start gap-2">
+            <span aria-hidden className="mt-0.5">⚠</span>
+            <div className="flex-1">
+              <p className="font-semibold">{submitError.title}</p>
+              <p className="mt-1 text-red-800">{submitError.detail}</p>
+              {submitError.showRecoverySteps && (
+                <ul className="mt-3 list-disc pl-4 text-xs text-red-800/90 space-y-1">
+                  <li>Wi-Fi 연결을 확인한 뒤 다시 제출해 주세요.</li>
+                  <li>통장 사본 사진을 다시 첨부 (2MB 이하 권장).</li>
+                  <li>그래도 실패하면 담당 연구원에게 메일로 통장 사본·계좌 정보를 직접 보내주세요.</li>
+                </ul>
+              )}
+              <button
+                type="button"
+                onClick={() => setSubmitError(null)}
+                className="mt-3 text-xs text-red-700 underline hover:text-red-900"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div>
         <button
