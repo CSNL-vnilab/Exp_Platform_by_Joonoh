@@ -70,6 +70,58 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
   const [editValue, setEditValue] = useState<string>("");
   const [pendingAction, startActionTransition] = useTransition();
   const [resending, setResending] = useState<string | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
+
+  // Backfill payment_info rows for booking_groups that ended up without
+  // one (typically because bookings were imported via a script that
+  // bypassed the post-booking pipeline). Idempotent — clicking on an
+  // already-backfilled experiment just returns 0 inserted.
+  async function handleBackfill() {
+    if (
+      !confirm(
+        "이 실험의 모든 booking_group 에 대해 누락된 정산 정보 행을 생성합니다.\n" +
+          "이미 행이 있는 경우는 건너뜁니다 (안전).\n\n진행할까요?",
+      )
+    )
+      return;
+    setBackfilling(true);
+    try {
+      const res = await fetch(
+        `/api/experiments/${experimentId}/backfill-payment-info`,
+        { method: "POST" },
+      );
+      const body = (await res.json().catch(() => null)) as {
+        inserted?: number;
+        alreadyHadRow?: number;
+        groupsExamined?: number;
+        skippedNoFee?: boolean;
+        error?: string;
+      } | null;
+      if (!res.ok || !body) {
+        toast(body?.error ?? "백필에 실패했습니다.", "error");
+        return;
+      }
+      if (body.skippedNoFee) {
+        toast("참여비 0원 실험은 백필이 필요 없습니다.", "info");
+        return;
+      }
+      const ins = body.inserted ?? 0;
+      const had = body.alreadyHadRow ?? 0;
+      toast(
+        ins > 0
+          ? `${ins}건 백필 완료 (이미 있던 행: ${had})`
+          : "추가로 만들 행이 없습니다.",
+        ins > 0 ? "success" : "info",
+      );
+      if (ins > 0) {
+        setTimeout(() => window.location.reload(), 600);
+      }
+    } catch {
+      toast("네트워크 오류가 발생했습니다.", "error");
+    } finally {
+      setBackfilling(false);
+    }
+  }
 
   async function handleResend(r: PaymentRow) {
     const confirmMsg = r.paymentLinkSentAt
@@ -225,13 +277,24 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
                 업로드 양식만
               </button>
             )}
+            <button
+              type="button"
+              disabled={backfilling}
+              onClick={handleBackfill}
+              title="import 등으로 누락된 booking_group 의 정산 정보 행을 한 번에 생성합니다 (안전, 멱등)."
+              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-medium text-muted hover:bg-muted/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {backfilling ? "백필 중…" : "📋 정산 정보 백필"}
+            </button>
           </div>
         </div>
 
         {rows.length === 0 ? (
-          <p className="text-sm text-muted">
-            참여비가 있는 확정 예약이 없습니다.
-          </p>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            정산 정보 행이 없습니다. 참여자비가 있는 실험에서 행이 안 보이면
+            상단의 <b>📋 정산 정보 백필</b> 버튼을 눌러 누락된 행을 생성해
+            주세요. (이미 있는 행은 건너뜁니다.)
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
