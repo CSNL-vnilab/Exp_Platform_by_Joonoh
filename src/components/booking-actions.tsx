@@ -259,6 +259,46 @@ function RescheduleModal({
   const atEarliest = earliest != null && weekStart <= earliest;
   const atLatest = latest != null && weekStart >= latest;
 
+  // Keyboard shortcuts (active only when this modal is open):
+  //   ←/→  prev/next week
+  //   t    jump to the current booking's week ("Today")
+  //   Esc  close (Modal handles this too, but we register it
+  //        defensively so the focus state doesn't matter)
+  // Skip when typing in an input/textarea so the researcher can still
+  // edit free-form fields without hijacking ←/→.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      const t = e.target as Element | null;
+      if (
+        t instanceof HTMLInputElement ||
+        t instanceof HTMLTextAreaElement ||
+        (t && "isContentEditable" in t && (t as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "ArrowLeft" && !atEarliest) {
+        e.preventDefault();
+        shiftWeek(-1);
+      } else if (e.key === "ArrowRight" && !atLatest) {
+        e.preventDefault();
+        shiftWeek(1);
+      } else if (e.key === "t" || e.key === "T") {
+        e.preventDefault();
+        jumpToCurrent();
+      } else if (e.key === "Escape") {
+        // Don't preventDefault — let Modal's own handler also fire.
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // shiftWeek/jumpToCurrent are defined inline (no deps), so closing
+    // over the latest weekStart only requires re-binding when bounds
+    // change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, atEarliest, atLatest, weekStart, currentSlotStart]);
+
   const weekLabelStart = `${weekStart}T00:00:00+09:00`;
   const weekLabelEnd = new Date(
     new Date(weekLabelStart).getTime() + 6 * DAY_MS,
@@ -316,6 +356,7 @@ function RescheduleModal({
               disabled={atEarliest}
               className="rounded border border-border bg-white px-2 py-1 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="이전 주"
+              title="키보드: ←"
             >
               ◀
             </button>
@@ -328,16 +369,24 @@ function RescheduleModal({
               disabled={atLatest}
               className="rounded border border-border bg-white px-2 py-1 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="다음 주"
+              title="키보드: →"
             >
               ▶
             </button>
             <button
               type="button"
               onClick={jumpToCurrent}
+              title="키보드: T"
               className="ml-1 rounded border border-border bg-white px-2 py-1 text-muted hover:bg-gray-50 hover:text-foreground"
             >
               현재 예약 주
             </button>
+            <span
+              className="ml-2 hidden text-[10px] text-muted/70 sm:inline"
+              title="이 모달에서 활성화되는 단축키"
+            >
+              ← / → 주 이동 · T 현재 · Esc 닫기
+            </span>
             {prevAvail && weekStart > prevAvail && (
               <button
                 type="button"
