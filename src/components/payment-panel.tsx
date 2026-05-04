@@ -54,6 +54,7 @@ const STATUS_LABEL: Record<PaymentStatus, string> = {
   submitted_to_admin: "제출됨",
   claimed: "청구 완료",
   paid: "청구 완료", // no UI path sets this; treated identically to claimed
+  paid_offline: "정산 완료 (오프라인)",
 };
 
 const STATUS_CLASS: Record<PaymentStatus, string> = {
@@ -61,6 +62,7 @@ const STATUS_CLASS: Record<PaymentStatus, string> = {
   submitted_to_admin: "bg-blue-50 text-blue-800 border-blue-200",
   claimed: "bg-emerald-50 text-emerald-800 border-emerald-200",
   paid: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  paid_offline: "bg-slate-100 text-slate-700 border-slate-300",
 };
 
 export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
@@ -439,21 +441,22 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
                         />
                       </td>
                       <td className="py-2">
-                        {r.status !== "pending_participant" && (
-                          <button
-                            type="button"
-                            disabled={downloading !== null}
-                            onClick={() =>
-                              downloadBlob(
-                                `/api/experiments/${experimentId}/payment-export/individual/${r.bookingGroupId}`,
-                                `ind-${r.bookingGroupId}`,
-                              )
-                            }
-                            className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted/30 disabled:opacity-50"
-                          >
-                            개별
-                          </button>
-                        )}
+                        {r.status !== "pending_participant" &&
+                          r.status !== "paid_offline" && (
+                            <button
+                              type="button"
+                              disabled={downloading !== null}
+                              onClick={() =>
+                                downloadBlob(
+                                  `/api/experiments/${experimentId}/payment-export/individual/${r.bookingGroupId}`,
+                                  `ind-${r.bookingGroupId}`,
+                                )
+                              }
+                              className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted/30 disabled:opacity-50"
+                            >
+                              개별
+                            </button>
+                          )}
                       </td>
                     </tr>
                   );
@@ -522,6 +525,15 @@ function DispatchCell({
       👁 미리보기
     </a>
   );
+
+  // 오프라인 정산은 메일 발송이 무의미. 별도 라벨로 표시.
+  if (row.status === "paid_offline") {
+    return (
+      <span className="text-[11px] text-slate-500" title="플랫폼 외부에서 이미 지급된 건">
+        — (오프라인 정산)
+      </span>
+    );
+  }
 
   // After participant submits, the dispatch column is irrelevant (we have
   // their info). Show a calm "제출 완료" label so the column doesn't look

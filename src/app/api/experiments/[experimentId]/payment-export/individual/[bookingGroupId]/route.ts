@@ -77,6 +77,12 @@ export async function GET(
       { status: 409 },
     );
   }
+  if (row.status === "paid_offline") {
+    return NextResponse.json(
+      { error: "오프라인으로 이미 정산된 건은 양식 출력 대상이 아닙니다." },
+      { status: 409 },
+    );
+  }
 
   const { data: bookings } = await admin
     .from("bookings")

@@ -808,7 +808,7 @@ export interface Database {
           token_issued_at: string;
           token_expires_at: string;
           token_revoked_at: string | null;
-          status: "pending_participant" | "submitted_to_admin" | "claimed" | "paid";
+          status: "pending_participant" | "submitted_to_admin" | "claimed" | "paid" | "paid_offline";
           submitted_at: string | null;
           claimed_at: string | null;
           claimed_by: string | null;
@@ -856,7 +856,7 @@ export interface Database {
           token_issued_at?: string;
           token_expires_at: string;
           token_revoked_at?: string | null;
-          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid";
+          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid" | "paid_offline";
           submitted_at?: string | null;
           claimed_at?: string | null;
           claimed_by?: string | null;
@@ -898,7 +898,7 @@ export interface Database {
           token_issued_at?: string;
           token_expires_at?: string;
           token_revoked_at?: string | null;
-          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid";
+          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid" | "paid_offline";
           submitted_at?: string | null;
           claimed_at?: string | null;
           claimed_by?: string | null;
