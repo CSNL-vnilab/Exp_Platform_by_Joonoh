@@ -431,6 +431,7 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
                       <td className="py-2 pr-3">
                         <DispatchCell
                           row={r}
+                          experimentId={experimentId}
                           busy={resending === r.bookingGroupId}
                           onResend={() => handleResend(r)}
                           marking={marking === r.bookingGroupId}
@@ -491,12 +492,14 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
 
 function DispatchCell({
   row,
+  experimentId,
   busy,
   onResend,
   onMarkCompleted,
   marking,
 }: {
   row: PaymentRow;
+  experimentId: string;
   busy: boolean;
   onResend: () => void;
   onMarkCompleted: () => void;
@@ -506,6 +509,19 @@ function DispatchCell({
     row.status === "submitted_to_admin" ||
     row.status === "claimed" ||
     row.status === "paid";
+
+  const previewHref = `/experiments/${experimentId}/payment-info/${row.bookingGroupId}/preview`;
+  const previewLink = (
+    <a
+      href={previewHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted hover:bg-muted/30"
+      title="발송될 메일과 참여자 폼을 새 탭에서 미리보기"
+    >
+      👁 미리보기
+    </a>
+  );
 
   // After participant submits, the dispatch column is irrelevant (we have
   // their info). Show a calm "제출 완료" label so the column doesn't look
@@ -540,6 +556,7 @@ function DispatchCell({
         >
           {busy ? "발송 중…" : "재발송"}
         </button>
+        {previewLink}
       </div>
     );
   }
@@ -553,15 +570,18 @@ function DispatchCell({
     return (
       <div className="flex flex-col gap-1">
         <span className="text-[11px] text-muted">세션 종료 대기</span>
-        <button
-          type="button"
-          disabled={marking}
-          onClick={onMarkCompleted}
-          title="이 그룹의 모든 회차를 한 번에 'completed' 로 마킹합니다."
-          className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-        >
-          {marking ? "마킹 중…" : "✓ 회차 완료 처리"}
-        </button>
+        <div className="flex flex-wrap gap-1">
+          <button
+            type="button"
+            disabled={marking}
+            onClick={onMarkCompleted}
+            title="이 그룹의 모든 회차를 한 번에 'completed' 로 마킹합니다."
+            className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+          >
+            {marking ? "마킹 중…" : "✓ 회차 완료 처리"}
+          </button>
+          {previewLink}
+        </div>
       </div>
     );
   }
@@ -583,19 +603,23 @@ function DispatchCell({
         >
           {busy ? "발송 중…" : "다시 시도"}
         </button>
+        {previewLink}
       </div>
     );
   }
 
   return (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={onResend}
-      className="rounded border border-primary/30 bg-primary/5 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-50"
-    >
-      {busy ? "발송 중…" : "안내 메일 발송"}
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onResend}
+        className="rounded border border-primary/30 bg-primary/5 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-50"
+      >
+        {busy ? "발송 중…" : "안내 메일 발송"}
+      </button>
+      {previewLink}
+    </div>
   );
 }
 
