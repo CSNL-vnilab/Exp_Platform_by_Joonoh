@@ -92,18 +92,18 @@ export default async function PaymentInfoPage({ params }: PageProps) {
     return <Failure code="INVALID" />;
   }
 
-  // Stamp first_opened_at on the first valid load (P0 #6 / migration
-  // 00052). Signals payment-info-notify.service to NOT rotate the token
-  // on the last-session auto-dispatch — the participant already has
-  // this URL in their browser/bookmark, so rotating would break it.
-  // CAS via .is(... NULL) so concurrent loads don't double-write.
-  if (info.status === "pending_participant") {
-    await supabase
-      .from("participant_payment_info")
-      .update({ payment_link_first_opened_at: new Date().toISOString() })
-      .eq("id", info.id)
-      .is("payment_link_first_opened_at", null);
-  }
+  // P0-Ε: do NOT stamp payment_link_first_opened_at here. The previous
+  // implementation stamped on every valid GET — which made the stamp
+  // trivially trippable by any party who got the URL (email forwarding,
+  // browser sync to a family member, spam-filter preview pane, shoulder-
+  // surfed phone preview). The stamp controls token-preserve behavior
+  // in payment-info-notify.service; an attacker with the URL but not
+  // the form data could prevent legitimate auto-rotation, pinning the
+  // token alive for the full 60-day TTL.
+  //
+  // The stamp now lives at POST /api/payment-info/[token]/touch and is
+  // called from PaymentInfoForm's mount effect — i.e. only after a real
+  // browser actually rendered the form.
 
   const participantName = info.name_override ?? info.participants?.name ?? "";
   const participantPhone = info.phone ?? info.participants?.phone ?? "";

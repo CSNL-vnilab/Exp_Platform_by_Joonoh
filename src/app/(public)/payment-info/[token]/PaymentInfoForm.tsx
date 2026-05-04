@@ -117,6 +117,21 @@ export default function PaymentInfoForm({
     ctx.fillRect(0, 0, w, h);
   }, []);
 
+  // P0-Ε: stamp payment_link_first_opened_at via /touch — only fires
+  // because a real browser actually mounted this client component, so
+  // bots / link-previewers / spam-filter scrapers (which don't execute
+  // JS) can't trip the stamp. The flag controls token-preserve behavior
+  // in payment-info-notify.service; tripping it inappropriately would
+  // pin the token alive for the 60-day TTL.
+  useEffect(() => {
+    // fire-and-forget; idempotent on the server. No state change here.
+    fetch(`/api/payment-info/${encodeURIComponent(token)}/touch`, {
+      method: "POST",
+    }).catch(() => {
+      // Network failure is fine — the next visit will try again.
+    });
+  }, [token]);
+
   const getPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
