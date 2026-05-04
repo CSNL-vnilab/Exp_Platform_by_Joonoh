@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPaymentToken, PaymentTokenError } from "@/lib/payments/token";
 import { validateRrn } from "@/lib/payments/rrn";
 import { encryptRrn } from "@/lib/crypto/payment-info";
+import { rateLimit } from "@/lib/utils/rate-limit";
 
 // POST /api/payment-info/:token/submit
 //
@@ -139,12 +140,75 @@ function sniffMime(bytes: Buffer): "image/png" | "image/jpeg" | "application/pdf
   return null;
 }
 
+// P0-Ζ: rate-limit gates in front of the verify path. Defense-in-depth
+// against (1) brute force enumeration of tokens and (2) attackers who
+// learned a single token's plaintext racing legitimate participants
+// to overwrite name/account/bankbook with their own data.
+//
+// Two limiters because the threat profiles differ:
+//   - per-IP:    blocks a single client hammering many tokens
+//   - per-token: blocks many clients hammering one token (token leak)
+//
+// Caps tuned for the worst-case happy path (5MB upload retry on slow
+// network, then resubmit) plus headroom; tighter than a polite client
+// would ever need but loose enough that a struggling user isn't
+// locked out.
+const PER_IP_OPTS = { windowMs: 60_000, max: 10 } as const;
+const PER_TOKEN_OPTS = { windowMs: 60_000, max: 5 } as const;
+
+function clientIp(req: NextRequest): string {
+  // Vercel edge sets x-forwarded-for; fall back to "unknown" so the
+  // limiter still groups malformed-header attempts.
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) return xff.split(",")[0].trim();
+  const xri = req.headers.get("x-real-ip");
+  if (xri) return xri.trim();
+  return "unknown";
+}
+
+// Hash the token for the limiter key — never log/store plaintext, even
+// in process memory beyond what we strictly need.
+function tokenLimiterKey(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 32);
+}
+
 export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ token: string }> },
 ) {
   const { token } = await ctx.params;
   if (!token) return jsonError(400, "잘못된 요청입니다.");
+
+  // Rate limit — both buckets must pass.
+  const ip = clientIp(req);
+  const ipResult = rateLimit("payment-submit-ip", ip, PER_IP_OPTS);
+  if (!ipResult.allowed) {
+    const retryAfter = Math.ceil(ipResult.retryAfterMs / 1000);
+    return new NextResponse(
+      JSON.stringify({ error: "요청이 많아 잠시 후 다시 시도해 주세요." }),
+      {
+        status: 429,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": String(retryAfter),
+        },
+      },
+    );
+  }
+  const tokResult = rateLimit("payment-submit-token", tokenLimiterKey(token), PER_TOKEN_OPTS);
+  if (!tokResult.allowed) {
+    const retryAfter = Math.ceil(tokResult.retryAfterMs / 1000);
+    return new NextResponse(
+      JSON.stringify({ error: "동일 링크에서 너무 많이 시도되었습니다. 잠시 후 다시 시도해 주세요." }),
+      {
+        status: 429,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": String(retryAfter),
+        },
+      },
+    );
+  }
 
   let verified;
   try {
