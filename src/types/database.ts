@@ -790,6 +790,8 @@ export interface Database {
           token_tag: string | null;
           token_key_version: number | null;
           payment_link_first_opened_at: string | null;
+          // Dispatch lock-acquire lease (migration 00053).
+          payment_link_dispatch_lock_until: string | null;
           signature_path: string | null;
           signed_at: string | null;
           bankbook_path: string | null;
@@ -837,6 +839,7 @@ export interface Database {
           token_tag?: string | null;
           token_key_version?: number | null;
           payment_link_first_opened_at?: string | null;
+          payment_link_dispatch_lock_until?: string | null;
           signature_path?: string | null;
           signed_at?: string | null;
           bankbook_path?: string | null;
@@ -878,6 +881,7 @@ export interface Database {
           token_tag?: string | null;
           token_key_version?: number | null;
           payment_link_first_opened_at?: string | null;
+          payment_link_dispatch_lock_until?: string | null;
           signature_path?: string | null;
           signed_at?: string | null;
           bankbook_path?: string | null;

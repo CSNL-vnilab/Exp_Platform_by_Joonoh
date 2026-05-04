@@ -50,39 +50,94 @@ await group("encryptToken / decryptToken round-trip", async () => {
 });
 
 // ── Stubbed Supabase ──────────────────────────────────────────────────
+//
+// Updated for Phase 2 to honor .is()/.or() on UPDATE so lock-acquire
+// races test correctly. Each update is gated by the accumulated
+// predicates; matching rows are mutated and the count returned.
 function makeSb(state) {
   function fromImpl(table) {
-    const filt = {};
+    // SELECT predicates (eq + is) — fall through .then() / maybeSingle()
+    const sFilt = {};
     const builder = {
       select() { return builder; },
-      eq(c, v) { filt[c] = v; return builder; },
-      is() { return builder; },
+      eq(c, v) { sFilt[c] = ["eq", v]; return builder; },
+      is(c, v) { sFilt[c] = ["is", v]; return builder; },
       maybeSingle() {
-        const row = (state[table] ?? []).find((r) =>
-          Object.entries(filt).every(([k, v]) => r[k] === v),
-        ) ?? null;
+        const row = (state[table] ?? []).find((r) => matches(r, sFilt)) ?? null;
         return Promise.resolve({ data: row, error: null });
       },
       then(resolve) {
-        const rows = (state[table] ?? []).filter((r) =>
-          Object.entries(filt).every(([k, v]) => r[k] === v),
-        );
+        const rows = (state[table] ?? []).filter((r) => matches(r, sFilt));
         resolve({ data: rows, error: null });
       },
-      update(payload) {
-        const updateBuilder = {
-          eq(c, v) {
-            const target = (state[table] ?? []).find((r) => r[c] === v);
-            if (target) Object.assign(target, payload);
-            return updateBuilder;
+      update(payload, opts) {
+        const wantCount = opts && opts.count === "exact";
+        const uFilt = {};
+        const orClauses = [];
+        const u = {
+          eq(c, v) { uFilt[c] = ["eq", v]; return u; },
+          is(c, v) { uFilt[c] = ["is", v]; return u; },
+          // Supabase .or("a.is.null,a.lt.X") — accept the same string
+          // and parse into clauses we can evaluate.
+          or(orStr) {
+            for (const clause of orStr.split(",")) {
+              const m = clause.match(/^([a-z_]+)\.([a-z]+)\.(.*)$/);
+              if (!m) continue;
+              orClauses.push([m[1], m[2], m[3]]);
+            }
+            return u;
           },
-          is() { return updateBuilder; },
-          then(resolve) { resolve({ error: null, count: 1 }); },
+          select() { return u; },
+          maybeSingle() {
+            const targets = (state[table] ?? []).filter((r) =>
+              matches(r, uFilt) && (orClauses.length === 0 || orMatches(r, orClauses)),
+            );
+            const out = { error: null, count: targets.length };
+            for (const t of targets) Object.assign(t, payload);
+            return Promise.resolve({ ...out, data: targets[0] ?? null });
+          },
+          then(resolve) {
+            const targets = (state[table] ?? []).filter((r) =>
+              matches(r, uFilt) && (orClauses.length === 0 || orMatches(r, orClauses)),
+            );
+            for (const t of targets) Object.assign(t, payload);
+            resolve({
+              error: null,
+              count: wantCount ? targets.length : undefined,
+              data: targets,
+            });
+          },
         };
-        return updateBuilder;
+        return u;
       },
     };
     return builder;
+  }
+  function matches(row, filt) {
+    for (const [k, [op, v]] of Object.entries(filt)) {
+      if (op === "eq" && row[k] !== v) return false;
+      if (op === "is") {
+        // .is("x", null) → row.x must be null/undefined
+        if (v === null) {
+          if (row[k] !== null && row[k] !== undefined) return false;
+        } else if (row[k] !== v) return false;
+      }
+    }
+    return true;
+  }
+  function orMatches(row, clauses) {
+    return clauses.some(([col, op, val]) => {
+      if (op === "is") {
+        if (val === "null") return row[col] === null || row[col] === undefined;
+        return false;
+      }
+      if (op === "lt") {
+        if (row[col] == null) return false;
+        return String(row[col]) < val;
+      }
+      if (op === "eq") return row[col] === val;
+      return false;
+    });
   }
   return { from: fromImpl };
 }
@@ -105,6 +160,7 @@ function freshState(overrides = {}) {
         payment_link_sent_at: null,
         payment_link_attempts: 0,
         payment_link_first_opened_at: null,
+        payment_link_dispatch_lock_until: null,
         token_cipher: null,
         token_iv: null,
         token_tag: null,
@@ -318,6 +374,90 @@ await group("decrypt-fallback rotation writes new cipher matching new hash", asy
   const expectedHash = createHash("sha256").update(decrypted).digest("hex");
   check("decrypted plaintext hashes to new token_hash",
         expectedHash === row.token_hash);
+});
+
+// ── Phase 2 / P0-Α: dispatch lock prevents concurrent double-send ────
+await group("dispatch lock — second concurrent call returns lock_held without sending", async () => {
+  const { state } = freshState();
+  const sb = makeSb(state);
+  const sendCalls = [];
+  let inflight = 0;
+  let maxInflight = 0;
+  const slowMailer = async (opts) => {
+    inflight++;
+    if (inflight > maxInflight) maxInflight = inflight;
+    sendCalls.push(opts);
+    // Hold for a tick so the second caller sees the lock held.
+    await new Promise((r) => setTimeout(r, 30));
+    inflight--;
+    return { success: true, messageId: `<m-${sendCalls.length}>` };
+  };
+  const { notifyPaymentInfoIfReady } = await import(
+    "../src/lib/services/payment-info-notify.service.ts"
+  );
+
+  // Two concurrent calls against the same row.
+  const [r1, r2] = await Promise.all([
+    notifyPaymentInfoIfReady(sb, groupId, slowMailer),
+    notifyPaymentInfoIfReady(sb, groupId, slowMailer),
+  ]);
+  const outcomes = [r1.outcome, r2.outcome].sort();
+  check("exactly one outcome=sent",
+        outcomes.filter((o) => o === "sent").length === 1,
+        `outcomes=${outcomes.join(",")}`);
+  check("the other is lock_held",
+        outcomes.filter((o) => o === "lock_held").length === 1,
+        `outcomes=${outcomes.join(",")}`);
+  check("only one SMTP call fired", sendCalls.length === 1,
+        `sendCalls=${sendCalls.length}`);
+  check("never had >1 in-flight at once", maxInflight === 1, `max=${maxInflight}`);
+  check("sent_at stamped exactly once",
+        state.participant_payment_info[0].payment_link_sent_at !== null);
+  check("lock released after success",
+        state.participant_payment_info[0].payment_link_dispatch_lock_until === null);
+});
+
+await group("dispatch lock — released on send failure so retry can proceed", async () => {
+  const { state } = freshState();
+  const sb = makeSb(state);
+  let attempt = 0;
+  const flakyMailer = async () => {
+    attempt++;
+    if (attempt === 1) return { success: false, error: "smtp 451 transient" };
+    return { success: true, messageId: "<m-retry>" };
+  };
+  const { notifyPaymentInfoIfReady } = await import(
+    "../src/lib/services/payment-info-notify.service.ts"
+  );
+
+  const r1 = await notifyPaymentInfoIfReady(sb, groupId, flakyMailer);
+  check("first attempt outcome=send_failed", r1.outcome === "send_failed");
+  check("lock released after failure (next retry not blocked)",
+        state.participant_payment_info[0].payment_link_dispatch_lock_until === null);
+
+  const r2 = await notifyPaymentInfoIfReady(sb, groupId, flakyMailer);
+  check("immediate retry succeeds (no lock-held)",
+        r2.outcome === "sent",
+        `outcome=${r2.outcome}`);
+});
+
+await group("dispatch lock — expired lease lets next trigger proceed", async () => {
+  const expiredLockIso = new Date(Date.now() - 60_000).toISOString();
+  const { state } = freshState({
+    payment: { payment_link_dispatch_lock_until: expiredLockIso },
+  });
+  const sb = makeSb(state);
+  const sendCalls = [];
+  const stubMailer = async (opts) => {
+    sendCalls.push(opts);
+    return { success: true };
+  };
+  const { notifyPaymentInfoIfReady } = await import(
+    "../src/lib/services/payment-info-notify.service.ts"
+  );
+  const result = await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
+  check("expired lock → outcome=sent", result.outcome === "sent");
+  check("email actually sent", sendCalls.length === 1);
 });
 
 // ── 6. email template: isReminder shapes subject + intro ──────────────

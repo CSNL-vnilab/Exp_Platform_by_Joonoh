@@ -99,8 +99,8 @@ function makeStubSupabase(state) {
         resolve({ data: rows, error: null });
       },
       update(payload, opts) {
-        const matched = (state[table] ?? []).filter((r) => true); // refilter on .eq below
         let _filterPath = {};
+        const _orClauses = [];
         const updateBuilder = {
           eq(col, val) {
             _filterPath[col] = val;
@@ -110,9 +110,21 @@ function makeStubSupabase(state) {
             _filterPath[col] = { is: val };
             return updateBuilder;
           },
+          // Phase 2 lock-acquire uses .or("a.is.null,a.lt.X") — accept
+          // and parse for predicate evaluation.
+          or(orStr) {
+            for (const clause of String(orStr).split(",")) {
+              const m = clause.match(/^([a-z_]+)\.([a-z]+)\.(.*)$/);
+              if (!m) continue;
+              _orClauses.push([m[1], m[2], m[3]]);
+            }
+            return updateBuilder;
+          },
+          select() { return updateBuilder; },
           then(resolve) {
             const targets = (state[table] ?? []).filter((r) =>
-              matches(r, _filterPath),
+              matches(r, _filterPath) &&
+              (_orClauses.length === 0 || _orMatches(r, _orClauses)),
             );
             for (const t of targets) {
               Object.assign(t, payload);
@@ -125,6 +137,23 @@ function makeStubSupabase(state) {
       },
     };
     return builder;
+  }
+
+  // P0-Α lock-acquire UPDATE uses .or("a.is.null,a.lt.X") — clause
+  // evaluator for the stub. Returns true if ANY clause matches.
+  function _orMatches(row, clauses) {
+    return clauses.some(([col, op, val]) => {
+      if (op === "is") {
+        if (val === "null") return row[col] === null || row[col] === undefined;
+        return false;
+      }
+      if (op === "lt") {
+        if (row[col] == null) return false;
+        return String(row[col]) < val;
+      }
+      if (op === "eq") return row[col] === val;
+      return false;
+    });
   }
 
   function matches(row, filter) {

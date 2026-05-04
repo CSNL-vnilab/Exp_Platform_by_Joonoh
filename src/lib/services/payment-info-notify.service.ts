@@ -55,6 +55,9 @@ interface PaymentInfoRow {
   payment_link_sent_at: string | null;
   payment_link_attempts: number;
   payment_link_first_opened_at: string | null;
+  // Lease for the dispatch lock-acquire pattern (P0-Α, migration 00053).
+  // Non-null + future timestamp = another trigger is mid-send.
+  payment_link_dispatch_lock_until: string | null;
   // Encrypted plaintext blob (P0 #6, migration 00052). Present on rows
   // seeded after the migration. Lets us re-send the SAME URL when the
   // participant already opened the link instead of rotating the hash.
@@ -68,6 +71,11 @@ interface PaymentInfoRow {
   email_override: string | null;
 }
 
+// Dispatch lock TTL — long enough that a slow SMTP send (5MB attachment,
+// regional SMTP latency) doesn't expire mid-flight, short enough that a
+// crashed worker doesn't block redelivery for an annoying duration.
+const DISPATCH_LOCK_TTL_MS = 5 * 60 * 1000;
+
 export interface NotifyResult {
   /** Why the call did/didn't end up sending. Useful for cron logs. */
   outcome:
@@ -77,7 +85,10 @@ export interface NotifyResult {
     | "amount_zero"
     | "not_all_completed"
     | "no_recipient"
-    | "send_failed";
+    | "send_failed"
+    // Another trigger is currently mid-send; we backed off cleanly.
+    // Caller (cron) sees this and knows the next tick will retry.
+    | "lock_held";
   bookingGroupId: string;
   detail?: string;
 }
@@ -91,7 +102,7 @@ export async function notifyPaymentInfoIfReady(
   const { data: rowRaw } = await supabase
     .from("participant_payment_info")
     .select(
-      "id, booking_group_id, experiment_id, participant_id, amount_krw, status, token_hash, token_issued_at, token_expires_at, payment_link_sent_at, payment_link_attempts, payment_link_first_opened_at, token_cipher, token_iv, token_tag, token_key_version, period_start, period_end, name_override, email_override",
+      "id, booking_group_id, experiment_id, participant_id, amount_krw, status, token_hash, token_issued_at, token_expires_at, payment_link_sent_at, payment_link_attempts, payment_link_first_opened_at, payment_link_dispatch_lock_until, token_cipher, token_iv, token_tag, token_key_version, period_start, period_end, name_override, email_override",
     )
     .eq("booking_group_id", bookingGroupId)
     .maybeSingle();
@@ -164,6 +175,57 @@ export async function notifyPaymentInfoIfReady(
     return { outcome: "send_failed", bookingGroupId, detail: "experiment missing" };
   }
 
+  // 3.5) Acquire dispatch lock (P0-Α). Atomic UPDATE that succeeds only
+  // if no other trigger holds an unexpired lease. Without this, four
+  // trigger paths (PUT-completed / observation auto-complete / /run
+  // verify auto-complete / cron sweep) all racing through the same
+  // booking_group within the SMTP-call window (~700ms) would each
+  // dispatch a separate email, and the post-hoc sent_at CAS at the
+  // end would only stamp once. Net: participant gets 2-4 copies, with
+  // different tokens (preserve vs rotate diverged on hash race).
+  //
+  // Lock holds for DISPATCH_LOCK_TTL_MS so a crashed worker doesn't
+  // block delivery indefinitely; another trigger picks it up after
+  // expiry. Lock is released on both success (with sent_at stamp) and
+  // failure (without stamp, so retry is allowed).
+  const lockUntilIso = new Date(Date.now() + DISPATCH_LOCK_TTL_MS).toISOString();
+  const nowIsoForLock = new Date().toISOString();
+  const { count: lockCount } = await supabase
+    .from("participant_payment_info")
+    .update(
+      { payment_link_dispatch_lock_until: lockUntilIso },
+      { count: "exact" },
+    )
+    .eq("id", row.id)
+    .is("payment_link_sent_at", null)
+    .or(
+      `payment_link_dispatch_lock_until.is.null,payment_link_dispatch_lock_until.lt.${nowIsoForLock}`,
+    );
+
+  if ((lockCount ?? 0) === 0) {
+    return {
+      outcome: "lock_held",
+      bookingGroupId,
+      detail: "another dispatch in progress",
+    };
+  }
+
+  // From here on: any return path must release the lock (set back to NULL).
+  // Wrap the SMTP-and-stamp work in try/finally to guarantee release on
+  // unexpected throws too. The `released` flag prevents a double-clear in
+  // the success path (stamp + clear in one UPDATE) from being undone by
+  // the finally block.
+  let released = false;
+  const releaseLock = async () => {
+    if (released) return;
+    released = true;
+    await supabase
+      .from("participant_payment_info")
+      .update({ payment_link_dispatch_lock_until: null })
+      .eq("id", row.id);
+  };
+
+  try {
   // 4) Token strategy (P0 #6):
   //
   //   a) If the participant has ALREADY opened the link
@@ -306,12 +368,16 @@ export async function notifyPaymentInfoIfReady(
 
   const nowIso = new Date().toISOString();
   if (!sendResult.success) {
+    // Release lock + record failure. Lock cleared so the next trigger
+    // can retry without waiting for the lease expiry.
+    released = true;
     await supabase
       .from("participant_payment_info")
       .update({
         payment_link_attempts: (row.payment_link_attempts ?? 0) + 1,
         payment_link_last_error: (sendResult.error ?? "unknown").slice(0, 500),
         payment_link_last_attempt_at: nowIso,
+        payment_link_dispatch_lock_until: null,
       })
       .eq("id", row.id);
     return {
@@ -321,8 +387,11 @@ export async function notifyPaymentInfoIfReady(
     };
   }
 
-  // Success — stamp sent_at. Use a CAS-style guard so two concurrent
-  // dispatches (cron + manual) don't both consume the slot.
+  // Success — stamp sent_at + clear lock atomically. With the
+  // dispatch lock acquired earlier, the post-hoc `is sent_at NULL`
+  // CAS here is no longer load-bearing, but kept as belt-and-
+  // braces against an operator manually clearing the lock.
+  released = true;
   const { count } = await supabase
     .from("participant_payment_info")
     .update(
@@ -331,6 +400,7 @@ export async function notifyPaymentInfoIfReady(
         payment_link_attempts: (row.payment_link_attempts ?? 0) + 1,
         payment_link_last_error: null,
         payment_link_last_attempt_at: nowIso,
+        payment_link_dispatch_lock_until: null,
       },
       { count: "exact" },
     )
@@ -338,16 +408,24 @@ export async function notifyPaymentInfoIfReady(
     .is("payment_link_sent_at", null);
 
   if ((count ?? 0) === 0) {
-    // Another writer beat us to it. Their attempt counts; we already sent
-    // the email but the row says "already_sent". This is rare and benign —
-    // the participant gets at most one extra email if both dispatches
-    // raced through SMTP. Log and move on.
+    // With the lock in place, this branch should not normally fire.
+    // If it does, something circumvented the lock (operator-initiated
+    // backfill, SQL console etc). Surface as a warn so it's visible.
     console.warn(
-      `[PaymentInfoNotify] CAS lost for ${bookingGroupId}; message ${sendResult.messageId} already sent by other writer`,
+      `[PaymentInfoNotify] post-lock CAS lost for ${bookingGroupId}; message ${sendResult.messageId} sent but sent_at was already non-null`,
     );
   }
 
   return { outcome: "sent", bookingGroupId, detail: sendResult.messageId };
+  } finally {
+    // Belt-and-braces: if any unexpected throw escaped the try (template
+    // crash, network error before stamp, etc.), release the lock so the
+    // next trigger isn't blocked for 5 minutes.
+    await releaseLock().catch(() => {
+      // Even the lock-release can fail; log and move on. The lease
+      // will naturally expire after DISPATCH_LOCK_TTL_MS.
+    });
+  }
 }
 
 async function stampFailure(supabase: Supabase, rowId: string, reason: string) {
