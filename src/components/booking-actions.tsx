@@ -61,10 +61,17 @@ function kstDateKey(iso: string): string {
   return `${parts.find((p) => p.type === "year")!.value}-${parts.find((p) => p.type === "month")!.value}-${parts.find((p) => p.type === "day")!.value}`;
 }
 
+// Cached at module scope — `kstDayOfWeek` is called 7×/render in the
+// header map; allocating a fresh `Intl.DateTimeFormat` per call was
+// hot enough to flag in profiling. The formatter is locale-pinned to
+// `en-US` so the indexOf below is unaffected by the runtime locale.
+const enWeekdayShortKstFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: KST,
+  weekday: "short",
+});
+
 function kstDayOfWeek(iso: string): number {
-  const w = new Intl.DateTimeFormat("en-US", { timeZone: KST, weekday: "short" }).format(
-    new Date(iso),
-  );
+  const w = enWeekdayShortKstFmt.format(new Date(iso));
   return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(w);
 }
 
@@ -259,6 +266,61 @@ function RescheduleModal({
   const atEarliest = earliest != null && weekStart <= earliest;
   const atLatest = latest != null && weekStart >= latest;
 
+  // Keyboard shortcuts (active only when this modal is open):
+  //   ←/→  prev/next week
+  //   t    jump to the current booking's week ("Today")
+  // Esc is intentionally NOT handled here — the Modal uses a native
+  // <dialog> whose built-in cancel→close already fires onClose, so
+  // an extra window-level listener would double-fire the callback.
+  //
+  // Bail conditions:
+  //   - any modifier (Cmd/Ctrl/Alt) — protects browser shortcuts
+  //     (Cmd+T new tab, Cmd+Shift+T reopen, Alt+← back, Alt+→ forward).
+  //   - input / textarea / select / contentEditable focus — researcher
+  //     keeps default cursor behaviour in form fields.
+  //   - IME composition (isComposing / keyCode 229) — Hangul input.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.isComposing || e.keyCode === 229) return;
+      const tgt = e.target as Element | null;
+      if (
+        tgt instanceof HTMLInputElement ||
+        tgt instanceof HTMLTextAreaElement ||
+        tgt instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+      const editable =
+        tgt && "closest" in tgt
+          ? (tgt as Element).closest(
+              "[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only'],[role='textbox'],[role='searchbox'],[role='combobox']",
+            )
+          : null;
+      if (editable) return;
+      if (e.key === "ArrowLeft" && !atEarliest) {
+        e.preventDefault();
+        shiftWeek(-1);
+      } else if (e.key === "ArrowRight" && !atLatest) {
+        e.preventDefault();
+        shiftWeek(1);
+      } else if (e.key === "t" || e.key === "T") {
+        e.preventDefault();
+        jumpToCurrent();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // shiftWeek/jumpToCurrent are inline functions, recreated each
+    // render. The deps array lists their *closure inputs* (weekStart,
+    // currentSlotStart) plus the bounds checks (atEarliest,
+    // atLatest), so the handler always reads fresh state. The lint
+    // rule wants the function identities themselves in the deps,
+    // which would re-bind on every render needlessly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, atEarliest, atLatest, weekStart, currentSlotStart]);
+
   const weekLabelStart = `${weekStart}T00:00:00+09:00`;
   const weekLabelEnd = new Date(
     new Date(weekLabelStart).getTime() + 6 * DAY_MS,
@@ -316,6 +378,7 @@ function RescheduleModal({
               disabled={atEarliest}
               className="rounded border border-border bg-white px-2 py-1 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="이전 주"
+              title="키보드: ←"
             >
               ◀
             </button>
@@ -328,16 +391,24 @@ function RescheduleModal({
               disabled={atLatest}
               className="rounded border border-border bg-white px-2 py-1 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="다음 주"
+              title="키보드: →"
             >
               ▶
             </button>
             <button
               type="button"
               onClick={jumpToCurrent}
+              title="키보드: T"
               className="ml-1 rounded border border-border bg-white px-2 py-1 text-muted hover:bg-gray-50 hover:text-foreground"
             >
               현재 예약 주
             </button>
+            <span
+              className="ml-2 hidden text-[10px] text-muted/70 sm:inline"
+              title="이 모달에서 활성화되는 단축키"
+            >
+              ← / → 주 이동 · T 현재 · Esc 닫기
+            </span>
             {prevAvail && weekStart > prevAvail && (
               <button
                 type="button"
@@ -386,19 +457,42 @@ function RescheduleModal({
             {/* Day header */}
             <div className="grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border bg-card">
               <div />
-              {currentWeekDays.map((day) => (
-                <div
-                  key={`d-${day.dateKey}`}
-                  className="flex flex-col items-center border-r border-border py-1.5 last:border-r-0"
-                >
-                  <span className="text-[10px] text-muted">
-                    {weekdayFmt.format(new Date(`${day.dateKey}T09:00:00+09:00`))}
-                  </span>
-                  <span className="text-[12px] font-semibold text-foreground">
-                    {dateFmt.format(new Date(`${day.dateKey}T09:00:00+09:00`))}
-                  </span>
-                </div>
-              ))}
+              {currentWeekDays.map((day) => {
+                // Tint Sat blue / Sun red so the researcher can spot the
+                // weekend at a glance (matches the Korean calendar
+                // convention). Use the existing kstDayOfWeek helper —
+                // a plain new Date(...).getDay() returns the *runtime*
+                // local timezone's day, so a viewer in the Americas
+                // would see weekend tinting shifted by one column.
+                const iso = `${day.dateKey}T09:00:00+09:00`;
+                const dow = kstDayOfWeek(iso);
+                const dowCls =
+                  dow === 0
+                    ? "text-red-600"
+                    : dow === 6
+                      ? "text-blue-600"
+                      : "text-foreground";
+                const dowMutedCls =
+                  dow === 0
+                    ? "text-red-500/80"
+                    : dow === 6
+                      ? "text-blue-500/80"
+                      : "text-muted";
+                const date = new Date(iso);
+                return (
+                  <div
+                    key={`d-${day.dateKey}`}
+                    className="flex flex-col items-center border-r border-border py-1.5 last:border-r-0"
+                  >
+                    <span className={`text-[10px] ${dowMutedCls}`}>
+                      {weekdayFmt.format(date)}
+                    </span>
+                    <span className={`text-[12px] font-semibold ${dowCls}`}>
+                      {dateFmt.format(date)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
             {timeRows.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted">
