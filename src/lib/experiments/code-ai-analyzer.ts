@@ -389,10 +389,31 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
   // ANTHROPIC_API_KEY presence → Ollama. The bench supplies an
   // explicit model tag (Ollama path); production code lets the
   // factory pick.
-  const provider: LLMProvider = await resolveProvider({
-    override: input.provider ?? "auto",
-    ollamaModel: input.model,
-  });
+  //
+  // resolveProvider can throw — pickOllamaModel raises a clear Korean
+  // error when neither requested nor fallback model is pulled on the
+  // host. Catch that so a missing extraction model returns the
+  // heuristic + a visible warning, instead of a 500 that hides the
+  // root cause from the user.
+  let provider: LLMProvider;
+  try {
+    provider = await resolveProvider({
+      override: input.provider ?? "auto",
+      ollamaModel: input.model,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return {
+      analysis: {
+        ...input.heuristic,
+        warnings: [
+          ...input.heuristic.warnings,
+          `AI 분석 백엔드 사용 불가 (${detail.slice(0, 200)}) — 휴리스틱 결과만 반환합니다.`,
+        ],
+      },
+      model: "heuristic-only",
+    };
+  }
   const code = input.code.slice(0, CODE_BUDGET);
   const truncated = input.code.length > CODE_BUDGET;
 
@@ -600,11 +621,15 @@ const REFINE_CODE_BUDGET = 80_000;
 // via REFINEMENT_NUM_CTX env. Earlier 65K default tripped Ollama's
 // "invalid num_ctx" rejection on stock gemma4:31b pulls.
 const REFINE_NUM_CTX_DEFAULT = 32_768;
+const REFINE_NUM_CTX_MAX = 1_048_576;
 const REFINE_NUM_PREDICT = 8_192;
-// Hard ceiling to avoid hung reviewers masquerading as success. The
-// outer try/catch in runAiAnalysis converts the AbortError to a
-// warning on the analysis output. Override via REFINEMENT_TIMEOUT_MS.
-const REFINE_TIMEOUT_MS_DEFAULT = 240_000;
+// Hard ceiling to avoid hung reviewers masquerading as success. 360s
+// covers stock gemma4:31b on Apple Silicon at our prompt size; cloud
+// reviewers (Claude Opus) typically finish in 30-60s. Override via
+// REFINEMENT_TIMEOUT_MS env when a slower box / heavier prompt
+// genuinely needs longer.
+const REFINE_TIMEOUT_MS_DEFAULT = 360_000;
+const REFINE_TIMEOUT_MS_MAX = 30 * 60_000; // 30 min absolute ceiling
 
 async function runRefinement(input: RefinementInput): Promise<RefinementOutput> {
   const reviewer = await resolveReviewProvider({
@@ -640,8 +665,16 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
     { role: "user" as const, content: userContent },
   ];
 
-  const numCtx = clampPositiveInt(process.env.REFINEMENT_NUM_CTX, REFINE_NUM_CTX_DEFAULT);
-  const timeoutMs = clampPositiveInt(process.env.REFINEMENT_TIMEOUT_MS, REFINE_TIMEOUT_MS_DEFAULT);
+  const numCtx = clampPositiveInt(
+    process.env.REFINEMENT_NUM_CTX,
+    REFINE_NUM_CTX_DEFAULT,
+    REFINE_NUM_CTX_MAX,
+  );
+  const timeoutMs = clampPositiveInt(
+    process.env.REFINEMENT_TIMEOUT_MS,
+    REFINE_TIMEOUT_MS_DEFAULT,
+    REFINE_TIMEOUT_MS_MAX,
+  );
   // Caller's signal still wins if it fires earlier; we add an
   // independent timeout signal so a hung Ollama call can't pin the
   // bench / API request indefinitely.
@@ -650,6 +683,12 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
     ? AbortSignal.any([input.signal, timeoutSignal])
     : timeoutSignal;
 
+  // Log a breadcrumb so a hung reviewer is debuggable: a minute later
+  // the user can grep server logs / bench stderr and see which model
+  // is in flight at what ctx/timeout.
+  console.error(
+    `[refine] start reviewer=${reviewer.model} (${reviewer.name}) num_ctx=${numCtx} num_predict=${REFINE_NUM_PREDICT} timeout=${timeoutMs}ms`,
+  );
   const t0 = Date.now();
   const text = await reviewer.chatText({
     messages,
@@ -714,8 +753,19 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
   };
 }
 
-function clampPositiveInt(raw: string | undefined, fallback: number): number {
+function clampPositiveInt(
+  raw: string | undefined,
+  fallback: number,
+  max: number,
+): number {
   if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+  // Accept only well-formed positive integers — reject decimals
+  // ("32.5"), scientific notation ("1.5e4"), and stray whitespace by
+  // requiring the parsed integer to round-trip exactly back to the
+  // input.
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return fallback;
+  const n = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, max);
 }
