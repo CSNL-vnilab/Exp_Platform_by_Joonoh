@@ -108,6 +108,12 @@ export default async function PaymentInfoPage({ params }: PageProps) {
   // called from PaymentInfoForm's mount effect — i.e. only after a real
   // browser actually rendered the form.
 
+  // Header still uses participantName for "{title} — {name}님" greeting,
+  // but the form gets ONLY the contact channels (phone + email). Name,
+  // bank, account, RRN, holder, institution are never pre-filled — see
+  // PaymentInfoForm for the rationale (privacy invariant: form must
+  // never display anyone else's sensitive data, including the
+  // participant's own name leaking from a stale participants row).
   const participantName = info.name_override ?? info.participants?.name ?? "";
   const participantPhone = info.phone ?? info.participants?.phone ?? "";
   const participantEmail = info.email_override ?? info.participants?.email ?? "";
@@ -208,7 +214,6 @@ export default async function PaymentInfoPage({ params }: PageProps) {
       ) : (
         <PaymentInfoForm
           token={token}
-          defaultName={participantName}
           defaultPhone={participantPhone}
           defaultEmail={participantEmail}
           experimentTitle={experimentTitle}

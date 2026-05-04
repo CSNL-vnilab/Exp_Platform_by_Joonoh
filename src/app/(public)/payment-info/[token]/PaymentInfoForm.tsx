@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast";
 
+// "" sentinel forces the participant to pick a bank explicitly. We never
+// pre-fill 은행명 — that's a per-participant-policy rule (no leakage of
+// the other participant's bank into the dropdown via wrong default).
+const BANK_PLACEHOLDER = "";
 const BANKS = [
   "국민은행", "기업은행", "신한은행", "우리은행", "하나은행",
   "농협은행", "SC제일은행", "씨티은행", "카카오뱅크", "토스뱅크",
@@ -17,7 +21,13 @@ const BANKBOOK_TYPES = ["image/png", "image/jpeg", "application/pdf"];
 
 interface Props {
   token: string;
-  defaultName: string;
+  // Only contact-channel pre-fill is permitted (email + phone). Name,
+  // bank, account, RRN, holder, institution must always start empty so
+  // participants explicitly enter what's theirs — both for accuracy
+  // (avoid a wrong cached value silently propagating) and for the
+  // privacy invariant "the form must never display anyone else's
+  // sensitive data, including their own name leaking from a stale
+  // participants row".
   defaultPhone: string;
   defaultEmail: string;
   experimentTitle: string;
@@ -26,21 +36,20 @@ interface Props {
 
 export default function PaymentInfoForm({
   token,
-  defaultName,
   defaultPhone,
   defaultEmail,
 }: Props) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [name, setName] = useState(defaultName);
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState(defaultPhone);
   const [email, setEmail] = useState(defaultEmail);
   const [rrn, setRrn] = useState("");
-  const [bank, setBank] = useState(BANKS[2]);
+  const [bank, setBank] = useState(BANK_PLACEHOLDER);
   const [account, setAccount] = useState("");
-  const [holder, setHolder] = useState(defaultName);
-  const [institution, setInstitution] = useState("서울대학교");
+  const [holder, setHolder] = useState("");
+  const [institution, setInstitution] = useState("");
   // Submit stage so the long upload doesn't look frozen. fetch() doesn't
   // expose upload progress, so we approximate with discrete labels.
   const [submitStage, setSubmitStage] =
@@ -266,6 +275,10 @@ export default function PaymentInfoForm({
       toast("소속을 입력하세요.", "error");
       return;
     }
+    if (!bank) {
+      toast("은행을 선택하세요.", "error");
+      return;
+    }
     if (!account.trim()) {
       toast("계좌번호를 입력하세요.", "error");
       return;
@@ -411,6 +424,7 @@ export default function PaymentInfoForm({
               type="text"
               value={institution}
               onChange={(e) => setInstitution(e.target.value)}
+              placeholder="예: 서울대학교"
               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
               required
             />
@@ -511,8 +525,12 @@ export default function PaymentInfoForm({
               id="bank"
               value={bank}
               onChange={(e) => setBank(e.target.value)}
+              required
               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
             >
+              <option value="" disabled>
+                — 선택해 주세요 —
+              </option>
               {BANKS.map((b) => (
                 <option key={b} value={b}>
                   {b}
