@@ -540,12 +540,18 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
   } catch (err) {
     // Tag timeout vs other failures so the bench / on-call can
     // distinguish "reviewer too slow on this host" from
-    // "reviewer model missing / non-deterministic crash". The
-    // AbortError name covers both AbortSignal.timeout and an
-    // explicit caller cancel.
+    // "reviewer model missing / non-deterministic crash".
+    //   - AbortError: caller cancel (controller.abort).
+    //   - TimeoutError (DOMException code 23): produced by
+    //     AbortSignal.timeout() in Node 22.
+    //   - error message regex catches both providers' own messages
+    //     (e.g. Ollama undici "The operation was aborted due to
+    //     timeout") in case the underlying error class drifts.
     const isTimeout =
       err instanceof Error &&
-      (err.name === "AbortError" || /aborted|timeout/i.test(err.message));
+      (err.name === "AbortError" ||
+        err.name === "TimeoutError" ||
+        /aborted|timeout/i.test(err.message));
     const tag = isTimeout ? "[timeout]" : "[error]";
     const detail = err instanceof Error ? err.message : String(err);
     pass1.analysis.warnings = [
