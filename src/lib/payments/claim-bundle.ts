@@ -40,6 +40,13 @@ interface BundleRow {
   periodEnd: string | null;
   amountKrw: number;
   sessions: Array<{ slot_start: string; slot_end: string }>;
+  // Snapshot of the experiment title at fetch time. Surfaced into the
+  // individual form's B12 cell ("제목") so each per-participant xlsx
+  // names the actual study instead of the template default "인지행동실험".
+  experimentTitle: string | null;
+  // Location name from experiment_locations.name — overrides L11 in the
+  // individual form. NULL falls through to the template default ("649호").
+  locationName: string | null;
 }
 
 export async function fetchClaimRows(
@@ -61,6 +68,27 @@ export async function fetchClaimRows(
   }
   const { data: rows } = await query;
   if (!rows || rows.length === 0) return [];
+
+  // One-shot fetch of the experiment title + location — every row in
+  // this bundle shares the same experiment_id, so a single round-trip
+  // suffices. Location name (실험실호수) goes into the individual form's
+  // L11 cell so the printed form names the actual room instead of the
+  // template default "649호".
+  const { data: expRow } = await supabase
+    .from("experiments")
+    .select("title, location_id")
+    .eq("id", experimentId)
+    .single();
+  const experimentTitle = expRow?.title ?? null;
+  let locationName: string | null = null;
+  if (expRow?.location_id) {
+    const { data: locRow } = await supabase
+      .from("experiment_locations")
+      .select("name")
+      .eq("id", expRow.location_id)
+      .maybeSingle();
+    locationName = (locRow as { name: string } | null)?.name ?? null;
+  }
 
   const bgIds = rows.map((r) => r.booking_group_id);
   const { data: bookings } = await supabase
@@ -124,6 +152,8 @@ export async function fetchClaimRows(
       periodEnd: row.period_end,
       amountKrw: row.amount_krw,
       sessions: sessionsBy.get(row.booking_group_id) ?? [],
+      experimentTitle,
+      locationName,
     };
   });
 }
@@ -294,6 +324,8 @@ export async function buildClaimBundle(
       amountKrw: r.amountKrw,
       participationHours: totalHours(r.sessions),
       institution: r.institution ?? "서울대학교",
+      experimentTitle: r.experimentTitle,
+      locationName: r.locationName,
       activityDateSpan: formatDateSpan(r.periodStart, r.periodEnd),
       firstSessionStart: first ? isoToHHMM(first.slot_start) : null,
       firstSessionEnd: first ? isoToHHMM(first.slot_end) : null,
@@ -304,9 +336,18 @@ export async function buildClaimBundle(
   // the "참여자별 파일 + 전체 청구 파일 + 통장사본 zip" mental model.
   //
   //   실험참여자비 양식_{이름}.xlsx × N      — per-participant claim forms
+  //                                          (signature embedded at B17:C17)
   //   일회성경비지급자_업로드양식_작성.xlsx  — combined admin upload form
   //   통장사본.zip                          — nested zip with every bankbook
   //   README.txt
+  //
+  // Signatures are embedded inside each xlsx via XML drawing manipulation
+  // (template-filler.ts:embedSignatureImage) — the original SNU R&D
+  // template ships drawing1.xml + 18 form-control checkboxes inside it,
+  // so we append a new <xdr:twoCellAnchor> + add an image rel + register
+  // png content-type without touching the existing checkbox anchors.
+  // 행정 submission gets the printable form with sig in place; no
+  // separate handoff needed.
   //
   // Dedup per category so two participants with identical 이름 still get
   // distinct filenames.
@@ -348,7 +389,7 @@ export async function buildClaimBundle(
     zip.file("통장사본.zip", innerZipBuffer);
   }
 
-  // 3. Summary README so the admin knows what's in the bundle.
+  // 4. Summary README so the admin knows what's in the bundle.
   const readme = buildReadme(exportParticipants);
   zip.file("README.txt", readme);
 
@@ -379,7 +420,7 @@ function buildReadme(participants: ExportParticipant[]): string {
   lines.push("");
   lines.push("포함된 파일:");
   lines.push("  ① 일회성경비지급자_업로드양식_작성.xlsx — 행정 제출용 통합 파일");
-  lines.push("  ② 실험참여자비 양식_*.xlsx — 참가자별 청구서 (서명 포함)");
+  lines.push("  ② 실험참여자비 양식_*.xlsx — 참가자별 청구서 (원본 양식 + 서명 임베드)");
   lines.push("  ③ 통장사본.zip — 참가자별 통장 사본 모음");
   lines.push("");
   lines.push("참가자 목록:");
