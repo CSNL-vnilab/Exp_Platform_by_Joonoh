@@ -919,6 +919,11 @@ export interface Database {
           total_krw: number;
           file_name: string | null;
           notes: string | null;
+          // Migration 00058 — 행정 dispatch email tracking. NULL until
+          // the researcher confirms the preview-and-send modal.
+          email_sent_at: string | null;
+          email_sent_to: string | null;
+          email_message_id: string | null;
         };
         Insert: {
           id?: string;
@@ -930,15 +935,21 @@ export interface Database {
           total_krw?: number;
           file_name?: string | null;
           notes?: string | null;
+          email_sent_at?: string | null;
+          email_sent_to?: string | null;
+          email_message_id?: string | null;
         };
         // Claim rows are back-filled with final counts + file name after the
-        // ZIP is built, so we need a narrow Update shape.
+        // ZIP is built, plus email_sent_* once the 행정 dispatch fires.
         Update: {
           booking_group_ids?: string[];
           participant_count?: number;
           total_krw?: number;
           file_name?: string | null;
           notes?: string | null;
+          email_sent_at?: string | null;
+          email_sent_to?: string | null;
+          email_message_id?: string | null;
         };
         Relationships: [];
       };

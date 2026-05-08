@@ -47,6 +47,44 @@ interface Props {
     exported_by_name: string | null;
     file_name: string | null;
   }>;
+  // Most recent payment_claim with email_sent_at IS NULL. NULL ⇒ either
+  // no claims yet for this experiment, or every existing claim already
+  // dispatched. Drives the "📧 행정 메일 발송" button.
+  recentUnsentClaim: {
+    id: string;
+    claimedAt: string;
+    participantCount: number;
+    totalKrw: number;
+  } | null;
+  // From process.env.LAB_ADMIN_EMAIL — pre-populates the modal recipient
+  // field. Researcher can override per-send (different deans, different
+  // semester admin assignments).
+  defaultAdminEmail: string;
+}
+
+// Shape of GET /payment-claim/[claimId]/email response — preview only,
+// no attachment binaries.
+interface EmailPreview {
+  preview: {
+    subject: string;
+    to: string;
+    replyTo: string | null;
+    html: string;
+    text: string;
+    meta: {
+      researcherName: string;
+      participantCount: number;
+      totalKrw: number;
+      periodLabel: string;
+      participantNames: string[];
+      attachmentNames: string[];
+    };
+  };
+  alreadySent: {
+    sentAt: string;
+    sentTo: string;
+    messageId: string | null;
+  } | null;
 }
 
 const STATUS_LABEL: Record<PaymentStatus, string> = {
@@ -65,7 +103,13 @@ const STATUS_CLASS: Record<PaymentStatus, string> = {
   paid_offline: "bg-slate-100 text-slate-700 border-slate-300",
 };
 
-export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
+export function PaymentPanel({
+  experimentId,
+  rows,
+  exportHistory,
+  recentUnsentClaim,
+  defaultAdminEmail,
+}: Props) {
   const { toast } = useToast();
   const [downloading, setDownloading] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -74,6 +118,19 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
   const [resending, setResending] = useState<string | null>(null);
   const [marking, setMarking] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
+  // 행정 dispatch email state. activeClaimId is set when:
+  //   (a) the page was server-rendered with a recentUnsentClaim, OR
+  //   (b) a fresh claim just succeeded and surfaced X-Claim-Id.
+  // Cleared after a successful send (server reload follows).
+  const [activeClaimId, setActiveClaimId] = useState<string | null>(
+    recentUnsentClaim?.id ?? null,
+  );
+  const [emailModal, setEmailModal] = useState<{
+    claimId: string;
+    preview: EmailPreview["preview"];
+    recipient: string;
+    sending: boolean;
+  } | null>(null);
 
   // Backfill payment_info rows for booking_groups that ended up without
   // one (typically because bookings were imported via a script that
@@ -193,14 +250,18 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
   const claimable = rows.filter((r) => r.status === "submitted_to_admin");
   const totalClaimable = claimable.reduce((s, r) => s + r.amountKrw, 0);
 
-  async function downloadBlob(url: string, key: string, method: "GET" | "POST" = "GET") {
+  async function downloadBlob(
+    url: string,
+    key: string,
+    method: "GET" | "POST" = "GET",
+  ): Promise<{ ok: boolean; claimId: string | null }> {
     setDownloading(key);
     try {
       const res = await fetch(url, { method });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         toast(body?.error ?? "다운로드에 실패했습니다.", "error");
-        return false;
+        return { ok: false, claimId: null };
       }
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") ?? "";
@@ -217,10 +278,14 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
       a.click();
       a.remove();
       URL.revokeObjectURL(href);
-      return true;
+      // payment-claim returns the new claim id in this header so the
+      // 행정 메일 button can immediately scope to it without a server
+      // round-trip.
+      const claimId = res.headers.get("X-Claim-Id");
+      return { ok: true, claimId };
     } catch {
       toast("네트워크 오류가 발생했습니다.", "error");
-      return false;
+      return { ok: false, claimId: null };
     } finally {
       setDownloading(null);
     }
@@ -230,19 +295,102 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
     if (claimable.length === 0) return;
     if (
       !confirm(
-        `미청구 ${claimable.length}명의 참여자비를 청구하시겠습니까?\n총 ${totalClaimable.toLocaleString()}원\n\n다운로드된 ZIP(엑셀 + 통장사본)을 행정 선생님께 이메일로 전달해 주세요.\n\n실행 후에는 해당 참가자의 금액·정보를 수정할 수 없습니다.`,
+        `미청구 ${claimable.length}명의 참여자비를 청구하시겠습니까?\n총 ${totalClaimable.toLocaleString()}원\n\n번들이 다운로드된 후 "행정 메일 발송" 버튼이 활성화됩니다 (자동 전송 안 됨 — 미리보기 후 컨펌).\n\n실행 후에는 해당 참가자의 금액·정보를 수정할 수 없습니다.`,
       )
     )
       return;
-    const ok = await downloadBlob(
+    const { ok, claimId } = await downloadBlob(
       `/api/experiments/${experimentId}/payment-claim`,
       "claim",
       "POST",
     );
     if (ok) {
-      toast("청구 번들이 생성되었습니다. 이메일로 전달해 주세요.", "success");
-      // Refresh so status chips update.
-      setTimeout(() => window.location.reload(), 600);
+      toast(
+        "청구 번들이 생성되었습니다. 행정 메일 발송 버튼으로 이어 보낼 수 있어요.",
+        "success",
+      );
+      if (claimId) {
+        setActiveClaimId(claimId);
+      }
+      // No automatic reload — the email button only works while the
+      // X-Claim-Id is in state. After the email is sent OR after the
+      // researcher opts out, we reload to refresh status chips.
+    }
+  }
+
+  // ── 행정 dispatch email ──────────────────────────────────────────
+
+  async function openEmailModal(claimId: string) {
+    setDownloading("email-preview");
+    try {
+      const res = await fetch(
+        `/api/experiments/${experimentId}/payment-claim/${claimId}/email`,
+        { method: "GET" },
+      );
+      const body = (await res.json().catch(() => null)) as
+        | EmailPreview
+        | { error: string }
+        | null;
+      if (!res.ok || !body || "error" in body) {
+        toast(
+          (body as { error?: string } | null)?.error ??
+            "메일 미리보기 생성 실패",
+          "error",
+        );
+        return;
+      }
+      if (body.alreadySent) {
+        if (
+          !confirm(
+            `이미 ${new Date(body.alreadySent.sentAt).toLocaleString("ko-KR")}\n${body.alreadySent.sentTo} 로 발송된 청구입니다.\n\n다시 보낼까요?`,
+          )
+        ) {
+          return;
+        }
+      }
+      setEmailModal({
+        claimId,
+        preview: body.preview,
+        recipient: defaultAdminEmail || body.preview.to || "",
+        sending: false,
+      });
+    } catch {
+      toast("네트워크 오류가 발생했습니다.", "error");
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  async function confirmAndSendEmail() {
+    if (!emailModal) return;
+    const recipient = emailModal.recipient.trim();
+    if (!recipient || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient)) {
+      toast("올바른 이메일 주소를 입력해 주세요.", "error");
+      return;
+    }
+    setEmailModal({ ...emailModal, sending: true });
+    try {
+      const res = await fetch(
+        `/api/experiments/${experimentId}/payment-claim/${emailModal.claimId}/email`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recipientEmail: recipient, confirm: true }),
+        },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast(body?.error ?? "이메일 발송 실패", "error");
+        setEmailModal({ ...emailModal, sending: false });
+        return;
+      }
+      toast(`행정 선생님께 이메일을 발송했습니다 (${recipient})`, "success");
+      setEmailModal(null);
+      setActiveClaimId(null);
+      setTimeout(() => window.location.reload(), 800);
+    } catch {
+      toast("네트워크 오류가 발생했습니다.", "error");
+      setEmailModal({ ...emailModal, sending: false });
     }
   }
 
@@ -302,6 +450,24 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
                 ? "번들 생성 중…"
                 : `📦 참여자비 청구 (${claimable.length}명)`}
             </button>
+            {activeClaimId && (
+              <button
+                type="button"
+                disabled={downloading !== null}
+                onClick={() => openEmailModal(activeClaimId)}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                title={
+                  recentUnsentClaim &&
+                  recentUnsentClaim.id === activeClaimId
+                    ? `청구 ${new Date(recentUnsentClaim.claimedAt).toLocaleString("ko-KR")} · ${recentUnsentClaim.participantCount}명 · ${recentUnsentClaim.totalKrw.toLocaleString()}원`
+                    : "방금 생성된 청구"
+                }
+              >
+                {downloading === "email-preview"
+                  ? "미리보기 생성 중…"
+                  : "📧 행정 메일 발송"}
+              </button>
+            )}
             {rows.some(
               (r) => r.status === "submitted_to_admin" || r.status === "claimed" || r.status === "paid",
             ) && (
@@ -489,6 +655,123 @@ export function PaymentPanel({ experimentId, rows, exportHistory }: Props) {
           </div>
         )}
       </CardContent>
+      {emailModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            // Click outside the modal closes it (only when not sending).
+            if (e.target === e.currentTarget && !emailModal.sending) {
+              setEmailModal(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">
+                  행정 선생님께 이메일 발송 — 미리보기
+                </h3>
+                <p className="mt-1 text-xs text-muted">
+                  발송 버튼을 누르기 전까지 이메일은 보내지지 않습니다.
+                  내용을 확인하고 수신자 주소가 정확한지 확인해 주세요.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !emailModal.sending && setEmailModal(null)}
+                disabled={emailModal.sending}
+                className="text-muted hover:text-foreground disabled:opacity-50"
+                aria-label="닫기"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3 text-sm">
+              <label className="block">
+                <span className="text-xs font-medium text-muted">
+                  받는 사람 (행정 선생님 이메일)
+                </span>
+                <input
+                  type="email"
+                  value={emailModal.recipient}
+                  onChange={(e) =>
+                    setEmailModal({ ...emailModal, recipient: e.target.value })
+                  }
+                  disabled={emailModal.sending}
+                  placeholder="admin@snu.ac.kr"
+                  className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none disabled:bg-muted/30"
+                />
+              </label>
+
+              <div className="rounded-lg border border-border bg-muted/10 p-3">
+                <div className="text-xs font-medium text-muted">제목</div>
+                <div className="mt-0.5 text-sm font-semibold text-foreground">
+                  {emailModal.preview.subject}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border bg-muted/10 p-3">
+                <div className="text-xs font-medium text-muted">본문 (텍스트 미리보기)</div>
+                <pre className="mt-1 whitespace-pre-wrap text-xs text-foreground font-sans">
+                  {emailModal.preview.text}
+                </pre>
+              </div>
+
+              <div className="rounded-lg border border-border bg-muted/10 p-3">
+                <div className="text-xs font-medium text-muted">
+                  첨부 파일 ({emailModal.preview.meta.attachmentNames.length}개)
+                </div>
+                <ul className="mt-1 space-y-0.5 text-xs text-foreground">
+                  {emailModal.preview.meta.attachmentNames.map((n, i) => (
+                    <li key={i}>📎 {n}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                <strong>발송 정보:</strong>
+                <ul className="mt-1 space-y-0.5">
+                  <li>• 발신: vnilab@gmail.com (랩 공용)</li>
+                  {emailModal.preview.replyTo && (
+                    <li>• Reply-To: {emailModal.preview.replyTo}</li>
+                  )}
+                  <li>• 실험자: {emailModal.preview.meta.researcherName}</li>
+                  <li>
+                    • 청구 합계:{" "}
+                    {emailModal.preview.meta.totalKrw.toLocaleString("ko-KR")}원
+                    ({emailModal.preview.meta.participantCount}건)
+                  </li>
+                  {emailModal.preview.meta.periodLabel && (
+                    <li>• 기간: {emailModal.preview.meta.periodLabel}</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEmailModal(null)}
+                disabled={emailModal.sending}
+                className="rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-foreground hover:bg-muted/30 disabled:opacity-50"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={confirmAndSendEmail}
+                disabled={emailModal.sending}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {emailModal.sending ? "발송 중…" : "📧 발송"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

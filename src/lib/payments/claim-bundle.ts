@@ -49,6 +49,10 @@ interface BundleRow {
   locationName: string | null;
 }
 
+// name_override / email_override / phone come from migration 00050.
+const PAYMENT_INFO_SELECT =
+  "participant_id, booking_group_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, bankbook_path, bankbook_mime_type, period_start, period_end, amount_krw, status, name_override, email_override, phone, participants(name, email, phone)";
+
 export async function fetchClaimRows(
   supabase: Supabase,
   experimentId: string,
@@ -56,10 +60,7 @@ export async function fetchClaimRows(
 ): Promise<BundleRow[]> {
   let query = supabase
     .from("participant_payment_info")
-    .select(
-      // name_override / email_override / phone come from migration 00050.
-      "participant_id, booking_group_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, bankbook_path, bankbook_mime_type, period_start, period_end, amount_krw, status, name_override, email_override, phone, participants(name, email, phone)",
-    )
+    .select(PAYMENT_INFO_SELECT)
     .eq("experiment_id", experimentId)
     .eq("status", "submitted_to_admin")
     .order("submitted_at", { ascending: true });
@@ -407,6 +408,239 @@ export async function buildClaimBundle(
     totalKrw,
     includedBookingGroupIds: rows.map((r) => r.bookingGroupId),
   };
+}
+
+// ── Re-fetch helpers for the 행정 dispatch email path ──────────────────
+//
+// After the original /payment-claim flow, payment_info rows are at
+// status='claimed' (or sometimes 'paid' if 행정 already disbursed). The
+// follow-up email feature needs to rebuild attachments for the same
+// claim — but with a status filter that doesn't exclude already-claimed
+// rows. fetchClaimRowsByClaimId resolves the booking_group_ids array
+// stored on payment_claims.id, then issues a status-agnostic SELECT.
+
+export interface ClaimReuseAssets {
+  rows: BundleRow[];
+  exportParticipants: ExportParticipant[];
+  // Bankbook payloads pre-named so the caller can attach them directly
+  // (or wrap into a nested zip).
+  bankbookEntries: Array<{ filename: string; bytes: Buffer }>;
+}
+
+function safeFilenameLocal(raw: string): string {
+  return (raw.trim() || "참가자")
+    .replace(/[\\/:*?"<>|\r\n\t]/g, "_")
+    .replace(/^\.+/, "")
+    .slice(0, 80);
+}
+
+export async function fetchClaimRowsByClaimId(
+  supabase: Supabase,
+  experimentId: string,
+  claimId: string,
+  opts: { withBankbooks: boolean; withSignatures: boolean },
+): Promise<ClaimReuseAssets> {
+  // 1. Resolve claim → booking_group_ids.
+  const { data: claimRow, error: claimErr } = await supabase
+    .from("payment_claims")
+    .select("booking_group_ids, experiment_id")
+    .eq("id", claimId)
+    .single();
+  if (claimErr) throw new Error(`payment_claims fetch: ${claimErr.message}`);
+  if (!claimRow) throw new Error(`payment_claim ${claimId} not found`);
+  const claim = claimRow as { booking_group_ids: string[]; experiment_id: string };
+  if (claim.experiment_id !== experimentId) {
+    throw new Error("claim_id does not belong to experiment_id");
+  }
+  const bgIds: string[] = claim.booking_group_ids ?? [];
+  if (bgIds.length === 0) {
+    return { rows: [], exportParticipants: [], bankbookEntries: [] };
+  }
+
+  // 2. Fetch payment_info rows by booking_group_id (status-agnostic).
+  const { data: rawRows, error: rowsErr } = await supabase
+    .from("participant_payment_info")
+    .select(PAYMENT_INFO_SELECT)
+    .eq("experiment_id", experimentId)
+    .in("booking_group_id", bgIds)
+    .order("submitted_at", { ascending: true });
+  if (rowsErr) throw new Error(`payment_info fetch: ${rowsErr.message}`);
+  if (!rawRows || rawRows.length === 0) {
+    return { rows: [], exportParticipants: [], bankbookEntries: [] };
+  }
+
+  // 3. Fetch experiment + location for title/location overrides.
+  const { data: expRow } = await supabase
+    .from("experiments")
+    .select("title, location_id")
+    .eq("id", experimentId)
+    .single();
+  const experimentTitle = (expRow as { title: string } | null)?.title ?? null;
+  let locationName: string | null = null;
+  const locId = (expRow as { location_id: string | null } | null)?.location_id;
+  if (locId) {
+    const { data: locRow } = await supabase
+      .from("experiment_locations")
+      .select("name")
+      .eq("id", locId)
+      .maybeSingle();
+    locationName = (locRow as { name: string } | null)?.name ?? null;
+  }
+
+  // 4. Fetch session timestamps.
+  const { data: bookings } = await supabase
+    .from("bookings")
+    .select("booking_group_id, slot_start, slot_end")
+    .in("booking_group_id", bgIds)
+    .order("slot_start", { ascending: true });
+  const sessionsBy = new Map<
+    string,
+    Array<{ slot_start: string; slot_end: string }>
+  >();
+  for (const b of (bookings ?? []) as Array<{
+    booking_group_id: string | null;
+    slot_start: string;
+    slot_end: string;
+  }>) {
+    if (!b.booking_group_id) continue;
+    const list = sessionsBy.get(b.booking_group_id) ?? [];
+    list.push({ slot_start: b.slot_start, slot_end: b.slot_end });
+    sessionsBy.set(b.booking_group_id, list);
+  }
+
+  // 5. Map rows → BundleRow.
+  const rows: BundleRow[] = (
+    rawRows as unknown as Array<{
+      participant_id: string;
+      booking_group_id: string;
+      rrn_cipher: unknown;
+      rrn_iv: unknown;
+      rrn_tag: unknown;
+      rrn_key_version: number;
+      bank_name: string | null;
+      account_number: string | null;
+      account_holder: string | null;
+      institution: string | null;
+      signature_path: string | null;
+      bankbook_path: string | null;
+      bankbook_mime_type: string | null;
+      period_start: string | null;
+      period_end: string | null;
+      amount_krw: number;
+      name_override: string | null;
+      email_override: string | null;
+      phone: string | null;
+      participants: { name: string; email: string | null; phone: string | null } | null;
+    }>
+  ).map((r) => ({
+    participantId: r.participant_id,
+    bookingGroupId: r.booking_group_id,
+    participantName: r.name_override ?? r.participants?.name ?? "",
+    participantEmail: r.email_override ?? r.participants?.email ?? null,
+    participantPhone: r.phone ?? r.participants?.phone ?? null,
+    rrnCipher: r.rrn_cipher,
+    rrnIv: r.rrn_iv,
+    rrnTag: r.rrn_tag,
+    rrnKeyVersion: r.rrn_key_version,
+    bankName: r.bank_name,
+    accountNumber: r.account_number,
+    accountHolder: r.account_holder,
+    institution: r.institution,
+    signaturePath: r.signature_path,
+    bankbookPath: r.bankbook_path,
+    bankbookMime: r.bankbook_mime_type,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    amountKrw: r.amount_krw,
+    sessions: sessionsBy.get(r.booking_group_id) ?? [],
+    experimentTitle,
+    locationName,
+  }));
+
+  // 6. Storage downloads (capped concurrency to stay within Supabase
+  //    per-client connection limits).
+  const signatures = new Map<string, Buffer>();
+  const bankbookByBgId = new Map<string, { bytes: Buffer; mime: string }>();
+  if (opts.withSignatures || opts.withBankbooks) {
+    const tasks: Array<() => Promise<void>> = [];
+    for (const r of rows) {
+      if (opts.withSignatures && r.signaturePath) {
+        const path = r.signaturePath;
+        const bgId = r.bookingGroupId;
+        tasks.push(async () => {
+          const { data } = await supabase.storage
+            .from("participant-signatures")
+            .download(path);
+          if (data) {
+            signatures.set(bgId, Buffer.from(await data.arrayBuffer()));
+          }
+        });
+      }
+      if (opts.withBankbooks && r.bankbookPath) {
+        const path = r.bankbookPath;
+        const bgId = r.bookingGroupId;
+        const mime = r.bankbookMime ?? "application/octet-stream";
+        tasks.push(async () => {
+          const { data } = await supabase.storage
+            .from("participant-bankbooks")
+            .download(path);
+          if (data) {
+            bankbookByBgId.set(bgId, {
+              bytes: Buffer.from(await data.arrayBuffer()),
+              mime,
+            });
+          }
+        });
+      }
+    }
+    await runConcurrent(tasks, 8);
+  }
+
+  // 7. ExportParticipant[] for workbook builders.
+  const exportParticipants: ExportParticipant[] = rows.map((r) => {
+    const first = r.sessions[0];
+    return {
+      participantId: r.participantId,
+      bookingGroupId: r.bookingGroupId,
+      name: r.participantName,
+      email: r.participantEmail,
+      phone: r.participantPhone,
+      rrnCipher: r.rrnCipher,
+      rrnIv: r.rrnIv,
+      rrnTag: r.rrnTag,
+      rrnKeyVersion: r.rrnKeyVersion,
+      bankName: r.bankName,
+      accountNumber: r.accountNumber,
+      accountHolder: r.accountHolder,
+      signaturePng: signatures.get(r.bookingGroupId) ?? null,
+      periodStart: r.periodStart,
+      periodEnd: r.periodEnd,
+      amountKrw: r.amountKrw,
+      participationHours: totalHours(r.sessions),
+      institution: r.institution ?? "서울대학교",
+      experimentTitle: r.experimentTitle,
+      locationName: r.locationName,
+      activityDateSpan: formatDateSpan(r.periodStart, r.periodEnd),
+      firstSessionStart: first ? isoToHHMM(first.slot_start) : null,
+      firstSessionEnd: first ? isoToHHMM(first.slot_end) : null,
+    };
+  });
+
+  // 8. Bankbook entries pre-named.
+  const bankbookEntries: Array<{ filename: string; bytes: Buffer }> = [];
+  if (opts.withBankbooks) {
+    for (const r of rows) {
+      const bb = bankbookByBgId.get(r.bookingGroupId);
+      if (!bb) continue;
+      const ext = extFromMime(bb.mime);
+      bankbookEntries.push({
+        filename: `통장사본_${safeFilenameLocal(r.participantName || r.bookingGroupId)}.${ext}`,
+        bytes: bb.bytes,
+      });
+    }
+  }
+
+  return { rows, exportParticipants, bankbookEntries };
 }
 
 function buildReadme(participants: ExportParticipant[]): string {

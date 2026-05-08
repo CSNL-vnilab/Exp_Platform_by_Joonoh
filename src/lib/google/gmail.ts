@@ -10,10 +10,18 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string; // optional MIME hint (defaults inferred from filename)
+}
+
 export interface SendEmailOptions {
   to: string;
   subject: string;
   html: string;
+  text?: string; // optional plain-text alternative — admin mail clients
+  // sometimes prefer or require text/plain alongside html.
   cc?: string | string[];
   bcc?: string | string[];
   // C-P1-4: Reply-To header. When set, "Reply" in the recipient's
@@ -22,6 +30,10 @@ export interface SendEmailOptions {
   // inbox the mail was sent FROM. Optional: callers without a
   // researcher contact can omit it and the From address is used.
   replyTo?: string;
+  // Attachments (xlsx / zip / pdf). Each filename can be Korean —
+  // nodemailer handles RFC 2047 encoding for the Content-Disposition
+  // header automatically.
+  attachments?: EmailAttachment[];
 }
 
 export async function sendEmail(
@@ -42,6 +54,12 @@ export async function sendEmail(
       replyTo: opts.replyTo,
       subject: opts.subject,
       html: opts.html,
+      text: opts.text,
+      attachments: opts.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })),
     });
     return { success: true, messageId: info.messageId };
   } catch (err) {

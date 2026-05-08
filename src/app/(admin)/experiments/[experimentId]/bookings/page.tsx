@@ -260,6 +260,27 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
     .order("exported_at", { ascending: false })
     .limit(10);
 
+  // Surface the most recent payment_claim that hasn't yet been emailed
+  // to 행정. Drives the "📧 행정 메일 발송" button — if NULL the button
+  // is hidden, otherwise it opens a preview modal scoped to this claim.
+  const { data: claimRow } = await admin
+    .from("payment_claims")
+    .select("id, claimed_at, participant_count, total_krw, email_sent_at")
+    .eq("experiment_id", experimentId)
+    .is("email_sent_at", null)
+    .order("claimed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const recentUnsentClaim = claimRow
+    ? {
+        id: (claimRow as { id: string }).id,
+        claimedAt: (claimRow as { claimed_at: string }).claimed_at,
+        participantCount: (claimRow as { participant_count: number })
+          .participant_count,
+        totalKrw: (claimRow as { total_krw: number }).total_krw,
+      }
+    : null;
+
   const exportHistory = (history ?? []).map((h) => {
     const row = h as unknown as {
       id: string;
@@ -284,6 +305,8 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
       experimentId={experimentId}
       rows={payments}
       exportHistory={exportHistory}
+      recentUnsentClaim={recentUnsentClaim}
+      defaultAdminEmail={process.env.LAB_ADMIN_EMAIL ?? ""}
     />
   );
 }
