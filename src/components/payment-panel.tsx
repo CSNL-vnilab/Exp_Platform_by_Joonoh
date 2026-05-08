@@ -68,6 +68,7 @@ interface EmailPreview {
   preview: {
     subject: string;
     to: string;
+    cc: string | null;
     replyTo: string | null;
     html: string;
     text: string;
@@ -735,6 +736,9 @@ export function PaymentPanel({
                 <strong>발송 정보:</strong>
                 <ul className="mt-1 space-y-0.5">
                   <li>• 발신: vnilab@gmail.com (랩 공용)</li>
+                  {emailModal.preview.cc && (
+                    <li>• CC (참조): {emailModal.preview.cc}</li>
+                  )}
                   {emailModal.preview.replyTo && (
                     <li>• Reply-To: {emailModal.preview.replyTo}</li>
                   )}

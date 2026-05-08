@@ -38,7 +38,7 @@ const sendBodySchema = z.object({
 async function loadAuthContext(
   experimentId: string,
 ): Promise<
-  | { ok: true; user: Awaited<ReturnType<Awaited<ReturnType<typeof createClient>>["auth"]["getUser"]>>["data"]["user"]; admin: ReturnType<typeof createAdminClient>; experiment: { id: string; title: string; created_by: string }; researcherName: string; researcherReplyEmail: string | null }
+  | { ok: true; user: Awaited<ReturnType<Awaited<ReturnType<typeof createClient>>["auth"]["getUser"]>>["data"]["user"]; admin: ReturnType<typeof createAdminClient>; experiment: { id: string; title: string; created_by: string }; researcherName: string; researcherReplyEmail: string | null; ccEmail: string | null }
   | { ok: false; status: number; error: string }
 > {
   if (!isValidUUID(experimentId)) {
@@ -77,6 +77,11 @@ async function loadAuthContext(
   const researcherReplyEmail =
     (profile as { contact_email: string | null } | null)?.contact_email ??
     null;
+  // CC the researcher's primary email so they have a record of every
+  // dispatch in their own inbox. Prefer contact_email (the address they
+  // chose to receive lab mail at) but fall back to auth.users.email so
+  // the field is never null in practice.
+  const ccEmail = researcherReplyEmail ?? user.email ?? null;
   return {
     ok: true,
     user,
@@ -84,6 +89,7 @@ async function loadAuthContext(
     experiment: experiment as { id: string; title: string; created_by: string },
     researcherName,
     researcherReplyEmail,
+    ccEmail,
   };
 }
 
@@ -122,6 +128,7 @@ export async function GET(
       recipientEmail: defaultRecipient(),
       researcherName: auth.researcherName,
       researcherReplyEmail: auth.researcherReplyEmail,
+      ccEmail: auth.ccEmail,
       includeAttachments: false,
     });
   } catch (err) {
@@ -138,6 +145,7 @@ export async function GET(
     preview: {
       subject: payload.subject,
       to: payload.to,
+      cc: payload.cc,
       replyTo: payload.replyTo,
       html: payload.html,
       text: payload.text,
@@ -193,6 +201,7 @@ export async function POST(
       recipientEmail: body.recipientEmail,
       researcherName: auth.researcherName,
       researcherReplyEmail: auth.researcherReplyEmail,
+      ccEmail: auth.ccEmail,
       includeAttachments: true,
     });
   } catch (err) {
@@ -205,9 +214,11 @@ export async function POST(
     );
   }
 
-  // Send via Gmail SMTP.
+  // Send via Gmail SMTP. CC the researcher so they have a record of
+  // every dispatch in their own inbox.
   const result = await sendEmail({
     to: payload.to,
+    cc: payload.cc ?? undefined,
     subject: payload.subject,
     html: payload.html,
     text: payload.text,

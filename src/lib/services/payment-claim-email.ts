@@ -25,6 +25,9 @@ type Supabase = ReturnType<typeof createAdminClient>;
 
 export interface PaymentClaimEmailPayload {
   to: string;
+  // CC the researcher who triggered the dispatch so they have a record
+  // in their own inbox + can forward / chase 행정 follow-ups directly.
+  cc: string | null;
   replyTo: string | null;
   subject: string;
   html: string;
@@ -117,6 +120,8 @@ function buildBody(args: {
     [
       "안녕하세요 선생님,",
       "",
+      `${researcherName} 연구원입니다.`,
+      "",
       lead,
       "",
       `- 실험자: ${researcherName}`,
@@ -136,6 +141,7 @@ function buildBody(args: {
   const html =
     `<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;color:#111;line-height:1.7;font-size:14px;">` +
     `<p>안녕하세요 선생님,</p>` +
+    `<p>${htmlEscape(researcherName)} 연구원입니다.</p>` +
     `<p>${htmlEscape(lead)}</p>` +
     `<table style="border-collapse:collapse;margin:12px 0;font-size:14px;">` +
     `<tr><td style="padding:4px 12px 4px 0;color:#666;">실험자</td><td style="padding:4px 0;"><strong>${htmlEscape(researcherName)}</strong></td></tr>` +
@@ -165,6 +171,10 @@ export async function buildPaymentClaimEmail(args: {
   recipientEmail: string;
   researcherName: string;
   researcherReplyEmail: string | null;
+  // CC the researcher (their own work email — typically same as
+  // researcherReplyEmail). Surfaced as a separate arg so the caller can
+  // pass auth.users.email as a fallback when contact_email is unset.
+  ccEmail: string | null;
   // When false → only build subject/body/meta, skip the (expensive)
   // attachment generation. The frontend uses this for the preview modal.
   includeAttachments: boolean;
@@ -176,6 +186,7 @@ export async function buildPaymentClaimEmail(args: {
     recipientEmail,
     researcherName,
     researcherReplyEmail,
+    ccEmail,
     includeAttachments,
   } = args;
 
@@ -303,6 +314,7 @@ export async function buildPaymentClaimEmail(args: {
 
   return {
     to: recipientEmail,
+    cc: ccEmail,
     replyTo: researcherReplyEmail,
     subject: SUBJECT,
     html,
