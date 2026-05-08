@@ -253,24 +253,30 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
     };
   });
 
-  const { data: history } = await admin
-    .from("payment_exports")
-    .select("id, exported_at, export_kind, participant_count, exported_by, file_name, profiles:exported_by(display_name)")
-    .eq("experiment_id", experimentId)
-    .order("exported_at", { ascending: false })
-    .limit(10);
-
-  // Surface the most recent payment_claim that hasn't yet been emailed
-  // to 행정. Drives the "📧 행정 메일 발송" button — if NULL the button
-  // is hidden, otherwise it opens a preview modal scoped to this claim.
-  const { data: claimRow } = await admin
-    .from("payment_claims")
-    .select("id, claimed_at, participant_count, total_krw, email_sent_at")
-    .eq("experiment_id", experimentId)
-    .is("email_sent_at", null)
-    .order("claimed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Parallel fetch — payment_exports history (audit trail) + most
+  // recent payment_claim with no dispatch email yet (drives the 📧
+  // button). Both are independent of each other, so a single Promise.all
+  // saves one round-trip on every page load.
+  const [historyResult, claimResult] = await Promise.all([
+    admin
+      .from("payment_exports")
+      .select(
+        "id, exported_at, export_kind, participant_count, exported_by, file_name, profiles:exported_by(display_name)",
+      )
+      .eq("experiment_id", experimentId)
+      .order("exported_at", { ascending: false })
+      .limit(10),
+    admin
+      .from("payment_claims")
+      .select("id, claimed_at, participant_count, total_krw, email_sent_at")
+      .eq("experiment_id", experimentId)
+      .is("email_sent_at", null)
+      .order("claimed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const { data: history } = historyResult;
+  const { data: claimRow } = claimResult;
   const recentUnsentClaim = claimRow
     ? {
         id: (claimRow as { id: string }).id,

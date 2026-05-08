@@ -12,7 +12,10 @@
 // sendMail (confirm mode).
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchClaimRowsByClaimId } from "@/lib/payments/claim-bundle";
+import {
+  fetchClaimRowsByClaimId,
+  safeFilename,
+} from "@/lib/payments/claim-bundle";
 import {
   buildIndividualFormWorkbook,
   buildUploadFormWorkbook,
@@ -45,13 +48,6 @@ export interface PaymentClaimEmailPayload {
 }
 
 const SUBJECT = "실험참여자비 지급을 요청드립니다";
-
-function safeFilename(raw: string): string {
-  return (raw.trim() || "참가자")
-    .replace(/[\\/:*?"<>|\r\n\t]/g, "_")
-    .replace(/^\.+/, "")
-    .slice(0, 80);
-}
 
 function fmtKoreanDate(iso: string | null): string {
   if (!iso) return "";
@@ -190,7 +186,7 @@ export async function buildPaymentClaimEmail(args: {
     includeAttachments,
   } = args;
 
-  const { rows, exportParticipants, bankbookEntries } =
+  const { rows, exportParticipants, bankbookEntries, hasBankbooks } =
     await fetchClaimRowsByClaimId(supabase, experimentId, claimId, {
       withBankbooks: includeAttachments,
       withSignatures: includeAttachments,
@@ -305,7 +301,11 @@ export async function buildPaymentClaimEmail(args: {
     for (const p of exportParticipants) {
       attachmentNames.push(`실험참여자비 양식_${safeFilename(p.name)}.xlsx`);
     }
-    if (bankbookEntries.length > 0) {
+    // hasBankbooks (from the row-level bankbook_path check) — preview
+    // mode skips the storage download, so bankbookEntries is always empty
+    // there. Use hasBankbooks to honestly preview what the send path will
+    // include.
+    if (hasBankbooks) {
       attachmentNames.push(
         datestamp ? `통장사본_${datestamp}.zip` : `통장사본.zip`,
       );
