@@ -331,23 +331,34 @@ export function PaymentPanel({
 
   async function openEmailModal(claimId: string) {
     setDownloading("email-preview");
+    console.log("[payment-panel] openEmailModal start", claimId);
     try {
       const res = await fetch(
         `/api/experiments/${experimentId}/payment-claim/${claimId}/email`,
         { method: "GET" },
+      );
+      console.log(
+        "[payment-panel] GET preview status",
+        res.status,
+        res.statusText,
       );
       const body = (await res.json().catch(() => null)) as
         | EmailPreview
         | { error: string }
         | null;
       if (!res.ok || !body || "error" in body) {
-        toast(
+        const msg =
           (body as { error?: string } | null)?.error ??
-            "메일 미리보기 생성 실패",
-          "error",
-        );
+          `메일 미리보기 생성 실패 (HTTP ${res.status})`;
+        console.error("[payment-panel] preview failed:", msg);
+        toast(msg, "error");
         return;
       }
+      console.log(
+        "[payment-panel] preview OK — to=" + (body as EmailPreview).preview.to,
+        "attachments=" +
+          (body as EmailPreview).preview.meta.attachmentNames.length,
+      );
       if (body.alreadySent) {
         if (
           !confirm(
@@ -374,12 +385,20 @@ export function PaymentPanel({
   async function confirmAndSendEmail() {
     if (!emailModal) return;
     const recipient = emailModal.recipient.trim();
+    console.log(
+      "[payment-panel] confirmAndSendEmail start — recipient=" + recipient,
+    );
     if (!recipient || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient)) {
+      console.warn(
+        "[payment-panel] recipient regex rejected:",
+        JSON.stringify(recipient),
+      );
       toast("올바른 이메일 주소를 입력해 주세요.", "error");
       return;
     }
     setEmailModal({ ...emailModal, sending: true });
     try {
+      const startedAt = Date.now();
       const res = await fetch(
         `/api/experiments/${experimentId}/payment-claim/${emailModal.claimId}/email`,
         {
@@ -388,18 +407,30 @@ export function PaymentPanel({
           body: JSON.stringify({ recipientEmail: recipient, confirm: true }),
         },
       );
+      console.log(
+        "[payment-panel] POST send status",
+        res.status,
+        "elapsed=" + (Date.now() - startedAt) + "ms",
+      );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        toast(body?.error ?? "이메일 발송 실패", "error");
+        const msg = body?.error ?? `이메일 발송 실패 (HTTP ${res.status})`;
+        console.error("[payment-panel] send failed:", msg, body);
+        toast(msg, "error");
         setEmailModal({ ...emailModal, sending: false });
         return;
       }
+      console.log("[payment-panel] send OK", body);
       toast(`행정 선생님께 이메일을 발송했습니다 (${recipient})`, "success");
       setEmailModal(null);
       setActiveClaimId(null);
       setTimeout(() => window.location.reload(), 800);
-    } catch {
-      toast("네트워크 오류가 발생했습니다.", "error");
+    } catch (err) {
+      console.error("[payment-panel] network error:", err);
+      toast(
+        `네트워크 오류: ${err instanceof Error ? err.message : "unknown"}`,
+        "error",
+      );
       setEmailModal({ ...emailModal, sending: false });
     }
   }
