@@ -97,25 +97,82 @@ function defaultRecipient(): string {
   return process.env.LAB_ADMIN_EMAIL ?? "";
 }
 
+// Stamp a failure on payment_claims so the UI can surface "마지막 시도
+// ... 실패" inside the modal without reaching for Vercel runtime logs.
+// Best-effort — if THIS update fails too we just log and move on.
+async function stampError(
+  admin: ReturnType<typeof createAdminClient>,
+  claimId: string,
+  message: string,
+): Promise<void> {
+  const truncated = message.slice(0, 500);
+  const { error } = await admin
+    .from("payment_claims")
+    .update({
+      email_last_error: truncated,
+      email_last_error_at: new Date().toISOString(),
+    })
+    .eq("id", claimId);
+  if (error) {
+    console.error(
+      `[PaymentClaimEmail] failed to stamp error on claim ${claimId}: ${error.message}`,
+    );
+  }
+}
+
+// Bump attempt counter at request start so we can tell "researcher
+// clicked 발송 but request never reached the route" (attempts == 0) from
+// "request reached the route and failed for X reason" (attempts > 0).
+async function stampAttempt(
+  admin: ReturnType<typeof createAdminClient>,
+  claimId: string,
+): Promise<void> {
+  const { data } = await admin
+    .from("payment_claims")
+    .select("email_attempt_count")
+    .eq("id", claimId)
+    .maybeSingle();
+  const next =
+    ((data as { email_attempt_count: number } | null)?.email_attempt_count ??
+      0) + 1;
+  const { error } = await admin
+    .from("payment_claims")
+    .update({ email_attempt_count: next })
+    .eq("id", claimId);
+  if (error) {
+    console.error(
+      `[PaymentClaimEmail] failed to bump attempts on claim ${claimId}: ${error.message}`,
+    );
+  }
+}
+
 export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ experimentId: string; claimId: string }> },
 ) {
   const { experimentId, claimId } = await ctx.params;
+  console.log(
+    `[PaymentClaimEmail][GET] preview experiment=${experimentId} claim=${claimId}`,
+  );
   if (!isValidUUID(claimId)) {
+    console.warn(`[PaymentClaimEmail][GET] invalid claim id "${claimId}"`);
     return NextResponse.json({ error: "Invalid claim ID" }, { status: 400 });
   }
   const auth = await loadAuthContext(experimentId);
   if (!auth.ok) {
+    console.warn(
+      `[PaymentClaimEmail][GET] auth ${auth.status} — ${auth.error}`,
+    );
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  // Already-sent? Return the recorded snapshot so the UI can show
-  // "발송됨 yyyy-mm-dd → recipient" instead of letting the researcher
-  // double-send by accident.
+  // Already-sent + last-error snapshot so the UI can show context
+  // when the modal opens (success badge OR "마지막 시도 실패: …").
   const { data: claimMeta } = await auth.admin
     .from("payment_claims")
-    .select("email_sent_at, email_sent_to, email_message_id")
+    .select(
+      "email_sent_at, email_sent_to, email_message_id, email_last_error, email_last_error_at, email_attempt_count",
+    )
     .eq("id", claimId)
     .maybeSingle();
 
@@ -132,14 +189,26 @@ export async function GET(
       includeAttachments: false,
     });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof Error ? err.message : "Failed to build email preview",
-      },
-      { status: 500 },
-    );
+    const msg =
+      err instanceof Error ? err.message : "Failed to build email preview";
+    console.error(`[PaymentClaimEmail][GET] preview build throw: ${msg}`, err);
+    // Don't stamp this on the claim row — preview is read-only and a
+    // bad preview attempt isn't a "send attempt".
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
+
+  console.log(
+    `[PaymentClaimEmail][GET] preview OK — ${payload.meta.attachmentNames.length} attachments, to=${payload.to}, cc=${payload.cc ?? "-"}`,
+  );
+
+  const claimSnapshot = claimMeta as {
+    email_sent_at: string | null;
+    email_sent_to: string | null;
+    email_message_id: string | null;
+    email_last_error: string | null;
+    email_last_error_at: string | null;
+    email_attempt_count: number | null;
+  } | null;
 
   return NextResponse.json({
     preview: {
@@ -151,11 +220,18 @@ export async function GET(
       text: payload.text,
       meta: payload.meta,
     },
-    alreadySent: claimMeta?.email_sent_at
+    alreadySent: claimSnapshot?.email_sent_at
       ? {
-          sentAt: claimMeta.email_sent_at,
-          sentTo: claimMeta.email_sent_to,
-          messageId: claimMeta.email_message_id,
+          sentAt: claimSnapshot.email_sent_at,
+          sentTo: claimSnapshot.email_sent_to,
+          messageId: claimSnapshot.email_message_id,
+        }
+      : null,
+    lastError: claimSnapshot?.email_last_error
+      ? {
+          message: claimSnapshot.email_last_error,
+          at: claimSnapshot.email_last_error_at,
+          attempts: claimSnapshot.email_attempt_count ?? 0,
         }
       : null,
   });
@@ -166,32 +242,44 @@ export async function POST(
   ctx: { params: Promise<{ experimentId: string; claimId: string }> },
 ) {
   const { experimentId, claimId } = await ctx.params;
+  console.log(
+    `[PaymentClaimEmail][POST] start experiment=${experimentId} claim=${claimId}`,
+  );
+
   if (!isValidUUID(claimId)) {
+    console.warn(`[PaymentClaimEmail][POST] invalid claim id "${claimId}"`);
     return NextResponse.json({ error: "Invalid claim ID" }, { status: 400 });
   }
   const auth = await loadAuthContext(experimentId);
   if (!auth.ok) {
+    console.warn(
+      `[PaymentClaimEmail][POST] auth ${auth.status} — ${auth.error}`,
+    );
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+
+  // Bump attempt count + clear stale error eagerly. Even if the request
+  // ultimately fails the bump records "they tried" — useful when the
+  // researcher reports "the button doesn't work" and we want to know
+  // whether the request hit the server at all.
+  await stampAttempt(auth.admin, claimId);
 
   let body: z.infer<typeof sendBodySchema>;
   try {
     body = sendBodySchema.parse(await req.json());
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof z.ZodError
-            ? `Invalid request: ${err.issues[0]?.message ?? "validation failed"}`
-            : "Invalid request body",
-      },
-      { status: 400 },
-    );
+    const msg =
+      err instanceof z.ZodError
+        ? `Invalid request: ${err.issues[0]?.message ?? "validation failed"}`
+        : "Invalid request body";
+    console.warn(`[PaymentClaimEmail][POST] body parse: ${msg}`);
+    await stampError(auth.admin, claimId, msg);
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 
-  // Build payload with attachments (this is the expensive call —
+  // Build payload with attachments. This is the expensive call —
   // re-fetches rows + downloads bankbooks + decrypts RRN + rebuilds
-  // workbooks).
+  // workbooks. Most likely failure source.
   let payload;
   try {
     payload = await buildPaymentClaimEmail({
@@ -204,45 +292,74 @@ export async function POST(
       ccEmail: auth.ccEmail,
       includeAttachments: true,
     });
-  } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof Error ? err.message : "Failed to build email payload",
-      },
-      { status: 500 },
+    console.log(
+      `[PaymentClaimEmail][POST] payload built — ${payload.attachments.length} attachments, total ${payload.attachments.reduce((a, x) => a + x.content.length, 0)} bytes`,
     );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to build payload";
+    console.error(`[PaymentClaimEmail][POST] buildPayload throw: ${msg}`, err);
+    await stampError(auth.admin, claimId, `payload build: ${msg}`);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
   // Send via Gmail SMTP. CC the researcher so they have a record of
   // every dispatch in their own inbox.
-  const result = await sendEmail({
-    to: payload.to,
-    cc: payload.cc ?? undefined,
-    subject: payload.subject,
-    html: payload.html,
-    text: payload.text,
-    replyTo: payload.replyTo ?? undefined,
-    attachments: payload.attachments,
-  });
-
-  if (!result.success) {
+  let result: Awaited<ReturnType<typeof sendEmail>>;
+  try {
+    result = await sendEmail({
+      to: payload.to,
+      cc: payload.cc ?? undefined,
+      subject: payload.subject,
+      html: payload.html,
+      text: payload.text,
+      replyTo: payload.replyTo ?? undefined,
+      attachments: payload.attachments,
+    });
+  } catch (err) {
+    // sendEmail catches its own errors and returns { success: false }
+    // but if nodemailer throws (e.g. transport init), it propagates.
+    const msg = err instanceof Error ? err.message : "SMTP error";
+    console.error(`[PaymentClaimEmail][POST] sendEmail throw: ${msg}`, err);
+    await stampError(auth.admin, claimId, `smtp throw: ${msg}`);
     return NextResponse.json(
-      { error: `이메일 전송 실패: ${result.error ?? "unknown"}` },
+      { error: `이메일 전송 실패: ${msg}` },
       { status: 502 },
     );
   }
 
-  // Stamp the audit columns.
-  await auth.admin
+  if (!result.success) {
+    const msg = result.error ?? "unknown";
+    console.error(`[PaymentClaimEmail][POST] sendEmail !ok: ${msg}`);
+    await stampError(auth.admin, claimId, `smtp: ${msg}`);
+    return NextResponse.json(
+      { error: `이메일 전송 실패: ${msg}` },
+      { status: 502 },
+    );
+  }
+
+  // Success — stamp the audit columns and clear any stale error.
+  const { error: updateErr } = await auth.admin
     .from("payment_claims")
     .update({
       email_sent_at: new Date().toISOString(),
       email_sent_to: payload.to,
       email_message_id: result.messageId ?? null,
+      email_last_error: null,
+      email_last_error_at: null,
     })
     .eq("id", claimId);
+  if (updateErr) {
+    // Email already went out — but the audit row update failed. Log
+    // loudly so we can reconcile, but don't 5xx the request (the
+    // researcher already got a success toast in the UI).
+    console.error(
+      `[PaymentClaimEmail][POST] post-send audit update failed: ${updateErr.message}`,
+    );
+  }
 
+  console.log(
+    `[PaymentClaimEmail][POST] OK messageId=${result.messageId} to=${payload.to}`,
+  );
   return NextResponse.json({
     success: true,
     messageId: result.messageId ?? null,

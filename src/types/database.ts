@@ -924,6 +924,10 @@ export interface Database {
           email_sent_at: string | null;
           email_sent_to: string | null;
           email_message_id: string | null;
+          // Migration 00059 — failure trace + retry counter.
+          email_last_error: string | null;
+          email_last_error_at: string | null;
+          email_attempt_count: number;
         };
         Insert: {
           id?: string;
@@ -938,6 +942,9 @@ export interface Database {
           email_sent_at?: string | null;
           email_sent_to?: string | null;
           email_message_id?: string | null;
+          email_last_error?: string | null;
+          email_last_error_at?: string | null;
+          email_attempt_count?: number;
         };
         // Claim rows are back-filled with final counts + file name after the
         // ZIP is built, plus email_sent_* once the 행정 dispatch fires.
@@ -950,6 +957,9 @@ export interface Database {
           email_sent_at?: string | null;
           email_sent_to?: string | null;
           email_message_id?: string | null;
+          email_last_error?: string | null;
+          email_last_error_at?: string | null;
+          email_attempt_count?: number;
         };
         Relationships: [];
       };

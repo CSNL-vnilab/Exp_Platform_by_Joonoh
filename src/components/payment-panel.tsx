@@ -86,6 +86,13 @@ interface EmailPreview {
     sentTo: string;
     messageId: string | null;
   } | null;
+  // Migration 00059 — surface the most-recent send failure (if any) so
+  // the researcher can see "지난번에 X 때문에 안 갔어요" in the modal.
+  lastError: {
+    message: string;
+    at: string;
+    attempts: number;
+  } | null;
 }
 
 const STATUS_LABEL: Record<PaymentStatus, string> = {
@@ -131,6 +138,7 @@ export function PaymentPanel({
     preview: EmailPreview["preview"];
     recipient: string;
     sending: boolean;
+    lastError: EmailPreview["lastError"];
   } | null>(null);
 
   // Backfill payment_info rows for booking_groups that ended up without
@@ -354,6 +362,7 @@ export function PaymentPanel({
         preview: body.preview,
         recipient: defaultAdminEmail || body.preview.to || "",
         sending: false,
+        lastError: body.lastError,
       });
     } catch {
       toast("네트워크 오류가 발생했습니다.", "error");
@@ -691,6 +700,17 @@ export function PaymentPanel({
             </div>
 
             <div className="mt-4 space-y-3 text-sm">
+              {emailModal.lastError && (
+                <div className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
+                  <strong>지난 시도 실패:</strong>
+                  <div className="mt-1">{emailModal.lastError.message}</div>
+                  <div className="mt-1 text-rose-700/70">
+                    {new Date(emailModal.lastError.at).toLocaleString("ko-KR")}
+                    {" · 총 시도 "}
+                    {emailModal.lastError.attempts}회
+                  </div>
+                </div>
+              )}
               <label className="block">
                 <span className="text-xs font-medium text-muted">
                   받는 사람 (행정 선생님 이메일)
