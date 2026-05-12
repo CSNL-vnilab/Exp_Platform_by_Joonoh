@@ -6,10 +6,6 @@ occur in practice. Each operation describes (a) the user action, (b) the
 artifact the platform produces, and (c) the row(s) added or modified in the
 relational schema.
 
-The running example is the *TimeExp1* paradigm (a time-reproduction task,
-≈ 90 min single in-person session) run by an anonymized demo researcher
-JOP; example values are illustrative.
-
 ## 1. Experiment publication
 
 The researcher opens the dashboard and selects *"New Experiment."* A form
@@ -37,11 +33,6 @@ product of the recruitment window and the per-day available time bands).
 The experiment is created in *draft* state. To make it visible at the public
 recruitment URL the researcher must explicitly enable the *"open for
 recruitment"* toggle.
-
-*TimeExp1 example.* The researcher publishes a single-session study with
-duration 90 min, capacity 1 participant per slot, a per-session fee equal
-to the host institution's standard participant-fee rate, and a recruitment
-window of three weeks.
 
 ## 2. Code-repository registration
 
@@ -133,10 +124,6 @@ message. On confirmation the platform writes a row to `bookings`, issues
 an immediate confirmation email and short message to the participant,
 creates an event on the laboratory's shared calendar, and triggers the
 knowledge-base sync described in §3.
-
-In the TimeExp1 deployment the recruitment URL is shared with the
-institution's psychology-student channel; each claimed slot adds one row
-to `bookings` and is foreign-keyed to the single `experiments` row.
 
 ## 6. Location dispatch
 
@@ -263,12 +250,10 @@ silent failures become visible artifacts on the claim row.
 | researcher | create / edit / publish own experiments; manage bookings, observations, and fee claims for own experiments |
 | administrator | view and edit all experiments; approve researcher signups; register locations and shared precaution templates |
 
-## Appendix C — Anonymity and demo
+## Appendix C — Deployment configuration
 
-The TimeExp1 walkthrough above is a redacted demonstration of an actual
-deployment. Specific institutional identifiers (project number, grant
-identifier, principal-investigator name, administrative recipient address,
-laboratory account address) are intentionally omitted from the public paper
-and instead live in the platform's environment-variable configuration. A
-laboratory adopting the codebase replaces these values for their own
-institution; no source-level change is required.
+Institutional identifiers (project number, grant identifier,
+principal-investigator name, administrative recipient address,
+laboratory account address) are not part of the codebase; they live in
+the platform's deployment configuration. A laboratory adopting the
+codebase supplies its own values; no source-level change is required.

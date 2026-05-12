@@ -65,12 +65,14 @@ place, and incoming researchers either restart from scratch or accept
 silent reproduction gaps.
 
 Existing partial solutions address single surfaces. Experiment-code
-frameworks such as jsPsych (de Leeuw, 2015) standardize the runtime but
-not recruitment, payment, or handover. Lab-management products such as
-Sona Systems address recruitment and scheduling but do not store
-experiment code, raw data, or fee-claim records. The integrated
-end-to-end pipeline remains, in practice, every laboratory's local
-invention.
+frameworks — Psychtoolbox (Brainard, 1997; Kleiner et al., 2007),
+PsychoPy (Peirce, 2007), mgl (Gardner et al.), jsPsych (de Leeuw, 2015),
+and similar runtime libraries — standardize how a paradigm is executed
+on a participant's screen, but not recruitment, payment, or handover.
+Lab-management products such as Sona Systems address recruitment and
+scheduling but do not store experiment code, raw data, or fee-claim
+records. The integrated end-to-end pipeline remains, in practice, every
+laboratory's local invention.
 
 ## 3. Problem 2 — Cost, demographic skew, and data residency in the online workflow
 
@@ -147,23 +149,27 @@ The remainder of this paper is organized as follows. The next section
 (*Graphical Abstract*) presents a single diagram summarizing the
 eleven-operation pipeline. The *Instructions* section documents each
 operation from the perspective of a researcher adopting the platform
-for a new study, with a worked walkthrough of the TimeExp1
-time-reproduction paradigm under an anonymized demo researcher referred
-to as JOP. An appendix lists the scheduled reconciliation jobs and
-their failure-recovery semantics.
+for a new study. An appendix lists the scheduled reconciliation jobs
+and their failure-recovery semantics.
 
 ## References (placeholder — to be completed before submission)
 
+- Brainard, D. H. (1997). The Psychophysics Toolbox. *Spatial Vision.*
 - Chmielewski, M., & Kucker, S. C. (2020). An MTurk crisis? Shifts in
   data quality and the impact on study results. *Social Psychological
   and Personality Science.*
+- Gardner, J. L., et al. *mgl — Visual psychophysics package.* (software.)
 - Gorgolewski, K. J., et al. (2016). The brain imaging data structure
   (BIDS), a format for organizing and describing outputs of
   neuroimaging experiments. *Scientific Data.*
 - Hartshorne, J. K., et al. *Psych-DS — A data standard for psychological
   research.* (community specification.)
+- Kleiner, M., Brainard, D., & Pelli, D. (2007). What's new in
+  Psychtoolbox-3? *Perception, 36 ECVP Abstract Supplement.*
 - de Leeuw, J. R. (2015). jsPsych: A JavaScript library for creating
   behavioral experiments in a web browser. *Behavior Research Methods.*
+- Peirce, J. W. (2007). PsychoPy — Psychophysics software in Python.
+  *Journal of Neuroscience Methods.*
 - Sona Systems. *Sona Systems Cloud-based experiment management.*
   (commercial product, cited as representative recruitment-and-scheduling
   silo.)
