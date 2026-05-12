@@ -7,15 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "build:cloudflare": "npx @opennextjs/cloudflare build",
-    "deploy": "npx wrangler deploy",
     "bootstrap-admin": "node scripts/bootstrap-admin.mjs",
     "install-service-account": "node scripts/install-service-account.mjs",
     "push-secrets": "node scripts/push-secrets.mjs",
     "push-vercel-env": "node scripts/push-vercel-env.mjs",
     "e2e-booking": "node scripts/e2e-booking-test.mjs",
     "e2e-time-est": "node scripts/e2e-time-est.mjs",
-    "reviewer-team": "node scripts/reviewer-team.mjs",
+    "reviewer-team": "node scripts/opus-reviewer-team.mjs",
     "review": "node scripts/review.mjs",
     "review:deep": "node scripts/review.mjs --deep",
     "review:fast": "node scripts/review.mjs --fast",
@@ -43,7 +41,6 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.19.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.0",
@@ -54,7 +51,6 @@
     "playwright": "^1.59.1",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5",
-    "wrangler": "^4.82.2"
+    "typescript": "^5"
   }
 }
