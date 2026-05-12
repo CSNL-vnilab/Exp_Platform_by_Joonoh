@@ -31,11 +31,11 @@ confirmation.
 
 The platform is in production use at one laboratory and has handled
 approximately 200 confirmed bookings. We claim only the existence
-proof: lab-scoped systematic record-keeping is offered as a
+proof: lab-scoped systematic record-keeping is offered as one
 precondition for AI-powered research tooling and as infrastructure
 for the inter-researcher coordination problems — handover, co-work,
-post-hoc audit — that the field treats as background risk. We do not
-claim a community-wide behavioral data standard.
+post-hoc audit — that often remain implicit risks in the field. We do
+not claim a community-wide behavioral data standard.
 
 **Keywords:** behavioral-experiment infrastructure; lab-scoped data
 management; research-ethics audit; reproducibility; methodology.

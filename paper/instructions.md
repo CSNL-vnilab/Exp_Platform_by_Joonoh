@@ -49,14 +49,13 @@ random-seed and counterbalance-handling convention, the parameter files
 and their checksums, and the raw-data storage path that the runtime
 will write into. The draft is presented to the researcher in a
 pre-flight panel: the researcher accepts each label as-is, corrects it
-inline, or flags it for clarification. The experiment cannot transition
-out of *draft* state until the researcher has signed off; no accuracy
-claim is made for the automated analyzer, and the platform's contract
-is that the draft is *reviewed*, not *trusted*. The accepted labels are
-persisted as queryable columns on the experiment row and on each
-session's booking row, alongside the commit hash of the runtime that
-ran the session, and the same summary is mirrored to the
-knowledge-base page.
+inline, or flags it for clarification. The experiment cannot transition out of *draft* state until the
+researcher has signed off; no accuracy claim is made for the
+automated analyzer, and the persisted record reflects reviewed labels
+rather than raw analyzer output. The accepted labels are persisted as
+queryable columns on the experiment row and on each session's booking
+row, alongside the commit hash of the runtime that ran the session,
+and the same summary is mirrored to the knowledge-base page.
 
 **Runtime integration (in-browser execution).** For experiments executed
 in the participant's browser, the registered URL is loaded inside a
@@ -73,12 +72,12 @@ applies before the experiment can open for recruitment.
 Every change to the experiment metadata (creation, edit, status transition,
 booking confirmation, booking cancellation, observation entry) is mirrored
 to the laboratory's external knowledge-base service. The mirror is one-way
-(the platform owns the canonical record; the external knowledge base is a
-derived projection). The mirrored fields cover:
+(the platform's database is authoritative; the external knowledge base is
+a mirror). The mirrored fields cover:
 
 - experiment title, project, schedule, capacity, and progress status,
-- per-booking session number and gamma-hashed participant identifier
-  (participant names are never written to the knowledge base),
+- per-booking session number and an irreversibly hashed participant
+  identifier (participant names are never written to the knowledge base),
 - registered code path and registered raw-data path,
 - per-booking observation notes entered post-session by the researcher.
 

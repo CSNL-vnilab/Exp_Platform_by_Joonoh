@@ -84,10 +84,10 @@ table whose ordering diverges across sessions because the lookup logic
 depends on the system locale or on a file-modification timestamp. None
 of these are detectable by reading the published manuscript, and few of
 them are detectable by the principal investigator without sitting down
-at the runtime and re-tracing the session in question. Such errors are
-typical caveats of graduate-student-mediated wet-lab work; they are
-exacerbated by turnover and by the absence of code review at the
-laboratory scale. The structural gap that allows them to persist
+at the runtime and re-tracing the session in question. Such errors
+recur in graduate-student-mediated wet-lab work and are exacerbated by
+turnover and by the limited code-review practices typical at the
+laboratory scale relative to industry software. The structural gap that allows them to persist
 undetected is the same gap that allows the spreadsheet/calendar/folder
 fragmentation to persist: no integrated record binds the registered
 code version, the parameter-file checksum, the random-seed and
@@ -115,10 +115,10 @@ unprincipled criteria; the parameter sweep that is run repeatedly,
 with only the configuration producing the desired significant result
 retained in the manuscript; the analysis branch that is tried,
 abandoned, and silently absent from the published methods.
-Pre-registration and registered reports (Nosek et al., 2018) address
-parts of this problem at the publication-protocol layer but cannot
-observe what the researcher actually does between the filing of the
-protocol and the submission of the manuscript.
+Pre-registration (Nosek et al., 2018) addresses part of this problem at
+the publication-protocol layer but cannot observe what the researcher
+actually does between the filing of the protocol and the submission of
+the manuscript.
 
 A systematic record of the operational pipeline does not by itself
 prevent these practices, because the researcher retains the discretion
@@ -128,8 +128,8 @@ schema state, what exclusions were made when and by whom, what
 parameter values were active per session, which code version produced
 each raw-data row, and which analysis branches were attempted, without
 depending on the experimenter's recollection or on the manuscript's
-narrative. The substrate is necessary but not sufficient for the audit;
-it is what makes the audit possible.
+narrative. The substrate does not perform the audit; it makes the audit
+tractable rather than archaeological.
 
 ## 4. Problem 3 — Cost, demographic skew, and data residency in the online workflow
 
@@ -207,33 +207,35 @@ error rate, handover loss, audit time) are not measured here.
 
 ## 6. A note on AI-powered research, day science, and night science
 
-Yanai and Lercher (2019) distinguished two complementary registers in
+Yanai and Lercher (2019) distinguish two complementary registers in
 which scientific knowledge is produced: *day science*, the formal,
 hypothesis-driven, methodologically explicit register that produces
 published findings; and *night science*, the intuitive, exploratory,
-free-associative register in which experimental designs are first
-sketched, parameter spaces first probed, dead ends first attempted, and
-craft is first transmitted between researchers. Day science is what
-manuscripts record; night science is what most of a laboratory's
-working knowledge consists of, and what is most consistently lost when
-a researcher leaves.
+free-associative register in which hypotheses are first generated,
+experimental designs first sketched, and parameter spaces first
+probed. We extend this distinction with a more modest observation of
+our own: day science is what manuscripts record, whereas much of
+what a laboratory actually knows — the parameter sweep that was tried
+and abandoned, the intuitive judgment that a stimulus duration
+"should be" 500 ms, the unwritten reason a particular exclusion was
+applied — is not retained in any formal artifact and is consequently
+lost when a researcher leaves.
 
 We do not claim that the platform described here preserves night
 science in any direct sense. We observe, more carefully, that a
 substrate which records every code-registration event, every
 parameter-file checksum, every exclusion-criterion application, every
 re-run of an analysis branch, and every text-based explanation that
-the researcher attaches to a study at registration time — alongside
-the formal artifacts of day science — accumulates an operational
-record of unusually high density compared to what manuscripts and
-supplementary materials retain. Whether this density is useful to
+the researcher attaches to a study at registration time accumulates an
+operational record more granular than what manuscripts and
+supplementary materials retain. Whether this granularity is useful to
 future AI-powered research tooling is a question the present paper
-does not adjudicate. We note only that such a substrate is a
-*precondition*: a laboratory-scoped corpus of integrated day-science
-and night-science artifacts cannot be reconstructed retroactively
+does not adjudicate. We note only that such a substrate constitutes
+one of several plausible preconditions: a laboratory-scoped corpus of
+integrated operational artifacts cannot be reconstructed retroactively
 from publications alone, and a laboratory that adopts a systematic
-record-keeping substrate before AI-powered research tooling matures
-is positioned differently from one that does not. This is offered as
+record-keeping substrate before AI-powered research tooling matures is
+positioned differently from one that does not. This is offered as
 observation rather than claim.
 
 ## 7. Paper structure
