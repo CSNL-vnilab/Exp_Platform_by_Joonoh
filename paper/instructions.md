@@ -6,11 +6,9 @@ occur in practice. Each operation describes (a) the user action, (b) the
 artifact the platform produces, and (c) the row(s) added or modified in the
 relational schema.
 
-For concreteness we ground the description in a running example: the
-*TimeExp1* paradigm, a time-reproduction task in which participants observe a
-stimulus interval and reproduce it via key-press. The example researcher is
-referred to as JOP. The example values used below are illustrative and reflect
-a single in-person session structure (≈ 90 min, single visit, in-laboratory).
+The running example is the *TimeExp1* paradigm (a time-reproduction task,
+≈ 90 min single in-person session) run by an anonymized demo researcher
+JOP; example values are illustrative.
 
 ## 1. Experiment publication
 
@@ -52,43 +50,29 @@ mechanisms are supported.
 
 **Static path registration.** A path to a code directory (typically a
 mounted laboratory file server or a public git repository) is stored on
-the experiment. An AI-assisted static analysis pass runs over the
-registered path and proposes a structured summary of the inferred task
-layout, the manipulation variables and their levels, the dependent
-variables and their data types, the stimulus classes, and the raw-data
-storage path that the runtime will write into. The proposal is
-surfaced to the researcher in a pre-flight confirmation panel: the
-researcher accepts each inferred label as-is, corrects it inline, or
-flags it for clarification before the experiment can transition out of
-*draft* state. The accepted labels are persisted as queryable columns on
-the experiment row and on each session's booking row, and the same
-summary is mirrored to the knowledge-base page so that any analyst
-opening the page later can identify the version of code, the variable
-schema, and the storage convention associated with this row.
-
-The methodological intent of this confirmation panel is reproducibility
-*at intake* rather than reproducibility *post hoc*: an experimenter
-running a paradigm that another laboratory member has previously run
-sees, in the confirmation panel, the labels the prior experimenter
-accepted, and is forced to either align with them or declare a
-deliberate divergence. Data-convention drift that pre-platform
-workflows discovered weeks later during analysis is here surfaced
-before the first participant arrives.
+the experiment. An automated analysis pass over the registered path (an
+LLM-based summary in our deployment) drafts a candidate description of
+the task layout, the manipulation variables and their levels, the
+dependent variables and their data types, the stimulus classes, and the
+raw-data storage path that the runtime will write into. The draft is
+presented to the researcher in a pre-flight panel: the researcher
+accepts each label as-is, corrects it inline, or flags it for
+clarification. The experiment cannot transition out of *draft* state
+until the researcher has signed off; no accuracy claim is made for the
+automated analyzer, and the platform's contract is that the draft is
+*reviewed*, not *trusted*. The accepted labels are persisted as
+queryable columns on the experiment row and on each session's booking
+row, and the same summary is mirrored to the knowledge-base page.
 
 **Runtime integration (in-browser execution).** For experiments executed
 in the participant's browser, the registered URL is loaded inside a
 sandboxed iframe at run time. The researcher's code interfaces with the
 platform through a single function (`window.expPlatform.submitBlock(...)`)
 that hands trial-level data to the platform for durable storage; the
-platform handles counterbalancing, attention-check insertion, refresh-rate
-synchronization, electronic signature collection, and per-block result
-upload to object storage. The same AI-assisted pre-flight verification
-runs over the registered URL's task script before the experiment can open
-for recruitment.
-
-In either mechanism, the connection between the experiment row and the
-code artifact is now machine-readable, and the manipulation-variable
-and storage-path declarations have been signed off by a human.
+platform handles counterbalancing, attention-check insertion,
+refresh-rate synchronization, electronic signature collection, and
+per-block result upload to object storage. The same pre-flight panel
+applies before the experiment can open for recruitment.
 
 ## 3. Knowledge-base synchronization
 
@@ -150,10 +134,9 @@ an immediate confirmation email and short message to the participant,
 creates an event on the laboratory's shared calendar, and triggers the
 knowledge-base sync described in §3.
 
-*TimeExp1 example.* The researcher (JOP) shares the recruitment URL with the
-institution's psychology-student channel. Three participants confirm
-sessions across the three-week window; the schema now contains three
-`bookings` rows linked to the one experiment row.
+In the TimeExp1 deployment the recruitment URL is shared with the
+institution's psychology-student channel; each claimed slot adds one row
+to `bookings` and is foreign-keyed to the single `experiments` row.
 
 ## 6. Location dispatch
 
@@ -178,10 +161,8 @@ instructions to participants (caffeine restrictions, glasses recommendations,
 arrival logistics, etc.). The platform embeds this text into the same
 participant-facing emails described in §6.
 
-The field is unstructured by design. Researcher-specific phrasing and
-language-tailored instructions are common, and experience indicates that a
-free field with a stable rendering position is more useful than a structured
-"list of common precautions."
+The field is unstructured by design; researcher-specific phrasing and
+language-tailored instructions are common.
 
 ## 8. Reminder delivery
 
@@ -230,120 +211,40 @@ visible without opening the email.
 
 ## 11. Participant-fee claim — end-to-end
 
-The participant-fee disbursement workflow is the operation where the
-platform's consolidation has the largest practical effect, because the
-institutional administrative process for participant fees is paperwork-
-heavy in many funding regimes. The exact form fields and document
-attachments are locale-specific to the funding body that disburses
-participant fees in the host jurisdiction; this section describes the
-seven-step round-trip the platform implements at the abstraction level
-that ports between regimes, and the locale-specific form fields and
-templates live in the deployment configuration rather than in source code.
+Section 11 implements the participant-fee disbursement workflow. The
+exact form fields and document attachments are locale-specific to the
+funding body that disburses participant fees in the host jurisdiction;
+the locale-specific form fields and templates live in the deployment
+configuration rather than in source code, and the description below is
+at the abstraction level that ports between regimes.
 
-### 11.1 Initiation — automated dispatch to the participant
+The round-trip is as follows. Once a session has elapsed (plus a default
+seven-day grace window), a scheduled job emails the participant a
+single-use signed link to a fee-information form; the participant fills
+in the fields the administrative office requires (legal name, contact,
+bank account, the regulatory identifier the funding body needs for
+tax-withholding accounting, an in-browser signature, and an upload of
+the bank-account scan), and the platform writes a `participant_payment_info`
+row with the sensitive fields encrypted at rest. The researcher then
+opens the experiment's *Bookings* tab, sees a card listing every
+participant ready for claim, reviews a confirmation dialog naming each
+participant and the total amount, and clicks *Claim*. This triggers a
+one-shot bundle build that fills a deployment-supplied template
+(maintained as a configuration artifact, not in source code), assembles
+the per-participant forms with the batch-upload template and bank-account
+scans into a zip, and atomically transitions the affected rows from
+*submitted-to-admin* to *claimed* — the transition is the gate that
+prevents the same participant from being double-claimed by a second
+click. A second button opens a preview modal showing the recipient
+address (a configurable environment variable for the administrative
+office, editable in-modal), a carbon-copy to the researcher, the
+subject and body text, and the attachment list; nothing is sent until
+the researcher confirms.
 
-A scheduled reconciliation job examining slot end-times notices when a
-booking has been completed (the slot has elapsed plus a grace window,
-default seven days) and dispatches an email to the participant containing
-a single-use signed link to a fee-information form. The email is sent
-through the laboratory's institutional account so that it carries the
-laboratory's organizational identity.
-
-### 11.2 Collection — participant fills the form
-
-The participant opens the link in a browser. The form collects the
-identity, payment-account, and supporting-document fields that the
-administrative office requires for disbursement: legal name; mobile and
-email contact; bank name, account number, and account holder; the national
-identifier required by the funding body for tax-withholding accounting; an
-in-browser signature canvas; and an upload slot for the bank-account scan.
-Sensitive fields (the national identifier in particular) are encrypted at
-rest with an envelope cipher; the encryption key is held only in the
-platform's production environment variables and is never exposed to the
-user-interface bundle.
-
-The form is rate-limited per token and per source address. On submission
-the platform writes a `participant_payment_info` row, marks the booking
-as *submitted-to-admin* state, and stores the signature and bank-account
-scan in the object-storage service.
-
-### 11.3 Submission audit — researcher confirms readiness
-
-The researcher opens the experiment's *Bookings* tab. A card lists every
-participant whose fee submission is *submitted-to-admin* and presents a
-single button: *Claim N participants' fees*. The button is disabled until
-at least one row is in the submitted-to-admin state. Clicking the button
-opens a confirmation dialog naming each participant and the total amount.
-
-### 11.4 Bundle generation
-
-Confirmation triggers a one-shot bundle build. The platform retrieves the
-institutional fee-form template (a deployment-supplied spreadsheet
-maintained as a configuration artifact, not in source code, so that a
-laboratory using a different funding regime supplies its own template
-without code change), decrypts the national-identifier fields, downloads
-the signatures and bank-account scans, and writes a per-participant filled
-template plus a combined batch-upload template that the administrative
-office consumes as bulk input. The resulting zip archive — containing the
-filled per-participant forms, the batch-upload template, and the
-bank-account scans — is offered to the researcher as a download.
-
-The fee-status of the corresponding `participant_payment_info` rows is
-atomically transitioned from *submitted-to-admin* to *claimed* as part of
-the same operation; the transition is the gate that prevents the same
-participant from being double-claimed by a second click.
-
-### 11.5 Dispatch preview
-
-A second button appears beside the claim button: *Send to the administrative
-office.* Clicking it opens a preview modal showing:
-
-- the recipient address (sourced from a configurable environment variable
-  for the administrative office's email; editable in-modal for one-off
-  destinations),
-- a carbon-copy recipient (the researcher's own email, so they receive a
-  copy on send),
-- the subject line and body text the platform will send,
-- the list of attachments the email will carry (the same filled forms and
-  bank-account scans produced at §11.4).
-
-The modal does not send anything. It is purely a preview surface.
-
-### 11.6 Confirmation gate
-
-The researcher reviews the preview. If they wish to proceed they click
-*Send.* The platform issues the email through the laboratory's
-institutional SMTP account with the researcher as carbon-copy recipient
-and the researcher's contact email as the reply-to address — administrative
-follow-up replies route directly to the researcher rather than to the
-laboratory inbox. On successful send the platform records the message
-identifier and the recipient address on the underlying claim row.
-
-The confirmation gate is the platform's contract with the researcher:
-no message leaves the system to an external administrative recipient
-without an explicit modal-level confirmation. The same gate is enforced
-on re-sends: opening the modal for a claim that has already been
-dispatched produces an additional confirmation step ("this claim has
-already been sent; re-send anyway?").
-
-### 11.7 Failure-mode telemetry
-
-Every attempt to send is stamped in the database with the attempt count,
-the most recent error message (if any), and the timestamp. If a send fails
-because the SMTP service refused the message or because the bundle build
-threw, the next time the modal opens it surfaces a colored banner with the
-exact error text and the time of the failed attempt. This converts the
-otherwise-invisible "I clicked send and nothing happened" failure into a
-visible, debuggable artifact.
-
-*TimeExp1 example.* The researcher (JOP) returns to the dashboard one week
-after the third session, sees three participants in *submitted-to-admin*
-state, clicks claim, reviews the preview modal, confirms send. The
-administrative office receives one email with five attachments (three
-per-participant forms, one batch-upload template, one bank-account scan
-archive). JOP receives a copy of the same email in their own inbox; any
-follow-up question from the administrative office reaches JOP, not the
-laboratory inbox.
+Every send attempt is stamped in the database with the attempt count,
+the most recent error message (if any), and the timestamp, and a failed
+send surfaces the error text in the modal on the next open, so that
+silent failures become visible artifacts on the claim row.
 
 ## Appendix A — Operational reconciliation schedule
 
