@@ -44,16 +44,19 @@ mounted laboratory file server or a public git repository) is stored on
 the experiment. An automated analysis pass over the registered path (an
 LLM-based summary in our deployment) drafts a candidate description of
 the task layout, the manipulation variables and their levels, the
-dependent variables and their data types, the stimulus classes, and the
-raw-data storage path that the runtime will write into. The draft is
-presented to the researcher in a pre-flight panel: the researcher
-accepts each label as-is, corrects it inline, or flags it for
-clarification. The experiment cannot transition out of *draft* state
-until the researcher has signed off; no accuracy claim is made for the
-automated analyzer, and the platform's contract is that the draft is
-*reviewed*, not *trusted*. The accepted labels are persisted as
-queryable columns on the experiment row and on each session's booking
-row, and the same summary is mirrored to the knowledge-base page.
+dependent variables and their data types, the stimulus classes, the
+random-seed and counterbalance-handling convention, the parameter files
+and their checksums, and the raw-data storage path that the runtime
+will write into. The draft is presented to the researcher in a
+pre-flight panel: the researcher accepts each label as-is, corrects it
+inline, or flags it for clarification. The experiment cannot transition
+out of *draft* state until the researcher has signed off; no accuracy
+claim is made for the automated analyzer, and the platform's contract
+is that the draft is *reviewed*, not *trusted*. The accepted labels are
+persisted as queryable columns on the experiment row and on each
+session's booking row, alongside the commit hash of the runtime that
+ran the session, and the same summary is mirrored to the
+knowledge-base page.
 
 **Runtime integration (in-browser execution).** For experiments executed
 in the participant's browser, the registered URL is loaded inside a

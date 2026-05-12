@@ -34,6 +34,30 @@
 전체 방법론 논문 초안 (Nature Methods / NeurIPS 타깃, 익명화된 버전) 은
 [`paper/`](./paper/) 디렉토리에 있습니다.
 
+### 실험–분석–출판을 단일 DB + GitHub commit 으로 연결
+
+도입 연구실이 얻는 가장 큰 운영적 이점은 한 연구의 *모든 단계* — 모집 →
+실험 → 분석 → 출판 — 가 동일한 `experiments.id` 아래로 묶여 단일 foreign
+key trail 로 추적된다는 것입니다.
+
+- 실험 코드 등록 시 자동 정적 분석(LLM 요약) → 연구자 확인을 거쳐, 조작
+  변수 / 종속 변수 / 랜덤 시드·counterbalance 처리 방식 / 파라미터 파일
+  체크섬 / 저장 경로가 DB row 로 박힙니다.
+- 실험 수행 시 해당 세션이 사용한 runtime 의 git commit hash 가 booking
+  row 에 결합됩니다.
+- 분석 노트북·스크립트도 같은 `experiments.id` 아래 등록할 수 있으며,
+  분석에 사용된 commit 도 함께 박힙니다.
+- 모든 코드 변경이 GitHub 으로 push 되어, DB 의 row 와 실제 코드 버전이
+  결합된 상태로 보존됩니다.
+- 결과 발표 후 manuscript / preprint URL 도 같은 row 의 속성으로 추가
+  가능합니다.
+
+결과적으로 한 연구의 publish 이후, 외부에서 manuscript 만 보고 알 수 없는
+실무적 결정들 — 어떤 시점에 어떤 commit 이 실제로 돌았는지, 어떤 참여자가
+어떤 사유로 언제 제외되었는지, 어떤 파라미터 sweep 이 시도되었다가 보고
+되지 않았는지 — 이 schema 안에 영구적인 audit trail 로 남습니다. 인수
+인계, 공동 연구, 사후 감사, 메타 분석에 모두 유리한 상태로 유지됩니다.
+
 ---
 
 ## 한눈에 보기

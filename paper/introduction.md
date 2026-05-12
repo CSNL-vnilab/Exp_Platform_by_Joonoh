@@ -1,6 +1,6 @@
 # Introduction
 
-## 1. Behavioral experiments depend on infrastructure that is rarely treated as a research artifact
+## 1. Behavioral experiments resist the standardization that worked for neuroimaging
 
 A behavioral experiment in psychology or cognitive neuroscience produces
 many more files than the timestamped raw trial data it eventually
@@ -14,136 +14,229 @@ shared spreadsheet, a calendar account, a server folder, a paper binder
 handover problems consequently arise not from any single missing file
 but from the *joins* between files that nobody documented.
 
-This problem is sharper in behavioral methodology than in adjacent
-fields. The neuroimaging community has converged on the Brain Imaging
-Data Structure (Gorgolewski et al., 2016) as a portable on-disk format
-that downstream analysis tools bind against. Behavioral methodology has
-no on-disk standard of comparable adoption; Psych-DS (Hartshorne et al.)
-is a community specification under active development. In its absence,
-each laboratory, and often each researcher within a laboratory, evolves
-its own folder layout, file-naming convention, column ordering, and
-metadata encoding. An analyst opening another laboratory's data deposit
-must first infer the local convention from examples before any analysis
-can proceed; a researcher porting a paradigm to a different laboratory
-ports not only the runtime code but the undocumented filesystem
-conventions on which it depends.
+It is tempting to ask why the behavioral sciences have no equivalent of
+the Brain Imaging Data Structure (Gorgolewski et al., 2016), which gave
+the neuroimaging community a portable on-disk format. The answer is
+structural rather than sociological. Neuroimaging acquires data through
+a comparatively small number of well-characterized scanner modalities
+(MRI, MEG, EEG) whose parameters can be enumerated; the voxel-grid floor
+of neuroimaging data is uniform across paradigms even when the
+cognitive content above it differs. Behavioral experiments do not have
+this property. A psychophysical staircase, a developmental looking-time
+study, a clinical-population working-memory battery, an
+ecological-momentary-assessment protocol, and a survey-with-eye-tracking
+study each have apparatus, stimulus, response, exclusion-criteria, and
+parameter spaces that share almost nothing in common. The combinatorial
+space of valid behavioral paradigms exceeds the combinatorial space of
+valid scanner protocols by orders of magnitude, and a single on-disk
+schema standardizing the behavioral output of all paradigms is, in our
+judgment, not an achievable target. Psych-DS (Hartshorne et al.) is the
+most ambitious current attempt and is explicitly scoped to the metadata
+layer rather than to paradigm-internal structure.
 
-This paper describes a working alternative: a single, self-hostable web
-application that consolidates the lifecycle of a behavioral experiment
-under one relational schema, deployed and owned by the host laboratory.
-Before describing the system itself, we document the two problem
-classes that motivated it.
+In the absence of a community-wide format, each laboratory — and often
+each researcher within a laboratory — evolves its own folder layout,
+file-naming convention, column ordering, metadata encoding, parameter-
+file location, random-seed convention, and counterbalance representation.
+Most of this practice goes unwritten. This paper takes the position that
+the productive response to that absence is not another attempted
+standard at the community level, but a substrate at the *laboratory* or
+*project* level that records the artifacts a study produces — and the
+relationships between them — as queryable schema state. Below we
+identify three problem classes that motivate this position.
 
-## 2. Problem 1 — Fragmentation in the offline workflow
+## 2. Problem 1 — Fragmentation, human error, and the informal record in the offline workflow
 
 In an in-person laboratory, the recruitment-to-payment workflow is
 distributed across independent surfaces. Recruitment posters collect
-prospective participants whose responses arrive by email or web form and
-are hand-copied into a scheduling spreadsheet. A shared calendar is
+prospective participants whose responses arrive by email or web form
+and are hand-copied into a scheduling spreadsheet. A shared calendar is
 annotated by the experimenter with the participant's identifier. The
-experiment-code runtime sits in a git repository on a personal laptop or
-lab server, and the version actually run on a given session is
+experiment-code runtime sits in a git repository on a personal laptop
+or lab server, and the version actually run on a given session is
 identified only by the calendar event description, if at all. Output
 files are written to a lab-server directory named by the experimenter.
-The participant-fee paperwork is collected on a paper form, with
-resident-registration information and a signed bankbook, and physically
-transported to the administrative office.
+The participant-fee paperwork is collected on a paper form and
+physically transported to the administrative office.
 
 Each surface is individually defensible. The joins between them are not
 machine-readable: the same study acquires a row number in the
 spreadsheet, a calendar event id, a commit hash, a data-folder name, an
 administrative receipt number, and a published-paper session label, and
 reconciling them after the fact requires the original experimenter's
-memory. Two consequences follow. First, data conventions drift between
-experimenters: two researchers running the same paradigm store the raw
-output in slightly different folder structures, filename templates, or
-column orderings, which makes pooled analysis labor-intensive. Second,
-when a graduate student leaves the laboratory, the knowledge of how to
-actually re-run a study — recruitment channel, exclusion-criteria
-implementation, stimulus version, payment account — is not in any single
-place, and incoming researchers either restart from scratch or accept
-silent reproduction gaps.
+memory. Two consequences follow at the laboratory level. First, data
+conventions drift between experimenters: two researchers running the
+same paradigm store the raw output in slightly different folder
+structures, filename templates, or column orderings, which makes pooled
+analysis labor-intensive. Second, when a graduate student leaves the
+laboratory, the knowledge of how to actually re-run a study —
+recruitment channel, exclusion-criteria implementation, stimulus
+version, payment account — is not in any single place.
+
+A third consequence is rarely surfaced in methodology discussions but
+recurs in practising laboratories: implementation errors in the
+experiment code itself. A random-seed call that is not seeded with the
+participant identifier and silently reuses the previous session's
+sequence; a parameter file that is overwritten in place when an
+exploratory notebook runs to completion; a save call that fails
+silently when the target directory is unmounted; a counterbalancing
+table whose ordering diverges across sessions because the lookup logic
+depends on the system locale or on a file-modification timestamp. None
+of these are detectable by reading the published manuscript, and few of
+them are detectable by the principal investigator without sitting down
+at the runtime and re-tracing the session in question. Such errors are
+typical caveats of graduate-student-mediated wet-lab work; they are
+exacerbated by turnover and by the absence of code review at the
+laboratory scale. The structural gap that allows them to persist
+undetected is the same gap that allows the spreadsheet/calendar/folder
+fragmentation to persist: no integrated record binds the registered
+code version, the parameter-file checksum, the random-seed and
+counterbalance state, and the resulting raw-data row.
 
 Existing partial solutions address single surfaces. Experiment-code
 frameworks — Psychtoolbox (Brainard, 1997; Kleiner et al., 2007),
-PsychoPy (Peirce, 2007), mgl (Gardner et al.), jsPsych (de Leeuw, 2015),
-and similar runtime libraries — standardize how a paradigm is executed
-on a participant's screen, but not recruitment, payment, or handover.
-Lab-management products such as Sona Systems address recruitment and
-scheduling but do not store experiment code, raw data, or fee-claim
-records. The integrated end-to-end pipeline remains, in practice, every
-laboratory's local invention.
+PsychoPy (Peirce, 2007), mgl (Gardner et al.), jsPsych (de Leeuw,
+2015), and similar runtime libraries — standardize how a paradigm is
+executed on a participant's screen, but not recruitment, payment,
+handover, or the integrated record. Lab-management products such as
+Sona Systems address recruitment and scheduling but do not store
+experiment code, raw data, or implementation-level metadata. The
+end-to-end record remains, in practice, every laboratory's local
+invention.
 
-## 3. Problem 2 — Cost, demographic skew, and data residency in the online workflow
+## 3. Problem 2 — Questionable research practices and the role of systematic tracking
+
+A second problem class is harder to discuss but methodologically
+central. Even when a runtime is correctly implemented, behavioral
+findings remain vulnerable to questionable research practices that
+operate after data collection (Simmons et al., 2011; John et al.,
+2012): the selective exclusion of participants on post-hoc,
+unprincipled criteria; the parameter sweep that is run repeatedly,
+with only the configuration producing the desired significant result
+retained in the manuscript; the analysis branch that is tried,
+abandoned, and silently absent from the published methods.
+Pre-registration and registered reports (Nosek et al., 2018) address
+parts of this problem at the publication-protocol layer but cannot
+observe what the researcher actually does between the filing of the
+protocol and the submission of the manuscript.
+
+A systematic record of the operational pipeline does not by itself
+prevent these practices, because the researcher retains the discretion
+to act on the data. It does change the audit posture: a reviewer, a
+co-author, or a future replicator can reconstruct, from queryable
+schema state, what exclusions were made when and by whom, what
+parameter values were active per session, which code version produced
+each raw-data row, and which analysis branches were attempted, without
+depending on the experimenter's recollection or on the manuscript's
+narrative. The substrate is necessary but not sufficient for the audit;
+it is what makes the audit possible.
+
+## 4. Problem 3 — Cost, demographic skew, and data residency in the online workflow
 
 The contemporary alternative to in-lab recruitment is remote-participant
 marketplaces, most prominently Prolific and Amazon Mechanical Turk.
-These services solve recruitment, scheduling, and payment in one product
-but bill at a substantial premium over the institutional participant-fee
-rate that a university laboratory pays, and the participant pool has
-been reported to skew toward English-language regions, toward younger
-and more educated workers, and toward high-trial-count workers whose
-familiarity with cognitive-task structure complicates task-naïveté
-assumptions (Chmielewski & Kucker, 2020). Crowd-marketplace platforms
-also route participant identifiers and payment information through
-third-party infrastructure that the laboratory neither hosts nor audits,
-which can be incompatible with institutional data-residency requirements
-or cross-border-transfer restrictions on participant identifiers.
+These services solve recruitment, scheduling, and payment in one
+product but bill at a substantial premium over the institutional
+participant-fee rate that a university laboratory pays, and the
+participant pool has been reported to skew toward English-language
+regions, toward younger and more educated workers, and toward
+high-trial-count workers whose familiarity with cognitive-task
+structure complicates task-naïveté assumptions (Chmielewski & Kucker,
+2020). Crowd-marketplace platforms also route participant identifiers
+and payment information through third-party infrastructure that the
+laboratory neither hosts nor audits, which can be incompatible with
+institutional data-residency requirements or cross-border-transfer
+restrictions on participant identifiers.
 
-For research programs that depend on careful psychophysical control, on
-sampling from a local population, or on participant-identifier handling
-that complies with institutional data-residency requirements, the
-in-lab workflow remains the methodology of choice, and returns us to
-Problem 1.
+For research programs that depend on careful psychophysical control,
+on sampling from a local population, or on participant-identifier
+handling that complies with institutional data-residency requirements,
+the in-lab workflow remains the methodology of choice, and returns us
+to Problems 1 and 2.
 
-## 4. Our approach — one schema, one pipeline, one fork per laboratory
+## 5. Our approach — a lab-scoped substrate, not a community standard
 
-The platform takes the position that the right unit of consolidation is
-the laboratory itself, which has stable institutional credentials (the
-shared email account, the shared calendar, the data folders), a
-participant-fee disbursement convention, and a set of physical
-locations. By emitting every artifact through one pipeline that the
-laboratory itself hosts, artifact relationships are stored as foreign
-keys rather than spreadsheet conventions.
+We make explicit what §1 already implies: the goal of this work is
+not to standardize behavioral experiments. The combinatorial
+heterogeneity of paradigms makes a universal on-disk format an
+unproductive target. The goal is more modest: to give a laboratory —
+or a research project within a laboratory — a single substrate on
+which its own conventions, errors, and operational state become
+explicit, typed, and queryable, and on which inter-researcher
+coordination (handover, co-work, post-hoc audit) becomes a query
+rather than a recollection.
 
 We make the following design commitments.
 
 1. Every experiment, every booking, every participant, every payment
-   record, and every external-service delivery attempt is a row in one
-   Postgres schema with foreign-key integrity to a single
-   `experiments.id`. The schema is under sixty tables at present and is
-   authoritative; copies in shared calendars and external knowledge-base
-   products are mirrors.
+   record, every code-registration event, and every external-service
+   delivery attempt is a row in one Postgres schema with foreign-key
+   integrity to a single `experiments.id`. The schema is authoritative
+   for the laboratory's own records; copies in shared calendars and
+   external knowledge-base products are mirrors. The schema is not
+   intended as a community-wide standard, and no claim of cross-lab
+   interoperability is made; the unit of consolidation is the
+   laboratory.
 
 2. The codebase is forkable and each laboratory hosts its own
-   deployment. Locale-specific paperwork (fee-form layouts, regulatory
-   identifiers, reimbursement regimes), institutional conventions
-   (calendar identifiers, knowledge-base targets, mailing-list
-   addresses), and language-specific researcher- and participant-facing
+   deployment. Locale-specific paperwork, institutional conventions,
+   and language-specific researcher- and participant-facing
    communications live in deployment configuration rather than in
-   source code. New operations attach as added tables and routes rather
-   than patches to the core.
+   source code. New tables and routes attach to the schema as
+   laboratory-specific extensions.
 
 3. Automation is bounded by human confirmation at both ends of the
    pipeline. At registration, an automated analysis pass over the
    registered experiment code (an LLM-based summary in our deployment,
    though the architecture is agnostic to the analyzer) drafts a
    candidate description of the task layout, manipulation variables,
-   dependent variables, and raw-data storage path; the researcher
-   reviews this draft and confirms or corrects it before the experiment
-   can open for recruitment. No accuracy claim is made for the
-   automated analyzer; its role is to draft, not to decide. At dispatch,
-   every action that emits a record outside the laboratory boundary — a
-   message to a participant, a packet to an administrative office, a
-   row to the external knowledge base — is preceded by an explicit
-   modal-level confirmation from the researcher.
+   dependent variables, random-seed handling, parameter files,
+   counterbalancing structure, and raw-data storage path; the
+   researcher reviews this draft and confirms or corrects it before
+   the experiment can open for recruitment. No accuracy claim is made
+   for the automated analyzer; its role is to draft, not to decide,
+   and the resulting human-confirmed labels are persisted as queryable
+   columns. At dispatch, every action that emits a record outside the
+   laboratory boundary is preceded by an explicit modal-level
+   confirmation from the researcher.
 
 We report the schema-level consolidation as an existence proof; no
-controlled before-and-after comparison against the pre-platform workflow
-has been conducted, and operational gains (researcher time, error rate,
-handover loss) are not measured here.
+controlled before-and-after comparison against the pre-platform
+workflow has been conducted, and operational gains (researcher time,
+error rate, handover loss, audit time) are not measured here.
 
-## 5. Paper structure
+## 6. A note on AI-powered research, day science, and night science
+
+Yanai and Lercher (2019) distinguished two complementary registers in
+which scientific knowledge is produced: *day science*, the formal,
+hypothesis-driven, methodologically explicit register that produces
+published findings; and *night science*, the intuitive, exploratory,
+free-associative register in which experimental designs are first
+sketched, parameter spaces first probed, dead ends first attempted, and
+craft is first transmitted between researchers. Day science is what
+manuscripts record; night science is what most of a laboratory's
+working knowledge consists of, and what is most consistently lost when
+a researcher leaves.
+
+We do not claim that the platform described here preserves night
+science in any direct sense. We observe, more carefully, that a
+substrate which records every code-registration event, every
+parameter-file checksum, every exclusion-criterion application, every
+re-run of an analysis branch, and every text-based explanation that
+the researcher attaches to a study at registration time — alongside
+the formal artifacts of day science — accumulates an operational
+record of unusually high density compared to what manuscripts and
+supplementary materials retain. Whether this density is useful to
+future AI-powered research tooling is a question the present paper
+does not adjudicate. We note only that such a substrate is a
+*precondition*: a laboratory-scoped corpus of integrated day-science
+and night-science artifacts cannot be reconstructed retroactively
+from publications alone, and a laboratory that adopts a systematic
+record-keeping substrate before AI-powered research tooling matures
+is positioned differently from one that does not. This is offered as
+observation rather than claim.
+
+## 7. Paper structure
 
 The remainder of this paper is organized as follows. The next section
 (*Graphical Abstract*) presents a single diagram summarizing the
@@ -158,18 +251,29 @@ and their failure-recovery semantics.
 - Chmielewski, M., & Kucker, S. C. (2020). An MTurk crisis? Shifts in
   data quality and the impact on study results. *Social Psychological
   and Personality Science.*
-- Gardner, J. L., et al. *mgl — Visual psychophysics package.* (software.)
+- Gardner, J. L., et al. *mgl — Visual psychophysics package.*
+  (software.)
 - Gorgolewski, K. J., et al. (2016). The brain imaging data structure
   (BIDS), a format for organizing and describing outputs of
   neuroimaging experiments. *Scientific Data.*
-- Hartshorne, J. K., et al. *Psych-DS — A data standard for psychological
-  research.* (community specification.)
+- Hartshorne, J. K., et al. *Psych-DS — A data standard for
+  psychological research.* (community specification.)
+- John, L. K., Loewenstein, G., & Prelec, D. (2012). Measuring the
+  prevalence of questionable research practices with incentives for
+  truth telling. *Psychological Science.*
 - Kleiner, M., Brainard, D., & Pelli, D. (2007). What's new in
   Psychtoolbox-3? *Perception, 36 ECVP Abstract Supplement.*
 - de Leeuw, J. R. (2015). jsPsych: A JavaScript library for creating
   behavioral experiments in a web browser. *Behavior Research Methods.*
+- Nosek, B. A., Ebersole, C. R., DeHaven, A. C., & Mellor, D. T.
+  (2018). The preregistration revolution. *PNAS.*
 - Peirce, J. W. (2007). PsychoPy — Psychophysics software in Python.
   *Journal of Neuroscience Methods.*
+- Simmons, J. P., Nelson, L. D., & Simonsohn, U. (2011). False-positive
+  psychology: Undisclosed flexibility in data collection and analysis
+  allows presenting anything as significant. *Psychological Science.*
 - Sona Systems. *Sona Systems Cloud-based experiment management.*
-  (commercial product, cited as representative recruitment-and-scheduling
-  silo.)
+  (commercial product, cited as representative recruitment-and-
+  scheduling silo.)
+- Yanai, I., & Lercher, M. (2019). Night science. *Genome Biology,*
+  20, 179. <https://doi.org/10.1186/s13059-019-1800-6>
