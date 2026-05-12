@@ -84,10 +84,10 @@ table whose ordering diverges across sessions because the lookup logic
 depends on the system locale or on a file-modification timestamp. None
 of these are detectable by reading the published manuscript, and few of
 them are detectable by the principal investigator without sitting down
-at the runtime and re-tracing the session in question. Such errors
-recur in graduate-student-mediated wet-lab work and are exacerbated by
-turnover and by the limited code-review practices typical at the
-laboratory scale relative to industry software. The structural gap that allows them to persist
+at the runtime and re-tracing the session in question. In our experience, such errors recur in graduate-student-mediated
+wet-lab work and are exacerbated by turnover and by the limited
+code-review practices typical at the laboratory scale relative to
+industry software. The structural gap that allows them to persist
 undetected is the same gap that allows the spreadsheet/calendar/folder
 fragmentation to persist: no integrated record binds the registered
 code version, the parameter-file checksum, the random-seed and
@@ -95,10 +95,10 @@ counterbalance state, and the resulting raw-data row.
 
 Existing partial solutions address single surfaces. Experiment-code
 frameworks — Psychtoolbox (Brainard, 1997; Kleiner et al., 2007),
-PsychoPy (Peirce, 2007), mgl (Gardner et al.), jsPsych (de Leeuw,
-2015), and similar runtime libraries — standardize how a paradigm is
-executed on a participant's screen, but not recruitment, payment,
-handover, or the integrated record. Lab-management products such as
+PsychoPy (Peirce, 2007), jsPsych (de Leeuw, 2015), and similar
+MATLAB-, Python-, and JavaScript-based runtime libraries — standardize
+how a paradigm is executed on a participant's screen, but not
+recruitment, payment, handover, or the integrated record. Lab-management products such as
 Sona Systems address recruitment and scheduling but do not store
 experiment code, raw data, or implementation-level metadata. The
 end-to-end record remains, in practice, every laboratory's local
@@ -187,11 +187,10 @@ We make the following design commitments.
 
 3. Automation is bounded by human confirmation at both ends of the
    pipeline. At registration, an automated analysis pass over the
-   registered experiment code (an LLM-based summary in our deployment,
-   though the architecture is agnostic to the analyzer) drafts a
-   candidate description of the task layout, manipulation variables,
-   dependent variables, random-seed handling, parameter files,
-   counterbalancing structure, and raw-data storage path; the
+   registered experiment code (an LLM-based summary in our deployment)
+   drafts a candidate description of the task layout, manipulation
+   variables, dependent variables, random-seed handling, parameter
+   files, counterbalancing structure, and raw-data storage path; the
    researcher reviews this draft and confirms or corrects it before
    the experiment can open for recruitment. No accuracy claim is made
    for the automated analyzer; its role is to draft, not to decide,
@@ -213,13 +212,13 @@ hypothesis-driven, methodologically explicit register that produces
 published findings; and *night science*, the intuitive, exploratory,
 free-associative register in which hypotheses are first generated,
 experimental designs first sketched, and parameter spaces first
-probed. We extend this distinction with a more modest observation of
-our own: day science is what manuscripts record, whereas much of
-what a laboratory actually knows — the parameter sweep that was tried
-and abandoned, the intuitive judgment that a stimulus duration
-"should be" 500 ms, the unwritten reason a particular exclusion was
-applied — is not retained in any formal artifact and is consequently
-lost when a researcher leaves.
+probed. Adjacent to their distinction — and separately from Yanai and
+Lercher's argument — we observe that day science is what manuscripts
+record, whereas much of what a laboratory actually knows in practice
+(the parameter sweep that was tried and abandoned, the intuitive
+judgment that a stimulus duration "should be" 500 ms, the unwritten
+reason a particular exclusion was applied) is not retained in any
+formal artifact and is consequently lost when a researcher leaves.
 
 We do not claim that the platform described here preserves night
 science in any direct sense. We observe, more carefully, that a
@@ -253,8 +252,6 @@ and their failure-recovery semantics.
 - Chmielewski, M., & Kucker, S. C. (2020). An MTurk crisis? Shifts in
   data quality and the impact on study results. *Social Psychological
   and Personality Science.*
-- Gardner, J. L., et al. *mgl — Visual psychophysics package.*
-  (software.)
 - Gorgolewski, K. J., et al. (2016). The brain imaging data structure
   (BIDS), a format for organizing and describing outputs of
   neuroimaging experiments. *Scientific Data.*

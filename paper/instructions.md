@@ -49,10 +49,10 @@ random-seed and counterbalance-handling convention, the parameter files
 and their checksums, and the raw-data storage path that the runtime
 will write into. The draft is presented to the researcher in a
 pre-flight panel: the researcher accepts each label as-is, corrects it
-inline, or flags it for clarification. The experiment cannot transition out of *draft* state until the
-researcher has signed off; no accuracy claim is made for the
-automated analyzer, and the persisted record reflects reviewed labels
-rather than raw analyzer output. The accepted labels are persisted as
+inline, or flags it for clarification. The *open for recruitment* toggle introduced in §1 cannot be enabled
+until the researcher has signed off on this pre-flight panel; no
+accuracy claim is made for the automated analyzer, and the persisted
+record reflects reviewed labels rather than raw analyzer output. The accepted labels are persisted as
 queryable columns on the experiment row and on each session's booking
 row, alongside the commit hash of the runtime that ran the session,
 and the same summary is mirrored to the knowledge-base page.
