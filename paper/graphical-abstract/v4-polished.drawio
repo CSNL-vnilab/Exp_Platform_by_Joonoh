@@ -9,7 +9,7 @@
         <mxCell id="title" value="One Schema, One Pipeline" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=44;fontStyle=1" vertex="1" parent="1">
           <mxGeometry x="100" y="14" width="1400" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="subtitle" value="A self-hosted platform for the full life-cycle of a behavioral experiment, on free-tier infrastructure" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontColor=#555" vertex="1" parent="1">
+        <mxCell id="subtitle" value="One self-hostable platform, end-to-end — from recruitment posting to institutional fee claim — owned and extended by the host laboratory" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontColor=#555" vertex="1" parent="1">
           <mxGeometry x="100" y="78" width="1400" height="28" as="geometry" />
         </mxCell>
 
@@ -157,7 +157,7 @@
         </mxCell>
 
         <!-- Foundation strip -->
-        <mxCell id="found" value="Foundation — managed Postgres · object storage · serverless functions · transactional email · short messaging · shared calendar · knowledge-base mirror      ●   all free tier" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#bbb;strokeColor=#666;strokeWidth=2;fontSize=12;fontStyle=1;fontColor=#222" vertex="1" parent="1">
+        <mxCell id="found" value="Foundation — one Postgres schema · object storage · serverless functions · transactional email · short messaging · shared calendar · knowledge-base mirror      ●   forked, hosted, and operated by the adopting laboratory" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#bbb;strokeColor=#666;strokeWidth=2;fontSize=12;fontStyle=1;fontColor=#222" vertex="1" parent="1">
           <mxGeometry x="550" y="760" width="600" height="55" as="geometry" />
         </mxCell>
 
@@ -201,10 +201,10 @@
         <mxCell id="o3-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eafaf1;strokeColor=#27ae60;strokeWidth=2" vertex="1" parent="1">
           <mxGeometry x="1265" y="580" width="310" height="170" as="geometry" />
         </mxCell>
-        <mxCell id="o3-title" value="Zero recurring cost" style="text;html=1;align=left;fontStyle=1;fontSize=15;fontColor=#0d4825" vertex="1" parent="1">
+        <mxCell id="o3-title" value="Forkable, lab-owned" style="text;html=1;align=left;fontStyle=1;fontSize=15;fontColor=#0d4825" vertex="1" parent="1">
           <mxGeometry x="1280" y="595" width="280" height="22" as="geometry" />
         </mxCell>
-        <mxCell id="o3-body" value="Runs on free-tier offerings the lab already has institutional access to. Manual reminders, paperwork dispatch, and calendar holds are eliminated; experimenter hours convert directly to more sessions per semester." style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;spacing=0" vertex="1" parent="1">
+        <mxCell id="o3-body" value="Each laboratory hosts its own deployment, owns the schema instance, and extends new operations as typed table additions. Locale-specific paperwork, fee regimes, and language live in deployment config, not in source." style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;spacing=0" vertex="1" parent="1">
           <mxGeometry x="1280" y="620" width="280" height="130" as="geometry" />
         </mxCell>
 

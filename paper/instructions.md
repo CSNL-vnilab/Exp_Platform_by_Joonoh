@@ -52,11 +52,28 @@ mechanisms are supported.
 
 **Static path registration.** A path to a code directory (typically a
 mounted laboratory file server or a public git repository) is stored on
-the experiment. A static analysis pass runs over the registered path and
-produces a structured summary of the inferred task layout, stimulus
-classes, and dependent variables. The summary is human-readable and is
-mirrored to the knowledge-base page so that any analyst opening the page
-later can identify the version of code associated with this row.
+the experiment. An AI-assisted static analysis pass runs over the
+registered path and proposes a structured summary of the inferred task
+layout, the manipulation variables and their levels, the dependent
+variables and their data types, the stimulus classes, and the raw-data
+storage path that the runtime will write into. The proposal is
+surfaced to the researcher in a pre-flight confirmation panel: the
+researcher accepts each inferred label as-is, corrects it inline, or
+flags it for clarification before the experiment can transition out of
+*draft* state. The accepted labels are persisted as queryable columns on
+the experiment row and on each session's booking row, and the same
+summary is mirrored to the knowledge-base page so that any analyst
+opening the page later can identify the version of code, the variable
+schema, and the storage convention associated with this row.
+
+The methodological intent of this confirmation panel is reproducibility
+*at intake* rather than reproducibility *post hoc*: an experimenter
+running a paradigm that another laboratory member has previously run
+sees, in the confirmation panel, the labels the prior experimenter
+accepted, and is forced to either align with them or declare a
+deliberate divergence. Data-convention drift that pre-platform
+workflows discovered weeks later during analysis is here surfaced
+before the first participant arrives.
 
 **Runtime integration (in-browser execution).** For experiments executed
 in the participant's browser, the registered URL is loaded inside a
@@ -65,10 +82,13 @@ platform through a single function (`window.expPlatform.submitBlock(...)`)
 that hands trial-level data to the platform for durable storage; the
 platform handles counterbalancing, attention-check insertion, refresh-rate
 synchronization, electronic signature collection, and per-block result
-upload to object storage.
+upload to object storage. The same AI-assisted pre-flight verification
+runs over the registered URL's task script before the experiment can open
+for recruitment.
 
-In either mechanism, the connection between the experiment row and the code
-artifact is now machine-readable.
+In either mechanism, the connection between the experiment row and the
+code artifact is now machine-readable, and the manipulation-variable
+and storage-path declarations have been signed off by a human.
 
 ## 3. Knowledge-base synchronization
 
