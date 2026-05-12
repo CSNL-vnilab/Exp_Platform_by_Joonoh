@@ -1,0 +1,240 @@
+<mxfile host="65bd71144e">
+  <diagram name="Graphical Abstract v2" id="ga-v2">
+    <mxGraphModel dx="1422" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="One Schema, One Pipeline: A Self-Hosted Platform for Behavioral Experiments" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=26;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="100" y="20" width="1400" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Recruitment · Code · Calendar · Raw data · Participant fee — unified end-to-end on free-tier infrastructure" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=14;fontColor=#555" vertex="1" parent="1">
+          <mxGeometry x="100" y="62" width="1400" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- ============================ LEFT: FRAGMENTED STATUS QUO ============================ -->
+        <!-- No container: the *absence* of a container IS the visual claim. -->
+
+        <mxCell id="left-header" value="Status quo" style="text;html=1;align=center;fontStyle=1;fontSize=18;fontColor=#c0392b" vertex="1" parent="1">
+          <mxGeometry x="40" y="110" width="400" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="left-badge" value="5 failure modes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c0392b;strokeColor=none;fontSize=14;fontStyle=1;fontColor=#ffffff" vertex="1" parent="1">
+          <mxGeometry x="155" y="142" width="170" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- Five floating tokens, scattered, with broken connectors between them -->
+        <mxCell id="tok-mail" value="email&#10;thread" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c0392b;strokeWidth=2;fontSize=11;fontColor=#c0392b" vertex="1" parent="1">
+          <mxGeometry x="60" y="200" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tok-sheet" value="recruitment&#10;spreadsheet" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c0392b;strokeWidth=2;fontSize=11;fontColor=#c0392b" vertex="1" parent="1">
+          <mxGeometry x="300" y="225" width="120" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="tok-cal" value="shared&#10;calendar" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c0392b;strokeWidth=2;fontSize=11;fontColor=#c0392b" vertex="1" parent="1">
+          <mxGeometry x="120" y="295" width="110" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="tok-folder" value="lab-server&#10;data folder" style="shape=folder;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c0392b;strokeWidth=2;fontSize=11;fontColor=#c0392b;tabWidth=40;tabHeight=12" vertex="1" parent="1">
+          <mxGeometry x="295" y="335" width="120" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="tok-paper" value="paper fee&#10;forms" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c0392b;strokeWidth=2;fontSize=11;fontColor=#c0392b" vertex="1" parent="1">
+          <mxGeometry x="80" y="410" width="120" height="56" as="geometry" />
+        </mxCell>
+
+        <!-- Broken dotted connectors — "the joins are not machine-readable" -->
+        <mxCell id="break1" style="endArrow=none;dashed=1;html=1;rounded=0;strokeColor=#c0392b;strokeWidth=1;dashPattern=2 4;opacity=60" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="160" y="230" as="sourcePoint" />
+            <mxPoint x="300" y="253" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="break2" style="endArrow=none;dashed=1;html=1;rounded=0;strokeColor=#c0392b;strokeWidth=1;dashPattern=2 4;opacity=60" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="175" y="327" as="sourcePoint" />
+            <mxPoint x="295" y="367" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="break3" style="endArrow=none;dashed=1;html=1;rounded=0;strokeColor=#c0392b;strokeWidth=1;dashPattern=2 4;opacity=60" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="140" y="359" as="sourcePoint" />
+            <mxPoint x="140" y="410" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- 5 failure modes — text strip, bottom -->
+        <mxCell id="fm-block" value="• Data conventions drift across experimenters&#10;• 8–12 h / semester on reminders &amp; paperwork&#10;• Institutional database accrues incomplete rows&#10;• Per-experiment budget statistics are opaque&#10;• Handover loses study reproducibility" style="text;html=1;align=left;verticalAlign=top;fontSize=12;fontColor=#7b1d10;spacing=0" vertex="1" parent="1">
+          <mxGeometry x="55" y="495" width="380" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- Online marketplace strip -->
+        <mxCell id="online-divider" value="Online marketplaces (Prolific, MTurk)" style="text;html=1;align=center;fontStyle=1;fontSize=13;fontColor=#c0392b" vertex="1" parent="1">
+          <mxGeometry x="40" y="635" width="400" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="online-list" value="• Per-participant cost above institutional rate&#10;• Worker pool skews English-speaking / young / high trial count&#10;• In-lab psychophysics is not portable" style="text;html=1;align=left;verticalAlign=top;fontSize=12;fontColor=#7b1d10" vertex="1" parent="1">
+          <mxGeometry x="55" y="660" width="385" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ============================ CENTER ARROW (problem → platform) ============================ -->
+        <mxCell id="big-arrow-1" style="shape=mxgraph.arrows2.arrow;dy=0.6;dx=40;notch=0;html=1;fillColor=#2c3e50;strokeColor=#2c3e50" vertex="1" parent="1">
+          <mxGeometry x="450" y="380" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="big-arrow-1-label" value="unify" style="text;html=1;align=center;fontSize=13;fontStyle=2;fontColor=#2c3e50" vertex="1" parent="1">
+          <mxGeometry x="450" y="465" width="80" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ============================ CENTER: PLATFORM (DB at gravitational center) ============================ -->
+        <mxCell id="platform-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f8fd;strokeColor=#1f4e79;strokeWidth=4;shadow=1" vertex="1" parent="1">
+          <mxGeometry x="550" y="110" width="600" height="700" as="geometry" />
+        </mxCell>
+
+        <mxCell id="center-header" value="Lab-scoped platform" style="text;html=1;align=center;fontStyle=1;fontSize=18;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="550" y="120" width="600" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="center-badge" value="11 sequenced operations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1f4e79;strokeColor=none;fontSize=14;fontStyle=1;fontColor=#ffffff" vertex="1" parent="1">
+          <mxGeometry x="710" y="152" width="220" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- DB cylinder at the gravitational center -->
+        <mxCell id="db" value="One relational schema&#10;&#10;experiments · bookings&#10;participants · payments · audit" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=20;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=3;fontSize=13;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="720" y="370" width="260" height="180" as="geometry" />
+        </mxCell>
+
+        <!-- 11 operation satellites arranged radially around DB (orbits) -->
+        <!-- Top arc -->
+        <mxCell id="s1" value="1 · Publish" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="580" y="200" width="110" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="2 · Register code" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="710" y="200" width="120" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="3 · Mirror DB" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="850" y="200" width="110" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="4 · Link raw data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="980" y="200" width="130" height="32" as="geometry" />
+        </mxCell>
+
+        <!-- Left side -->
+        <mxCell id="s5" value="5 · Recruitment URL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="565" y="270" width="140" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="s6" value="6 · Location" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="565" y="350" width="110" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="s7" value="7 · Precautions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="565" y="430" width="120" height="32" as="geometry" />
+        </mxCell>
+
+        <!-- Right side -->
+        <mxCell id="s8" value="8 · Reminders" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="1015" y="270" width="120" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="s9" value="9 · Rebook · Cancel" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="1015" y="350" width="135" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="s10" value="10 · Metadata nudge" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#a8c5e8;strokeWidth=1;fontSize=11;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="1015" y="430" width="140" height="32" as="geometry" />
+        </mxCell>
+
+        <!-- Bottom -->
+        <mxCell id="s11" value="11 · Fee claim &amp; admin dispatch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fcefdc;strokeColor=#d68910;strokeWidth=2;fontSize=12;fontStyle=1;fontColor=#7a4a1c" vertex="1" parent="1">
+          <mxGeometry x="730" y="580" width="240" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Edges: each operation converges on the DB -->
+        <mxCell id="e1" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s1" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s2" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s3" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s4" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s5" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s6" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s7" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s8" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s9" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#aac5e8;strokeWidth=1;endFill=1" edge="1" parent="1" source="s10" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" style="endArrow=classicThin;html=1;rounded=0;strokeColor=#d68910;strokeWidth=2;endFill=1" edge="1" parent="1" source="db" target="s11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Confirmation gate label -->
+        <mxCell id="gate" value="✓  every external-recipient action requires explicit confirmation" style="text;html=1;align=center;fontSize=11;fontStyle=2;fontColor=#666" vertex="1" parent="1">
+          <mxGeometry x="555" y="635" width="590" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- Foundation strip (infrastructure) -->
+        <mxCell id="found" value="Foundation — managed Postgres · object storage · serverless functions · transactional email · short messaging · shared calendar · knowledge-base mirror      ●  all free tier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#999;strokeWidth=1;fontSize=11;fontColor=#444" vertex="1" parent="1">
+          <mxGeometry x="565" y="715" width="570" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ============================ RIGHT ARROW (platform → outcomes) ============================ -->
+        <mxCell id="big-arrow-2" style="shape=mxgraph.arrows2.arrow;dy=0.6;dx=40;notch=0;html=1;fillColor=#27ae60;strokeColor=#27ae60" vertex="1" parent="1">
+          <mxGeometry x="1160" y="380" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="big-arrow-2-label" value="deliver" style="text;html=1;align=center;fontSize=13;fontStyle=2;fontColor=#27ae60" vertex="1" parent="1">
+          <mxGeometry x="1160" y="465" width="80" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ============================ RIGHT: OUTCOMES (just 3) ============================ -->
+        <mxCell id="right-header" value="Outcomes" style="text;html=1;align=center;fontStyle=1;fontSize=18;fontColor=#27ae60" vertex="1" parent="1">
+          <mxGeometry x="1260" y="110" width="320" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="right-badge" value="3 measurable wins" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27ae60;strokeColor=none;fontSize=14;fontStyle=1;fontColor=#ffffff" vertex="1" parent="1">
+          <mxGeometry x="1340" y="142" width="160" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- Outcome 1 -->
+        <mxCell id="o1-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eafaf1;strokeColor=#27ae60;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="1265" y="200" width="310" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="o1-title" value="One audit trail" style="text;html=1;align=left;fontStyle=1;fontSize=15;fontColor=#0d4825" vertex="1" parent="1">
+          <mxGeometry x="1280" y="215" width="280" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="o1-body" value="Recruitment, code, raw data, payment, and the institutional fee-claim form all resolve from one experiment id. No reconciliation by memory; no handover gap." style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;spacing=0" vertex="1" parent="1">
+          <mxGeometry x="1280" y="240" width="280" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- Outcome 2 -->
+        <mxCell id="o2-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eafaf1;strokeColor=#27ae60;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="1265" y="380" width="310" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="o2-title" value="Local pool · institutional rate" style="text;html=1;align=left;fontStyle=1;fontSize=15;fontColor=#0d4825" vertex="1" parent="1">
+          <mxGeometry x="1280" y="395" width="280" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="o2-body" value="Recruits from the host institution's actual population at the host institution's actual participant-fee rate. No marketplace markup; no English-speaking, high-trial-count worker skew." style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;spacing=0" vertex="1" parent="1">
+          <mxGeometry x="1280" y="420" width="280" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- Outcome 3 -->
+        <mxCell id="o3-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eafaf1;strokeColor=#27ae60;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="1265" y="560" width="310" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="o3-title" value="Zero recurring cost" style="text;html=1;align=left;fontStyle=1;fontSize=15;fontColor=#0d4825" vertex="1" parent="1">
+          <mxGeometry x="1280" y="575" width="280" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="o3-body" value="Runs on free-tier offerings the lab already has institutional access to. Manual reminders, paperwork dispatch, and calendar holds are eliminated; the experimenter's saved hours convert directly to more sessions per semester." style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#333;spacing=0" vertex="1" parent="1">
+          <mxGeometry x="1280" y="600" width="280" height="120" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
