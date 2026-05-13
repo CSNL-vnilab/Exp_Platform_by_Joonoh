@@ -1,0 +1,88 @@
+<mxfile host="65bd71144e">
+  <diagram name="② 모집" id="db-detail-02">
+    <mxGraphModel dx="1422" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="strip" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#1f4e79;strokeColor=none" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="8" as="geometry" />
+        </mxCell>
+
+        <mxCell id="title" value="② 모집" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1520" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="활성 실험의 모집 URL을 통해 참여자가 빈 시간을 본다" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=13;fontColor=#555;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="78" width="1520" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="h-left" value="행동" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#555" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="420" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="h-center" value="데이터베이스" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="500" y="120" width="600" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="h-right" value="결과" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#a17000" vertex="1" parent="1">
+          <mxGeometry x="1140" y="120" width="420" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- LEFT actions — 3 boxes -->
+        <mxCell id="a1" value="연구자가 모집 URL 배포&#10;(연구자가 관리하는 채널)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="200" width="380" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="(필요시) 사전 스크리너 정의 + 적격 조건" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="320" width="380" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="참여자가 URL 접속 →&#10;빈 슬롯 확인 → (필요시) 스크리너 응답" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="440" width="380" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- CENTER tables -->
+        <mxCell id="t-header" value="관련 테이블" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="500" y="155" width="600" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" value="experiments&#10;공개 상태 · 모집 기간 · 정원" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="520" y="200" width="560" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="스크리너 정의  +  참여자 응답" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="520" y="320" width="560" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="공유 캘린더 빈 시간 캐시  +  수동 차단 슬롯" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="520" y="440" width="560" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- RIGHT results -->
+        <mxCell id="r1" value="공개 URL이 실제로 접근 가능" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="200" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="스크리너 적격성 평가 →&#10;예약 진행 또는 거부 안내" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="320" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" value="슬롯 그리드 노출 →&#10;( 다음 그림: ③ 예약 )" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=13;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="1140" y="440" width="420" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ARROWS -->
+        <mxCell id="e1" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a1" target="t1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a2" target="t2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a3" target="t3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er1" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="t1" target="r1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er2" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="t2" target="r2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er3" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=3;endFill=1" edge="1" parent="1" source="t3" target="r3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

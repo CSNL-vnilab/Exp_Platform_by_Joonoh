@@ -1,0 +1,103 @@
+<mxfile host="65bd71144e">
+  <diagram name="① 실험등록 절차" id="db-detail-01">
+    <mxGraphModel dx="1422" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="strip" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#1f4e79;strokeColor=none" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="8" as="geometry" />
+        </mxCell>
+
+        <mxCell id="title" value="① 실험등록 절차" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1520" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="연구자가 입력한 정보 + 코드 자동 분석 결과가 한 줄에 묶여 저장된다" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=13;fontColor=#555;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="78" width="1520" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="h-left" value="연구자의 행동" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#555" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="420" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="h-center" value="데이터베이스" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="500" y="120" width="600" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="h-right" value="결과" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#a17000" vertex="1" parent="1">
+          <mxGeometry x="1140" y="120" width="420" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- LEFT actions — 4 boxes -->
+        <mxCell id="a1" value="실험 정보 입력&#10;(제목·기간·정원·세션 수·위치)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="170" width="380" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="코드 경로 + 저장 경로 입력&#10;(GitHub 주소 또는 서버 경로)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="280" width="380" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="자동 분석기 실행 →&#10;초안 검토 · 수정 · 확정" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="390" width="380" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="사전 점검 체크리스트 완료 + 활성화" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="60" y="500" width="380" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- CENTER table -->
+        <mxCell id="t-header" value="experiments — 실험 정보 본부" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="500" y="155" width="600" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="t-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f8fd;strokeColor=#1f4e79;strokeWidth=3" vertex="1" parent="1">
+          <mxGeometry x="500" y="180" width="600" height="400" as="geometry" />
+        </mxCell>
+        <mxCell id="f1" value="기본 정보  (제목 · 기간 · 정원 · 세션 수 · 위치)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="520" y="205" width="560" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="코드 경로 + 저장 경로" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="520" y="260" width="560" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="선언 파라미터 목록  (이름 · 자료형 · 기본값)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="520" y="315" width="560" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="자동 분석 결과  (조작변수 · 종속변수 · 자극 · 무작위 시드 · 카운터밸런스)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="520" y="370" width="560" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f5" value="사전 점검 체크리스트" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="520" y="425" width="560" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f6" value="활성 상태  +  체크리스트 완료 시각" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="520" y="480" width="560" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f-note" value="코드 경로 / 저장 경로가 비어있으면 활성화 거부 · 체크리스트 미완료시 새 예약 거부" style="text;html=1;align=center;fontSize=11;fontColor=#7a4a1c;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="500" y="540" width="600" height="34" as="geometry" />
+        </mxCell>
+
+        <!-- RIGHT results -->
+        <mxCell id="r1" value="코드 자동 분석기 (외부)&#10;정규식 + AI 분석 → 결과 반환" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=13" vertex="1" parent="1">
+          <mxGeometry x="1160" y="380" width="400" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="모집 가능 상태로 전환&#10;( 다음 그림: ② 모집 )" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=13;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="1160" y="495" width="400" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- ARROWS -->
+        <mxCell id="e1" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a1" target="f1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a2" target="f2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a3" target="f4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a4" target="f6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-an" style="endArrow=classicThin;startArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1;startFill=1" edge="1" parent="1" source="a3" target="r1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-r2" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=3;endFill=1" edge="1" parent="1" source="a4" target="r2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

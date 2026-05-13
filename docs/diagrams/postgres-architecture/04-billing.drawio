@@ -1,0 +1,103 @@
+<mxfile host="65bd71144e">
+  <diagram name="④ 청구" id="db-detail-04">
+    <mxGraphModel dx="1422" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="strip" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#1f4e79;strokeColor=none" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="8" as="geometry" />
+        </mxCell>
+
+        <mxCell id="title" value="④ 청구 (참여자비)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1520" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="세션 종료 → 참여자가 정산 정보 입력 → 연구자가 검토 후 행정실에 묶음 발송" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=13;fontColor=#555;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="78" width="1520" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="h-left" value="행동" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#555" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="420" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="h-center" value="데이터베이스" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="500" y="120" width="600" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="h-right" value="결과" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#a17000" vertex="1" parent="1">
+          <mxGeometry x="1140" y="120" width="420" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- LEFT actions -->
+        <mxCell id="a1" value="(시스템) 세션 종료 후&#10;참여자에게 정산 폼 링크 자동 발송" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="380" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="참여자가 정산 폼 작성&#10;( 신분 · 계좌 · 서명 · 통장 )" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="280" width="380" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="연구자가 정산 내역 검토 → 청구 묶음 생성" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="380" width="380" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="발송 미리보기 확인 → 발송 버튼 확정" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="60" y="480" width="380" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- CENTER tables / storage -->
+        <mxCell id="t-header" value="정산 + 청구 묶음" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="500" y="155" width="600" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" value="정산 행  ( 대기 / 제출됨 / 청구됨 / 지급됨 )&#10;신분 정보는 암호화 저장" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="520" y="190" width="560" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-st" value="첨부 보관소  —  서명 이미지 + 통장 사본" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="520" y="290" width="560" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="청구 묶음  ( 누구 / 어디 / 얼마 / 언제 )" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="520" y="370" width="560" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="양식 파일 생성 이력" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="520" y="450" width="560" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="t-note" value="한 번 청구된 행은 다시 청구되지 않도록 상태 전이가 잠겨 있다" style="text;html=1;align=center;fontSize=11;fontColor=#7a4a1c;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="500" y="525" width="600" height="34" as="geometry" />
+        </mxCell>
+
+        <!-- RIGHT results -->
+        <mxCell id="r1" value="폼 링크의 만료 시한 부여 (보통 60일)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="180" width="420" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="양식 파일 묶음 생성&#10;( 개별 양식 + 일괄 양식 + 첨부 )" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="370" width="420" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" value="행정실로 메일 발송 (확인 모달 거친 후)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef5e7;strokeColor=#d97706;strokeWidth=2;fontSize=12;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1140" y="475" width="420" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ARROWS -->
+        <mxCell id="e1" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a1" target="t1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a2" target="t1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-st" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="a2" target="t-st">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a3" target="t2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a4" target="t3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er1" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="t1" target="r1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er2" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="t3" target="r2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er3" style="endArrow=classicThin;html=1;strokeColor=#d97706;strokeWidth=3;endFill=1" edge="1" parent="1" source="a4" target="r3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

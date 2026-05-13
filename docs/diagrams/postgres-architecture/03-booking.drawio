@@ -1,0 +1,96 @@
+<mxfile host="65bd71144e">
+  <diagram name="③ 예약" id="db-detail-03">
+    <mxGraphModel dx="1422" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="strip" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#1f4e79;strokeColor=none" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="8" as="geometry" />
+        </mxCell>
+
+        <mxCell id="title" value="③ 예약" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1520" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="참여자가 슬롯 선택 → 동시 충돌 방지 → 한 예약 그룹으로 묶임 → 후속 연동 큐 적재" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=13;fontColor=#555;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="78" width="1520" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="h-left" value="행동" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#555" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="420" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="h-center" value="데이터베이스" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="500" y="120" width="600" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="h-right" value="결과" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#a17000" vertex="1" parent="1">
+          <mxGeometry x="1140" y="120" width="420" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- LEFT actions -->
+        <mxCell id="a1" value="참여자가 빈 슬롯 선택&#10;(여러 회차 한꺼번에 가능)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="200" width="380" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="이름 · 연락처 · 동의서 입력 → 제출" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="320" width="380" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Concurrency note -->
+        <mxCell id="anote" value="동일 슬롯에 두 사람이 동시에 제출하면 한 사람만 통과되고 다른 사람에게는 &quot;마감&quot;을 안내" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef5e7;strokeColor=#d97706;strokeWidth=2;fontSize=11;fontStyle=2;fontColor=#7a4a1c" vertex="1" parent="1">
+          <mxGeometry x="60" y="440" width="380" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- CENTER table -->
+        <mxCell id="t-header" value="bookings — 예약 본부" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="500" y="155" width="600" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="t-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f8fd;strokeColor=#1f4e79;strokeWidth=3" vertex="1" parent="1">
+          <mxGeometry x="500" y="180" width="600" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="f1" value="참여자 정보 (참조)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="520" y="205" width="560" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="예약 행  ( 한 행 = 한 슬롯,  같은 그룹이면 다회차 묶음 )" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="520" y="255" width="560" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="공유 캘린더 빈 시간 캐시 → 무효화" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="520" y="325" width="560" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="후속 연동 큐  ( 이메일 · 문자 · 캘린더 항목 )" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="520" y="385" width="560" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="f-note" value="이 모든 변화가 한 묶음으로 처리된다 — 중간에 실패하면 전체 취소" style="text;html=1;align=center;fontSize=11;fontColor=#7a4a1c;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="500" y="455" width="600" height="44" as="geometry" />
+        </mxCell>
+
+        <!-- RIGHT results -->
+        <mxCell id="r1" value="참여자에게 예약 확인 즉시 안내" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="200" width="420" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="이메일 · 문자 · 공유 캘린더 발송 시도" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="280" width="420" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" value="실패 항목은 정기 작업이 자동 재시도" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef5e7;strokeColor=#d97706;strokeWidth=2;fontSize=12;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="1140" y="360" width="420" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ARROWS -->
+        <mxCell id="e1" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a1" target="f1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=3;endFill=1" edge="1" parent="1" source="a2" target="f2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er1" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="f2" target="r1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er2" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="f4" target="r2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er3" style="endArrow=classicThin;html=1;strokeColor=#d97706;strokeWidth=2;endFill=1;dashed=1" edge="1" parent="1" source="f4" target="r3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

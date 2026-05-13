@@ -1,0 +1,102 @@
+<mxfile host="65bd71144e">
+  <diagram name="⑤ 운영" id="db-detail-05">
+    <mxGraphModel dx="1422" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="strip" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#1f4e79;strokeColor=none" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="8" as="geometry" />
+        </mxCell>
+
+        <mxCell id="title" value="⑤ 운영 — 사용자·권한 + 참여자 식별" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1520" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="누가 시스템을 쓸 수 있는가 (위)   ·   참여자를 어떻게 식별하고 등급화하는가 (아래)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=13;fontColor=#555;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="78" width="1520" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- TOP HALF — A. 사용자·권한 -->
+        <mxCell id="half1-h" value="A.  사용자 · 권한" style="text;html=1;align=left;fontSize=16;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="60" y="125" width="1500" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="half1-div" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=none" vertex="1" parent="1">
+          <mxGeometry x="60" y="152" width="1500" height="2" as="geometry" />
+        </mxCell>
+
+        <mxCell id="a-l1" value="신규 연구자 가입 요청 →&#10;관리자가 승인 / 거부" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="170" width="380" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a-l2" value="이메일 매직링크로 로그인&#10;( 비밀번호 없음 )" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="270" width="380" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t-auth" value="auth.users  +  profiles ( 참여자 · 연구자 · 관리자 역할 )&#10;가입 요청 + 승인 상태&#10;연구실 정보 + 익명 식별자 생성용 비밀값" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12;align=left;verticalAlign=middle;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="500" y="170" width="600" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r-l1" value="역할별 접근 권한 차등 +&#10;비활성 계정은 즉시 차단" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="170" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r-l2" value="승인 결과를 신청자에게 메일 안내" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="270" width="420" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- BOTTOM HALF — B. 참여자 식별·등급 -->
+        <mxCell id="half2-h" value="B.  참여자 식별 · 등급" style="text;html=1;align=left;fontSize=16;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="60" y="395" width="1500" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="half2-div" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=none" vertex="1" parent="1">
+          <mxGeometry x="60" y="422" width="1500" height="2" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b-l1" value="참여자가 예약 / 참여 / 완료" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="440" width="380" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b-l2" value="(시스템) 누적 횟수 산정 →&#10;등급 자동 전이" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="540" width="380" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t-id" value="공통 정보 ( 이름 · 연락처 · 이메일 )&#10;연구실별 익명 코드  (예: 랩-A4F2B1)&#10;현재 등급  +  등급 전이 이력" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12;align=left;verticalAlign=middle;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="500" y="440" width="600" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r-id1" value="이름은 외부로 나가지 않음&#10;공유 가능한 식별자는 익명 코드뿐" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="440" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r-id2" value="우대 등급 도달 시 연구자에게 알림" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1140" y="540" width="420" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ARROWS — auth -->
+        <mxCell id="e-l1" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a-l1" target="t-auth">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-l2" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="a-l2" target="t-auth">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-rl1" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-auth" target="r-l1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-rl2" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="a-l1" target="r-l2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ARROWS — identity -->
+        <mxCell id="e-b1" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="b-l1" target="t-id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-b2" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="b-l2" target="t-id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-rid1" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-id" target="r-id1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-rid2" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="b-l2" target="r-id2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

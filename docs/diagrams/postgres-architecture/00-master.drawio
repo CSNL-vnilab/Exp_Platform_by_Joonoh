@@ -1,0 +1,152 @@
+<mxfile host="65bd71144e">
+  <diagram name="Master — 전체 구조" id="db-master">
+    <mxGraphModel dx="1422" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="980" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="strip" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#1f4e79;strokeColor=none" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="8" as="geometry" />
+        </mxCell>
+
+        <mxCell id="title" value="예약 플랫폼 — 전체 구조" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=30;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1520" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="사용자가 무엇을 하면 어디로 흘러가는가 — 한 페이지 요약" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=14;fontColor=#555;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="78" width="1520" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- USER -->
+        <mxCell id="u-header" value="사용자" style="text;html=1;align=center;fontSize=15;fontStyle=1;fontColor=#555" vertex="1" parent="1">
+          <mxGeometry x="40" y="130" width="240" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="u-participant" value="참여자" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=2;fontSize=14" vertex="1" parent="1">
+          <mxGeometry x="60" y="190" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="u-researcher" value="연구자" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=2;fontSize=14" vertex="1" parent="1">
+          <mxGeometry x="60" y="320" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="u-admin" value="관리자" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=2;fontSize=14" vertex="1" parent="1">
+          <mxGeometry x="60" y="450" width="200" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- VERCEL container -->
+        <mxCell id="vercel-header" value="웹 애플리케이션 (Vercel)" style="text;html=1;align=center;fontSize=15;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="340" y="130" width="380" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="vercel-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f8fd;strokeColor=#1f4e79;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="340" y="170" width="380" height="430" as="geometry" />
+        </mxCell>
+        <mxCell id="v-web" value="웹 + 서버 함수&#10;사용자가 보는 화면과&#10;예약·등록·관리 처리" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=13" vertex="1" parent="1">
+          <mxGeometry x="360" y="200" width="340" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="v-cron" value="정기 작업&#10;시간 맞춰 자동 실행&#10;(리마인더·재시도 등)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=13" vertex="1" parent="1">
+          <mxGeometry x="360" y="410" width="340" height="170" as="geometry" />
+        </mxCell>
+
+        <!-- SUPABASE container -->
+        <mxCell id="sb-header" value="데이터 보관소 (Supabase)" style="text;html=1;align=center;fontSize=15;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="800" y="130" width="380" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="sb-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f8fd;strokeColor=#1f4e79;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="800" y="170" width="380" height="430" as="geometry" />
+        </mxCell>
+        <mxCell id="sb-auth" value="인증&#10;(이메일 매직링크)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=13" vertex="1" parent="1">
+          <mxGeometry x="820" y="200" width="340" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="sb-db" value="관계형 데이터베이스&#10;실험 · 예약 · 참여자 · 청구 등" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=3;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="820" y="300" width="340" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="sb-storage" value="첨부 보관소&#10;(서명 · 통장 등 파일)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=13" vertex="1" parent="1">
+          <mxGeometry x="820" y="450" width="340" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- EXTERNAL -->
+        <mxCell id="ext-header" value="외부 서비스" style="text;html=1;align=center;fontSize=15;fontStyle=1;fontColor=#a17000" vertex="1" parent="1">
+          <mxGeometry x="1260" y="130" width="300" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="ext-send" value="발송 채널&#10;(이메일 · 문자 · 공유 캘린더)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=13" vertex="1" parent="1">
+          <mxGeometry x="1280" y="200" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ext-analyzer" value="코드 자동 분석기&#10;(AI 기반)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=13" vertex="1" parent="1">
+          <mxGeometry x="1280" y="340" width="280" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="ext-mirror" value="외부 지식베이스 미러&#10;(미완)" style="dashed=1;rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999;strokeWidth=2;fontSize=13;fontColor=#999" vertex="1" parent="1">
+          <mxGeometry x="1280" y="470" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ARROWS — kept minimal -->
+        <!-- Users → Web -->
+        <mxCell id="a1" style="endArrow=classicThin;html=1;strokeColor=#555;strokeWidth=2;endFill=1" edge="1" parent="1" source="u-participant" target="v-web">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" style="endArrow=classicThin;html=1;strokeColor=#555;strokeWidth=2;endFill=1" edge="1" parent="1" source="u-researcher" target="v-web">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" style="endArrow=classicThin;html=1;strokeColor=#555;strokeWidth=2;endFill=1" edge="1" parent="1" source="u-admin" target="v-web">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Web ↔ Supabase (consolidated to a single edge to the DB) -->
+        <mxCell id="a-wdb" style="endArrow=classicThin;startArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=3;endFill=1;startFill=1" edge="1" parent="1" source="v-web" target="sb-db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Cron ↔ DB -->
+        <mxCell id="a-cdb" style="endArrow=classicThin;startArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1;startFill=1" edge="1" parent="1" source="v-cron" target="sb-db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Web → External send -->
+        <mxCell id="a-wsend" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="v-web" target="ext-send">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Web ↔ Analyzer -->
+        <mxCell id="a-wan" style="endArrow=classicThin;startArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1;startFill=1" edge="1" parent="1" source="v-web" target="ext-analyzer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Cron → External send (retry, dashed) -->
+        <mxCell id="a-cse" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1;dashed=1" edge="1" parent="1" source="v-cron" target="ext-send">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Gate annotation -->
+        <mxCell id="gate" value="외부로 나가는 메시지는 연구자 확인을 거친 후에만 발송 (확인 게이트)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef5e7;strokeColor=#d97706;strokeWidth=2;fontSize=12;fontStyle=2;fontColor=#7a4a1c" vertex="1" parent="1">
+          <mxGeometry x="340" y="630" width="1220" height="34" as="geometry" />
+        </mxCell>
+
+        <!-- Bottom category index — unified visual style -->
+        <mxCell id="cat-header" value="이 시스템이 다루는 다섯 영역 (세부 구조는 별도 그림)" style="text;html=1;align=center;fontSize=15;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="40" y="710" width="1520" height="24" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cat-exp" value="①  실험등록" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=14;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="60" y="750" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cat-recruit" value="②  모집" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=14;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="360" y="750" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cat-book" value="③  예약" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=14;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="660" y="750" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cat-bill" value="④  청구" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=14;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="960" y="750" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cat-manage" value="⑤  운영" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1f4e79;strokeWidth=2;fontSize=14;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="1260" y="750" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cat-future" value="(향후) 자연어 조회 — 미래 계획" style="dashed=1;rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999;strokeWidth=2;fontSize=13;fontStyle=2;fontColor=#777" vertex="1" parent="1">
+          <mxGeometry x="560" y="830" width="480" height="44" as="geometry" />
+        </mxCell>
+
+        <!-- Bottom legend — 4 entries, compact -->
+        <mxCell id="legend-1" value="화살표:  파랑 = 데이터 읽기·쓰기   ·   황색 = 외부 발송   ·   황색 점선 = 자동 재시도   ·   주황 박스 = 확인 게이트 / 주의" style="text;html=1;align=center;fontSize=11;fontColor=#555;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="930" width="1520" height="24" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
