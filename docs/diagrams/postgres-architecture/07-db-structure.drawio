@@ -1,0 +1,337 @@
+<mxfile host="65bd71144e">
+  <diagram name="DB 구조 — 한 페이지 요약" id="db-structure">
+    <mxGraphModel dx="1422" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1240" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="strip" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#1f4e79;strokeColor=none" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1800" height="8" as="geometry" />
+        </mxCell>
+
+        <mxCell id="title" value="DB 구조 — 한 페이지 요약" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="40" y="22" width="1720" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="가운데 세 줄기 (실험 · 예약 · 참여자) 와, 그 둘레의 보조 묶음 (정산 · 외부 연동 · 운영 · 감사)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=13;fontColor=#555;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="68" width="1720" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- ============== TOP ROW: experiment metadata =============== -->
+        <mxCell id="top-header" value="실험에 딸린 보조 항목" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="60" y="110" width="600" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t-loc" value="실험 위치 목록&#10;(시설 이름 · 주소 · 지도 링크)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="60" y="140" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-block" value="수동 차단 슬롯&#10;(연구자가 막아 놓은 시간)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="380" y="140" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-screener" value="사전 스크리너 + 응답&#10;(온라인 실험에 한함)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="700" y="140" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-runprog" value="온라인 실험 진행도&#10;(예약별 토큰 · 블록 수 · 완료 코드)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1020" y="140" width="320" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ============== CENTER ROW: CORE TRIO =============== -->
+        <mxCell id="core-header" value="핵심 세 줄기" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="60" y="270" width="600" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- experiments — biggest central box -->
+        <mxCell id="t-exp-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f8fd;strokeColor=#1f4e79;strokeWidth=4" vertex="1" parent="1">
+          <mxGeometry x="1080" y="300" width="500" height="380" as="geometry" />
+        </mxCell>
+        <mxCell id="t-exp-h" value="experiments" style="text;html=1;align=center;fontSize=15;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="1080" y="310" width="500" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="t-exp-sub" value="실험 한 행에 모이는 모든 정보" style="text;html=1;align=center;fontSize=11;fontStyle=2;fontColor=#666" vertex="1" parent="1">
+          <mxGeometry x="1080" y="334" width="500" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="t-exp-c1" value="기본 정보 — 제목 · 기간 · 정원 · 세션 수 · 위치 · 상태 · 분류 · 요일" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1100" y="360" width="460" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="t-exp-c2" value="연구 메타 — 코드 경로 · 저장 경로 · 선언 파라미터 · 자동 분석 결과" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1100" y="410" width="460" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="t-exp-c3" value="사전 점검 체크리스트  +  완료 시각" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1100" y="460" width="460" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-exp-c4" value="리마인더 설정 — 전날·당일 켜기/끄기 · 시각 · 채널" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1100" y="504" width="460" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-exp-c5" value="온라인 실험 설정 — 진입 URL · 시행 수 · counterbalance" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1100" y="548" width="460" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-exp-c6" value="IRB 문서 · 유의사항 · 프로토콜 버전 · 만든이 · 만든 시각" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1100" y="592" width="460" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-exp-note" value="코드 경로 / 저장 경로 미입력시 활성화 거부 (DB 자체 안전장치)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef5e7;strokeColor=#d97706;strokeWidth=1;fontSize=10;fontStyle=2;fontColor=#7a4a1c" vertex="1" parent="1">
+          <mxGeometry x="1100" y="636" width="460" height="32" as="geometry" />
+        </mxCell>
+
+        <!-- bookings — middle -->
+        <mxCell id="t-book-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f8fd;strokeColor=#1f4e79;strokeWidth=4" vertex="1" parent="1">
+          <mxGeometry x="600" y="340" width="380" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="t-book-h" value="bookings" style="text;html=1;align=center;fontSize=15;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="600" y="350" width="380" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="t-book-sub" value="한 행 = 한 슬롯, 같은 그룹이면 다회차 묶음" style="text;html=1;align=center;fontSize=11;fontStyle=2;fontColor=#666" vertex="1" parent="1">
+          <mxGeometry x="600" y="374" width="380" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="t-book-c1" value="어느 실험 · 어느 참여자 · 슬롯 시각" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="620" y="400" width="340" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-book-c2" value="회차 번호  ·  그룹 식별자  ·  참여자 번호" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="620" y="444" width="340" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-book-c3" value="상태 — 확정 · 취소 · 완료 · 노쇼 · 진행중" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="620" y="488" width="340" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-book-c4" value="공유 캘린더 이벤트 식별자  ·  외부 미러 식별자" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="620" y="532" width="340" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-book-note" value="DB 함수가 잠금 · 정원 · 중복 참여 · 블랙리스트를 한 묶음으로 검사" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef5e7;strokeColor=#d97706;strokeWidth=1;fontSize=10;fontStyle=2;fontColor=#7a4a1c" vertex="1" parent="1">
+          <mxGeometry x="620" y="580" width="340" height="42" as="geometry" />
+        </mxCell>
+
+        <!-- participants -->
+        <mxCell id="t-part-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f8fd;strokeColor=#1f4e79;strokeWidth=4" vertex="1" parent="1">
+          <mxGeometry x="60" y="340" width="380" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="t-part-h" value="participants" style="text;html=1;align=center;fontSize=15;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="60" y="350" width="380" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="t-part-sub" value="한 사람 = 한 행 (연락처+이메일로 식별)" style="text;html=1;align=center;fontSize=11;fontStyle=2;fontColor=#666" vertex="1" parent="1">
+          <mxGeometry x="60" y="374" width="380" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="t-part-c1" value="이름 · 연락처 · 이메일 · 성별 · 생년월일" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="80" y="400" width="340" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="t-part-c2" value="만든 시각  +  중복 식별 방지 키" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="80" y="454" width="340" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-part-note" value="이름은 외부로 절대 나가지 않음 — 외부에는 익명 코드만" style="text;html=1;align=center;fontSize=10;fontStyle=2;fontColor=#7a4a1c" vertex="1" parent="1">
+          <mxGeometry x="60" y="500" width="380" height="32" as="geometry" />
+        </mxCell>
+
+        <!-- ============== RIGHT COLUMN: identity · class · 운영 =============== -->
+        <mxCell id="right-header" value="참여자 식별 · 등급" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="1620" y="110" width="160" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t-labs" value="labs&#10;연구실 · 익명 코드 비밀값" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="1620" y="140" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-pli" value="participant_lab_identity&#10;연구실별 익명 코드 + 중복 해시" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1620" y="240" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-pc" value="participant_classes&#10;현재 등급  (신규·단골·VIP·블랙)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1620" y="340" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-pca" value="participant_class_audit&#10;등급 변경 이력 (영구 기록)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1620" y="440" width="160" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ============== LEFT COLUMN: 외부 연동 · 알림 · 캐시 =============== -->
+        <mxCell id="left-header" value="외부 연동 · 알림 · 캐시" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#a17000" vertex="1" parent="1">
+          <mxGeometry x="60" y="700" width="500" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t-bi" value="booking_integrations&#10;외부 연동 큐  (이메일 · 문자 · 캘린더 · 미러)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="60" y="730" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-rem" value="reminders&#10;리마인더 일정 행" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="360" y="730" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-cache" value="calendar_freebusy_cache&#10;공유 캘린더 빈 시간 캐시" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="580" y="730" width="240" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ============== BOTTOM ROW: 정산 · 청구 =============== -->
+        <mxCell id="bot-header" value="참여자비 정산 · 청구" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="60" y="860" width="600" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t-ppi-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f8fd;strokeColor=#1f4e79;strokeWidth=3" vertex="1" parent="1">
+          <mxGeometry x="60" y="890" width="540" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="t-ppi-h" value="participant_payment_info" style="text;html=1;align=center;fontSize=14;fontStyle=1;fontColor=#1f4e79" vertex="1" parent="1">
+          <mxGeometry x="60" y="898" width="540" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="t-ppi-sub" value="한 사람 한 참여 = 한 행" style="text;html=1;align=center;fontSize=11;fontStyle=2;fontColor=#666" vertex="1" parent="1">
+          <mxGeometry x="60" y="920" width="540" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="t-ppi-c1" value="신분 정보 — 암호화 저장 (화면에 평문 노출 안 됨)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef5e7;strokeColor=#d97706;strokeWidth=2;fontSize=11;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="80" y="946" width="500" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-ppi-c2" value="계좌 정보 — 은행 · 계좌번호 · 예금주 · 기관명" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="80" y="990" width="500" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-ppi-c3" value="활동 기간  ·  정산 금액  ·  토큰 (일회용 · 만료 시각 · 폐기 시각)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="80" y="1034" width="500" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-ppi-c4" value="상태 — 대기 → 제출됨 → 청구됨 → 지급됨" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=1;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="80" y="1078" width="500" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t-ppi-note" value="상태 전이는 DB 차원에서 잠금 (더블 청구 방지)" style="text;html=1;align=center;fontSize=10;fontStyle=2;fontColor=#7a4a1c" vertex="1" parent="1">
+          <mxGeometry x="60" y="1122" width="540" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- attached storage cylinder -->
+        <mxCell id="t-storage" value="첨부 보관소  —  서명 + 통장 사본&#10;(정산 행은 경로만 보관, 파일은 비공개 보관소에)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fff8e1;strokeColor=#a17000;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="60" y="1170" width="540" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t-pclaim" value="payment_claims&#10;청구 묶음&#10;(누가 · 어느 실험 · 누구·얼마 · 발송 시각)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="640" y="890" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="t-pexp" value="payment_exports&#10;양식 파일 생성 이력" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#1f4e79;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="640" y="1020" width="280" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ============== RIGHT-BOTTOM: 운영 + 감사 family =============== -->
+        <mxCell id="ops-header" value="운영 · 감사 · 이력 family" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#555" vertex="1" parent="1">
+          <mxGeometry x="1000" y="860" width="700" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t-profiles" value="profiles&#10;사용자 정보  ·  역할 (참여자·연구자·관리자)  ·  비활성 여부" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1000" y="890" width="340" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="t-reg" value="registration_requests&#10;가입 요청 (비밀번호는 암호화 보관)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=2;fontSize=11" vertex="1" parent="1">
+          <mxGeometry x="1360" y="890" width="340" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t-audit-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#555;strokeWidth=2" vertex="1" parent="1">
+          <mxGeometry x="1000" y="990" width="700" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="t-audit-h" value="감사 · 이력 family  (모두 append-only, 영구 보관)" style="text;html=1;align=center;fontSize=12;fontStyle=1;fontColor=#555" vertex="1" parent="1">
+          <mxGeometry x="1000" y="1000" width="700" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="t-nl" value="notification_log&#10;알림 발송 이력  (메일·문자 결과)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=1;fontSize=10" vertex="1" parent="1">
+          <mxGeometry x="1020" y="1030" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="t-mrl" value="metadata_reminder_log&#10;메타데이터 누락 안내 발송" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=1;fontSize=10" vertex="1" parent="1">
+          <mxGeometry x="1260" y="1030" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="t-cpn" value="class_promotion_notifications&#10;등급 승격 통지 이력" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=1;fontSize=10" vertex="1" parent="1">
+          <mxGeometry x="1500" y="1030" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="t-nh" value="notion_health_state&#10;외부 미러 정상상태 점검" style="dashed=1;rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999;strokeWidth=1;fontSize=10;fontColor=#666" vertex="1" parent="1">
+          <mxGeometry x="1020" y="1090" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="t-bobs" value="booking_observations&#10;예약별 사전·사후 관찰 노트" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#555;strokeWidth=1;fontSize=10" vertex="1" parent="1">
+          <mxGeometry x="1260" y="1090" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="t-pexp2" value="payment_exports&#10;(위 §정산에서 참고)" style="dashed=1;rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999;strokeWidth=1;fontSize=10;fontColor=#666" vertex="1" parent="1">
+          <mxGeometry x="1500" y="1090" width="200" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ============== ARROWS — minimal core relationships =============== -->
+
+        <!-- experiments ← bookings -->
+        <mxCell id="e-exp-book" style="endArrow=classicThin;startArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=3;endFill=1;startFill=1" edge="1" parent="1" source="t-book-box" target="t-exp-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- participants ← bookings -->
+        <mxCell id="e-part-book" style="endArrow=classicThin;startArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=3;endFill=1;startFill=1" edge="1" parent="1" source="t-part-box" target="t-book-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- experiments → location -->
+        <mxCell id="e-exp-loc" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-exp-box" target="t-loc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- experiments → manual_blocks -->
+        <mxCell id="e-exp-block" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-exp-box" target="t-block">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- experiments → screener -->
+        <mxCell id="e-exp-scr" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-exp-box" target="t-screener">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- bookings → run_progress (online) -->
+        <mxCell id="e-book-run" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-book-box" target="t-runprog">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- bookings → booking_integrations -->
+        <mxCell id="e-book-bi" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-book-box" target="t-bi">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- bookings → reminders -->
+        <mxCell id="e-book-rem" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-book-box" target="t-rem">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- experiments → freebusy cache (lookup) -->
+        <mxCell id="e-exp-cache" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1;dashed=1" edge="1" parent="1" source="t-exp-box" target="t-cache">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- participants → participant_lab_identity -->
+        <mxCell id="e-part-pli" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-part-box" target="t-pli">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- participants → participant_classes -->
+        <mxCell id="e-part-pc" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-part-box" target="t-pc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- labs → pli (lab scope) -->
+        <mxCell id="e-labs-pli" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1;dashed=1" edge="1" parent="1" source="t-labs" target="t-pli">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- labs → pc -->
+        <mxCell id="e-labs-pc" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1;dashed=1" edge="1" parent="1" source="t-labs" target="t-pc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- pc → audit -->
+        <mxCell id="e-pc-aud" style="endArrow=classicThin;html=1;strokeColor=#555;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-pc" target="t-pca">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- experiments → participant_payment_info -->
+        <mxCell id="e-exp-ppi" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-exp-box" target="t-ppi-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- participants → participant_payment_info -->
+        <mxCell id="e-part-ppi" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-part-box" target="t-ppi-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ppi → payment_claims -->
+        <mxCell id="e-ppi-claim" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-ppi-box" target="t-pclaim">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ppi → storage -->
+        <mxCell id="e-ppi-st" style="endArrow=classicThin;html=1;strokeColor=#a17000;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-ppi-box" target="t-storage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- experiments → payment_exports -->
+        <mxCell id="e-exp-pexp" style="endArrow=classicThin;html=1;strokeColor=#1f4e79;strokeWidth=2;endFill=1" edge="1" parent="1" source="t-exp-box" target="t-pexp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============== BOTTOM LEGEND =============== -->
+        <mxCell id="legend" value="화살표:  굵은 파랑 = 핵심 관계   ·   파랑 = 일반 관계   ·   파랑 점선 = 약한 / 범위 한정 관계   ·   황색 = 외부 발송 큐 · 캐시 · 첨부   ·   회색 = 감사 · 이력&#10;박스 색:  연파랑 = 데이터 본체   ·   연황 = 외부 연동 · 첨부 보관소   ·   연주황 = 암호화 / 잠금 표시   ·   회색 = 운영 · 감사 · 이력   ·   회색 점선 = 미완 (외부 미러)" style="text;html=1;align=center;fontSize=11;fontColor=#555;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="40" y="1190" width="1720" height="40" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
