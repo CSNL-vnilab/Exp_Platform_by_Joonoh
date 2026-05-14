@@ -1,0 +1,226 @@
+{
+  "_meta": {
+    "name": "lab-reservation architecture diagram tokens",
+    "description": "Five-color palette + type scale + spacing used across docs/diagrams/postgres-architecture/. Import into Figma via Tokens Studio plugin (figma.com/community/plugin/843461159747178978). Token names use the role (system / external / highlight) not the raw color name, so future palette tweaks happen in one place.",
+    "version": "1.0.0",
+    "philosophy": "5 colors max, plain noun labels, no jargon/abbreviations/version numbers."
+  },
+  "global": {
+    "color": {
+      "neutral": {
+        "border": {
+          "value": "#555555",
+          "type": "color",
+          "description": "사람·일반 라벨의 stroke 색. 사용자 actor 박스와 운영·감사 그룹 박스에 적용."
+        },
+        "border-soft": {
+          "value": "#999999",
+          "type": "color",
+          "description": "미완·미래 표시의 stroke 색. 항상 점선과 함께 사용."
+        },
+        "text-strong": {
+          "value": "#333333",
+          "type": "color",
+          "description": "본문 텍스트 기본색."
+        },
+        "text-mid": {
+          "value": "#555555",
+          "type": "color",
+          "description": "범례·캡션 텍스트."
+        },
+        "text-soft": {
+          "value": "#777777",
+          "type": "color",
+          "description": "미래·점선 박스 안의 텍스트."
+        }
+      },
+      "system": {
+        "border": {
+          "value": "#1f4e79",
+          "type": "color",
+          "description": "시스템·데이터 카테고리의 핵심 stroke. 상단 accent strip 도 이 색."
+        },
+        "fill-tint": {
+          "value": "#dae8fc",
+          "type": "color",
+          "description": "행동·핵심 데이터 박스의 fill."
+        },
+        "fill-very-light": {
+          "value": "#f3f8fd",
+          "type": "color",
+          "description": "큰 컨테이너 박스 (실험·예약·정산 묶음) 의 배경."
+        }
+      },
+      "external": {
+        "border": {
+          "value": "#a17000",
+          "type": "color",
+          "description": "외부 서비스·캐시·첨부 보관소 stroke."
+        },
+        "fill-tint": {
+          "value": "#fff8e1",
+          "type": "color",
+          "description": "외부 서비스·발송 결과 박스의 fill."
+        }
+      },
+      "highlight": {
+        "border": {
+          "value": "#d97706",
+          "type": "color",
+          "description": "확인 게이트·주의 표시 stroke. 인지적 stop 신호."
+        },
+        "fill-tint": {
+          "value": "#fef5e7",
+          "type": "color",
+          "description": "확인 게이트·주의 박스 fill."
+        },
+        "text-strong": {
+          "value": "#7a4a1c",
+          "type": "color",
+          "description": "주황 박스 안의 텍스트. 이탤릭과 함께 사용."
+        }
+      }
+    },
+    "fontFamily": {
+      "default": {
+        "value": "Pretendard, -apple-system, system-ui, sans-serif",
+        "type": "fontFamilies",
+        "description": "한글·영문 혼용 가독성 최우선."
+      }
+    },
+    "fontSize": {
+      "title": {
+        "value": "28",
+        "type": "fontSizes",
+        "description": "그림 제목."
+      },
+      "subtitle": {
+        "value": "13",
+        "type": "fontSizes",
+        "description": "제목 아래 한 줄 부제."
+      },
+      "section-header": {
+        "value": "14",
+        "type": "fontSizes",
+        "description": "그림 안 영역 라벨 (행동·데이터·결과)."
+      },
+      "box-label": {
+        "value": "12",
+        "type": "fontSizes",
+        "description": "행동·결과 박스 안 텍스트."
+      },
+      "table-header": {
+        "value": "14",
+        "type": "fontSizes",
+        "description": "데이터 테이블 그룹 박스의 제목."
+      },
+      "table-field": {
+        "value": "11",
+        "type": "fontSizes",
+        "description": "테이블 안 sub-field 라벨."
+      },
+      "note": {
+        "value": "10",
+        "type": "fontSizes",
+        "description": "범례·박스 하단 caption."
+      }
+    },
+    "fontWeight": {
+      "regular": {
+        "value": "400",
+        "type": "fontWeights"
+      },
+      "bold": {
+        "value": "700",
+        "type": "fontWeights"
+      }
+    },
+    "spacing": {
+      "x-tight": {
+        "value": "8",
+        "type": "spacing",
+        "description": "박스 안 내부 여백 (텍스트와 stroke 사이)."
+      },
+      "tight": {
+        "value": "16",
+        "type": "spacing",
+        "description": "동일 카테고리 박스 사이 간격."
+      },
+      "default": {
+        "value": "24",
+        "type": "spacing",
+        "description": "다른 카테고리 박스 사이 간격."
+      },
+      "loose": {
+        "value": "40",
+        "type": "spacing",
+        "description": "column 사이 간격 (행동 ▶ 데이터 ▶ 결과)."
+      },
+      "between-columns": {
+        "value": "80",
+        "type": "spacing",
+        "description": "큰 영역 (예: 사용자 ▶ Vercel ▶ Supabase) 사이 간격."
+      }
+    },
+    "strokeWidth": {
+      "thin": {
+        "value": "1",
+        "type": "borderWidth",
+        "description": "테이블 안 sub-field 박스 stroke."
+      },
+      "default": {
+        "value": "2",
+        "type": "borderWidth",
+        "description": "일반 박스 stroke."
+      },
+      "bold": {
+        "value": "3",
+        "type": "borderWidth",
+        "description": "핵심 anchor 박스 stroke (예: experiments / bookings / participants)."
+      },
+      "extra-bold": {
+        "value": "4",
+        "type": "borderWidth",
+        "description": "가장 큰 컨테이너 박스 stroke."
+      }
+    },
+    "borderRadius": {
+      "default": {
+        "value": "8",
+        "type": "borderRadius",
+        "description": "박스 모서리 둥글기."
+      },
+      "rectangular": {
+        "value": "0",
+        "type": "borderRadius",
+        "description": "accent strip 처럼 직사각형으로 유지하는 요소."
+      }
+    },
+    "page": {
+      "width-default": {
+        "value": "1600",
+        "type": "sizing",
+        "description": "워크플로 도식 기본 가로 크기."
+      },
+      "width-erd": {
+        "value": "1800",
+        "type": "sizing",
+        "description": "DB 구조 ERD-축약본 가로 크기."
+      },
+      "height-default": {
+        "value": "900",
+        "type": "sizing"
+      },
+      "height-master": {
+        "value": "980",
+        "type": "sizing",
+        "description": "마스터 도식 (카테고리 인덱스 strip 포함) 세로 크기."
+      },
+      "accent-strip-height": {
+        "value": "8",
+        "type": "sizing",
+        "description": "상단 카테고리 색 strip 두께."
+      }
+    }
+  }
+}
