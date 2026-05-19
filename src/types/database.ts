@@ -490,6 +490,36 @@ export interface Database {
         };
         Relationships: [];
       };
+      participant_promo_sends: {
+        Row: {
+          id: string;
+          experiment_id: string;
+          participant_id: string;
+          email: string;
+          status: "sent" | "failed";
+          message_id: string | null;
+          error: string | null;
+          sent_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          experiment_id: string;
+          participant_id: string;
+          email: string;
+          status: "sent" | "failed";
+          message_id?: string | null;
+          error?: string | null;
+          sent_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          status?: "sent" | "failed";
+          message_id?: string | null;
+          error?: string | null;
+        };
+        Relationships: [];
+      };
       bookings: {
         Row: {
           id: string;
