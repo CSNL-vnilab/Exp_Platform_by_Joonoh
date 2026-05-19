@@ -35,6 +35,13 @@ export interface LLMChatJsonOptions {
   temperature?: number;
   num_predict?: number;
   num_ctx?: number;
+  // Deterministic-decode knobs (Ollama). Ignored by the Anthropic
+  // provider, which only honours `temperature`.
+  seed?: number;
+  top_p?: number;
+  top_k?: number;
+  repeat_penalty?: number;
+  min_p?: number;
   signal?: AbortSignal;
 }
 
@@ -66,6 +73,11 @@ export class OllamaProvider implements LLMProvider {
       temperature: opts.temperature,
       num_ctx: opts.num_ctx,
       num_predict: opts.num_predict,
+      seed: opts.seed,
+      top_p: opts.top_p,
+      top_k: opts.top_k,
+      repeat_penalty: opts.repeat_penalty,
+      min_p: opts.min_p,
       signal: opts.signal,
     });
   }
@@ -76,6 +88,11 @@ export class OllamaProvider implements LLMProvider {
       temperature: opts.temperature,
       num_ctx: opts.num_ctx,
       num_predict: opts.num_predict,
+      seed: opts.seed,
+      top_p: opts.top_p,
+      top_k: opts.top_k,
+      repeat_penalty: opts.repeat_penalty,
+      min_p: opts.min_p,
       signal: opts.signal,
     });
   }

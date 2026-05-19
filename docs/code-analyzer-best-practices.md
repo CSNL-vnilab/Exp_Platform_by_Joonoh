@@ -439,6 +439,62 @@ docs/code-analyzer-best-practices.md
 
 ---
 
+## 7c. 로컬 hi-fi 워크플로우 — gemma + qwen3.6, 결정론·플랫폼 렌즈
+
+Anthropic API 없이 (로컬 Ollama 전용) "시간이 더 걸려도 일정하고 신뢰
+가능한 고품질" 을 목표로 한 워크플로우. 별도 env 없이 랩 박스에서
+바로 동작한다.
+
+### 파이프라인
+
+1. **플랫폼 감지** (`platform-lens.ts`): 번들 전체를 가중 신호로 스캔해
+   PTB / PsychoPy / jsPsych / generic 중 택1 (단일 파일 휴리스틱보다 강함).
+2. **pass-1 (qwen3.6) — 플랫폼 렌즈 적용**: 시스템 프롬프트에 해당 플랫폼
+   에서 trial/block/condition/IV/saved 가 *어떻게 인코딩되는지* + 그 플랫폼
+   고유의 흔한 실수 목록을 주입. 결정론 디코딩.
+3. **pass-1 스키마 재시도**: 유효 JSON 이지만 스키마 위반이면 위반 항목을
+   인용해 교정 재요청 (seed 를 attempt 만큼 perturb). 소진 시 휴리스틱
+   폴백 — 하드 실패 없음.
+4. **pass-2 (gemma) — probe 근거 대조 리뷰**: 결정론적 정규식 probe 가
+   코드에서 뽑은 *근거 후보(이름+파일:라인)* 와 플랫폼 감사 체크리스트를
+   리뷰어에게 함께 줘서, "JSON 을 리뷰" 가 아니라 "근거 목록 ↔ JSON diff"
+   를 시킨다. 이전 리뷰어가 "0 patch 가 안전" 으로 편향돼 gemma 가 아무
+   것도 안 내던 문제를 해소. 모든 patch 는 zod 검증 통과만 적용 → 환각
+   불가.
+5. **Ollama 경로에서 refinement 기본 ON**: 이 조합의 존재 이유가 2-pass
+   품질이므로 랩 박스에선 env 없이 켜진다. `REFINEMENT=off` 로 강제 비활성,
+   `input.refinement` 가 최우선.
+
+### 결정론 (재현 가능성)
+
+`temperature=0` + `top_k=1` + 고정 `seed` → 같은 Ollama 빌드/번들이면 같은
+JSON. 추출·리뷰 양 패스 모두 적용. 재현성과 다양성을 맞바꾸려면
+`ANALYZER_TEMPERATURE>0` (이 경우에도 seed 고정이라 *seed 별* 재현).
+`scripts/bench-fixtures.mjs` 의 "±1pp 는 noise" 주의는 이제 seed 고정으로
+완화된다.
+
+### 마운트 / 서버리스
+
+- `/Volumes/CSNL_new` 가 없고 `/Volumes/CSNL_new-1` 로 remount 된 macOS
+  중복마운트를 **자동 보정** (동일 share 의 -N 형제만, base 이름 일치 시
+  허용). 후보가 둘 이상이면 모호하다고 명확히 거부.
+- Vercel/Lambda 등 서버리스에서 `/Volumes` 접근 시 "로컬에서 실행하라" 는
+  실행 가능한 한국어 에러 (기존의 불투명한 "경로를 찾을 수 없습니다" 대체).
+
+### 환경변수 (추가분)
+
+| Var | Default | 설명 |
+|---|---|---|
+| `ANALYZER_SEED` | 42 | 추출·리뷰 RNG seed. `off`/빈값 = seed 미지정. |
+| `ANALYZER_TEMPERATURE` | 0 | 0=greedy(완전 재현). >0=seeded sampling. |
+| `ANALYZER_PASS1_RETRIES` | 1 | 스키마 위반 시 교정 재요청 횟수 (clamp [0,3]). |
+| `OLLAMA_MAX_RETRIES` | 2 | 빈 응답/일시 오류 재시도 (clamp [0,5]). caller cancel·timeout 은 즉시 전파. |
+
+> Anthropic 미사용 전제: `REFINEMENT_PROVIDER` 기본값은 ollama 경로에서
+> gemma 로 귀결. `claude-opus-4-7` 관련 항목은 키가 없으면 자동 무시된다.
+
+---
+
 ## 8. 한 줄 요약
 
 > 옛 “경로 두 개를 손으로 입력하세요” 가 → "주소 한 줄 + 분석 버튼 → 표를 검토하세요" 로 바뀌었고, TimeExp1 ground truth 대비 *기계 채점 가능* 항목 자동 회복률이 ~30 → 79% 로 올라갔다. 핵심 lever 는 (1) call-graph 번들러로 컨텍스트를 정제, (2) README/summary 자동 주입, (3) save-focused prompt + qwen3.6:latest. 디자인-수준 해석 (Day1=훈련-only 같은 *질적* 구분, single-value 변수가 IV 가 아님 같은 판단) 은 마지막 마일을 사람이 마무리하도록 모든 셀을 편집 가능하게 + 챗봇 1~2턴으로 patch 가능하게 만들어 두었다.

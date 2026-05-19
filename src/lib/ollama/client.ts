@@ -6,24 +6,34 @@ export interface ChatMessage {
   images?: string[];
 }
 
-export interface GenerateOptions {
+// Decoding knobs threaded straight into the Ollama `options` object.
+// Defaults elsewhere keep behaviour unchanged; the analyzer's hi-fi
+// profile sets these explicitly for *reproducible* output (greedy +
+// fixed seed). Only defined fields are sent so a model that ignores a
+// knob isn't handed `undefined`.
+export interface DecodeKnobs {
+  temperature?: number;
+  num_ctx?: number;
+  num_predict?: number;
+  seed?: number;
+  top_p?: number;
+  top_k?: number;
+  repeat_penalty?: number;
+  min_p?: number;
+}
+
+export interface GenerateOptions extends DecodeKnobs {
   model?: string;
   task?: Task;
   prompt: string;
   system?: string;
-  temperature?: number;
-  num_ctx?: number;
-  num_predict?: number;
   signal?: AbortSignal;
 }
 
-export interface ChatOptions {
+export interface ChatOptions extends DecodeKnobs {
   model?: string;
   task?: Task;
   messages: ChatMessage[];
-  temperature?: number;
-  num_ctx?: number;
-  num_predict?: number;
   signal?: AbortSignal;
 }
 
@@ -78,6 +88,70 @@ async function ollamaFetch(path: string, body: unknown, signal?: AbortSignal): P
   return res;
 }
 
+// Build the Ollama `options` object, applying defaults for the three
+// core knobs and forwarding only *defined* decode knobs.
+function buildOptions(
+  o: DecodeKnobs,
+  defaults: { temperature: number; num_ctx: number; num_predict: number },
+): Record<string, number> {
+  const out: Record<string, number> = {
+    temperature: o.temperature ?? defaults.temperature,
+    num_ctx: o.num_ctx ?? defaults.num_ctx,
+    num_predict: o.num_predict ?? defaults.num_predict,
+  };
+  if (o.seed !== undefined) out.seed = o.seed;
+  if (o.top_p !== undefined) out.top_p = o.top_p;
+  if (o.top_k !== undefined) out.top_k = o.top_k;
+  if (o.repeat_penalty !== undefined) out.repeat_penalty = o.repeat_penalty;
+  if (o.min_p !== undefined) out.min_p = o.min_p;
+  return out;
+}
+
+function intFromEnv(raw: string | undefined, fallback: number, max: number): number {
+  if (!raw) return fallback;
+  const t = raw.trim();
+  if (!/^\d+$/.test(t)) return fallback;
+  const n = Number.parseInt(t, 10);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.min(n, max);
+}
+
+// Retries transient Ollama failures (network blip, OOM-then-recover,
+// empty content) with linear backoff. Caller cancellation and timeouts
+// are propagated immediately — they are *not* transient. Bounded by
+// OLLAMA_MAX_RETRIES (default 2, max 5). On the lab box a model that
+// just got swapped in occasionally returns one empty body before it
+// warms; this turns a hard failure into a brief wait.
+const OLLAMA_MAX_RETRIES = intFromEnv(process.env.OLLAMA_MAX_RETRIES, 2, 5);
+
+async function withOllamaRetry<T>(
+  fn: (attempt: number) => Promise<T>,
+  isEmpty: (v: T) => boolean,
+  signal?: AbortSignal,
+): Promise<T> {
+  let lastErr: unknown = new Error("Ollama: no attempt ran");
+  for (let attempt = 0; attempt <= OLLAMA_MAX_RETRIES; attempt += 1) {
+    if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+    try {
+      const v = await fn(attempt);
+      if (!isEmpty(v)) return v;
+      lastErr = new Error("Ollama 응답이 비어 있습니다 (모델 로딩 중일 수 있음)");
+    } catch (e) {
+      if (
+        e instanceof Error &&
+        (e.name === "AbortError" || e.name === "TimeoutError")
+      ) {
+        throw e; // caller cancel / hard timeout — do not retry
+      }
+      lastErr = e;
+    }
+    if (attempt < OLLAMA_MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 export async function generate(opts: GenerateOptions): Promise<string> {
   const model = resolveModel(opts.model, opts.task, "review.fast");
   const res = await ollamaFetch(
@@ -87,11 +161,11 @@ export async function generate(opts: GenerateOptions): Promise<string> {
       prompt: opts.prompt,
       system: opts.system,
       stream: false,
-      options: {
-        temperature: opts.temperature ?? 0.2,
-        num_ctx: opts.num_ctx ?? 8192,
-        num_predict: opts.num_predict ?? 2048,
-      },
+      options: buildOptions(opts, {
+        temperature: 0.2,
+        num_ctx: 8192,
+        num_predict: 2048,
+      }),
     },
     opts.signal,
   );
@@ -120,25 +194,48 @@ export async function chatJson<T = unknown>(opts: ChatJsonOptions): Promise<T> {
       : typeof opts.schema === "string"
         ? safeParseJson(opts.schema) ?? "json"
         : opts.schema;
-  const body: Record<string, unknown> = {
-    model,
-    messages: opts.messages,
-    stream: false,
-    format,
-    think: opts.think ?? false,
-    options: {
-      temperature: opts.temperature ?? 0.1,
-      num_ctx: opts.num_ctx ?? 32_768,
-      num_predict: opts.num_predict ?? 4_096,
+  const baseOptions = buildOptions(opts, {
+    temperature: 0.1,
+    num_ctx: 32_768,
+    num_predict: 4_096,
+  });
+  const parsed = await withOllamaRetry<unknown>(
+    async (attempt) => {
+      const options = { ...baseOptions };
+      // On a retry, perturb the sampler so a deterministic bad sample
+      // isn't reproduced verbatim: bump a pinned seed, else nudge
+      // temperature. Attempt 0 stays exactly as configured so the
+      // happy path is fully reproducible.
+      if (attempt > 0) {
+        if (typeof options.seed === "number") options.seed += attempt;
+        else
+          options.temperature = Math.min(
+            0.7,
+            (options.temperature ?? 0.1) + 0.2 * attempt,
+          );
+      }
+      const body: Record<string, unknown> = {
+        model,
+        messages: opts.messages,
+        stream: false,
+        format,
+        think: opts.think ?? false,
+        options,
+      };
+      const res = await ollamaFetch("/api/chat", body, opts.signal);
+      const data = (await res.json()) as { message?: { content?: string } };
+      const raw = data.message?.content ?? "";
+      const p = safeParseJson(raw);
+      if (p == null) {
+        throw new Error(
+          `chatJson: model returned non-JSON: ${raw.slice(0, 200)}`,
+        );
+      }
+      return p;
     },
-  };
-  const res = await ollamaFetch("/api/chat", body, opts.signal);
-  const data = (await res.json()) as { message?: { content?: string } };
-  const raw = data.message?.content ?? "";
-  const parsed = safeParseJson(raw);
-  if (parsed == null) {
-    throw new Error(`chatJson: model returned non-JSON: ${raw.slice(0, 200)}`);
-  }
+    (v) => v == null,
+    opts.signal,
+  );
   return parsed as T;
 }
 
@@ -232,22 +329,28 @@ function repairTruncatedJson(s: string): string | null {
 
 export async function chat(opts: ChatOptions): Promise<string> {
   const model = resolveModel(opts.model, opts.task, "reason");
-  const res = await ollamaFetch(
-    "/api/chat",
-    {
-      model,
-      messages: opts.messages,
-      stream: false,
-      options: {
-        temperature: opts.temperature ?? 0.2,
-        num_ctx: opts.num_ctx ?? 8192,
-        num_predict: opts.num_predict ?? 2048,
-      },
+  const baseOptions = buildOptions(opts, {
+    temperature: 0.2,
+    num_ctx: 8192,
+    num_predict: 2048,
+  });
+  return withOllamaRetry<string>(
+    async (attempt) => {
+      const options = { ...baseOptions };
+      if (attempt > 0 && typeof options.seed === "number") {
+        options.seed += attempt;
+      }
+      const res = await ollamaFetch(
+        "/api/chat",
+        { model, messages: opts.messages, stream: false, options },
+        opts.signal,
+      );
+      const data = (await res.json()) as { message?: { content?: string } };
+      return data.message?.content ?? "";
     },
+    (v) => v.trim().length === 0,
     opts.signal,
   );
-  const data = (await res.json()) as { message?: { content?: string } };
-  return data.message?.content ?? "";
 }
 
 export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {

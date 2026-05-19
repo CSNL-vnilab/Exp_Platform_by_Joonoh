@@ -15,10 +15,74 @@ import {
 } from "./code-analysis-schema";
 import { applyPatch, parsePatchBlocks } from "./code-analysis-patch";
 import {
+  detectPlatform,
+  lensFor,
+  summariseProbeHits,
+  type PlatformLens,
+} from "./platform-lens";
+import {
   resolveProvider,
   resolveReviewProvider,
   type LLMProvider,
 } from "./llm-provider";
+
+// ---------------------------------------------------------------------------
+// Deterministic decode preset — the lab runs the local gemma+qwen combo
+// and wants *reproducible* output across re-runs. Greedy decoding
+// (temperature 0, top_k 1, top_p 1) + a pinned seed makes a given Ollama
+// build emit the same JSON for the same bundle. Raise ANALYZER_TEMPERATURE
+// above 0 to trade reproducibility for sampling diversity; ANALYZER_SEED
+// pins the RNG (default 42). The seed is still forwarded under sampling
+// so a temperature>0 run is reproducible *per seed*.
+// ---------------------------------------------------------------------------
+interface DecodePreset {
+  seed: number | undefined;
+  temperature: number;
+  top_p: number;
+  top_k: number;
+  repeat_penalty: number;
+}
+
+function envFloat(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const n = Number.parseFloat(raw.trim());
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function envIntOrNull(
+  raw: string | undefined,
+  fallback: number | null,
+): number | null {
+  if (raw === undefined) return fallback;
+  const t = raw.trim();
+  if (t === "" || t.toLowerCase() === "off" || t.toLowerCase() === "none")
+    return null;
+  if (!/^\d+$/.test(t)) return fallback;
+  return Number.parseInt(t, 10);
+}
+
+function deterministicDecode(): DecodePreset {
+  const temperature = envFloat(process.env.ANALYZER_TEMPERATURE, 0);
+  const seed = envIntOrNull(process.env.ANALYZER_SEED, 42) ?? undefined;
+  if (temperature === 0) {
+    // Pure greedy — top_k=1 forces argmax, fully reproducible.
+    return { seed, temperature: 0, top_p: 1, top_k: 1, repeat_penalty: 1 };
+  }
+  // Seeded sampling — diverse but reproducible per seed.
+  return { seed, temperature, top_p: 0.9, top_k: 40, repeat_penalty: 1.05 };
+}
+
+function envIntClamp(
+  raw: string | undefined,
+  fallback: number,
+  max: number,
+): number {
+  if (!raw) return fallback;
+  const t = raw.trim();
+  if (!/^\d+$/.test(t)) return fallback;
+  const n = Number.parseInt(t, 10);
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, max) : fallback;
+}
 
 export interface AiAnalyzeInput {
   code: string;
@@ -418,7 +482,15 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
   const truncated = input.code.length > CODE_BUDGET;
 
   const docs = (input.docs ?? "").slice(0, 30_000);
-  const system =
+
+  // Platform lens: scan the whole bundle (stronger than the single-file
+  // heuristic) and pick the PTB / PsychoPy / jsPsych / generic lens. The
+  // lens augments whatever prompt preset is active with platform-specific
+  // "this is how each concept is encoded here" guidance; its `probe()`
+  // feeds the pass-2 reviewer concrete, line-grounded candidates.
+  const detected = detectPlatform(code, input.heuristic.meta.framework);
+  const lens: PlatformLens = lensFor(detected.platform);
+  const baseSystem =
     input.systemPromptOverride ??
     buildSystemPrompt({
       hasDocs: !!docs,
@@ -428,6 +500,11 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
       // can fire when the heuristic seeded a non-trivial genre.
       domainGenre: input.heuristic.meta.domain_genre,
     });
+  // Don't double-inject the lens when the caller fully overrides the
+  // system prompt (the bench A/B harness controls the prompt itself).
+  const system = input.systemPromptOverride
+    ? baseSystem
+    : [baseSystem, lens.extractionLens.join("\n")].join("\n\n");
 
   const userPayload = {
     filename: input.filename ?? null,
@@ -474,36 +551,86 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
   // truncated mid-meta. Raising num_ctx to 64K leaves comfortable room
   // for a 20K-token JSON response. (Qwen3.6 supports up to 256K via
   // YaRN, but most local pulls quantise the rope settings around 64K.)
-  const raw = await provider.chatJson<unknown>({
-    messages,
-    temperature: 0.1,
-    num_ctx: 65_536,
-    num_predict: 20_480,
-    signal: input.signal,
-  });
+  // Pass-1 extraction with a schema-validated retry. The Ollama client
+  // already retries transient/non-JSON responses internally; the residual
+  // failure here is "valid JSON that doesn't satisfy CodeAnalysisSchema".
+  // We re-ask with a corrective nudge (and a perturbed seed so a
+  // deterministic bad sample isn't reproduced), then fall back to the
+  // heuristic — never a hard 500 — so output stays reliable.
+  const decode = deterministicDecode();
+  const pass1Retries = envIntClamp(process.env.ANALYZER_PASS1_RETRIES, 1, 3);
+  let safeData: CodeAnalysis | null = null;
+  let lastIssue = "unknown";
+  let attemptMessages = messages;
+  for (let attempt = 0; attempt <= pass1Retries; attempt += 1) {
+    let raw: unknown;
+    try {
+      raw = await provider.chatJson<unknown>({
+        messages: attemptMessages,
+        temperature: decode.temperature,
+        num_ctx: 65_536,
+        num_predict: 20_480,
+        seed:
+          decode.seed === undefined ? undefined : decode.seed + attempt,
+        top_p: decode.top_p,
+        top_k: decode.top_k,
+        repeat_penalty: decode.repeat_penalty,
+        signal: input.signal,
+      });
+    } catch (err) {
+      lastIssue = err instanceof Error ? err.message : String(err);
+      if (
+        err instanceof Error &&
+        (err.name === "AbortError" || err.name === "TimeoutError")
+      ) {
+        throw err; // caller cancel / hard timeout — surface it
+      }
+      continue; // transient extraction failure — try again / fall back
+    }
+    const parsed = CodeAnalysisSchema.safeParse(raw);
+    if (parsed.success) {
+      safeData = parsed.data;
+      break;
+    }
+    lastIssue = parsed.error.issues[0]?.message ?? "unknown";
+    // Corrective nudge for the next attempt — quote the violation so the
+    // model fixes that specific field instead of re-emitting the same JSON.
+    attemptMessages = [
+      ...messages,
+      {
+        role: "user" as const,
+        content: `직전 출력이 스키마 검증에 실패했습니다: ${lastIssue}. 스키마를 엄격히 지켜 JSON 객체 하나만 다시 출력하세요 — 코드펜스/설명/주석 금지, enum 외 값 금지.`,
+      },
+    ];
+  }
 
-  const safe = CodeAnalysisSchema.safeParse(raw);
-  if (!safe.success) {
+  if (!safeData) {
     return {
       analysis: {
         ...input.heuristic,
         warnings: [
           ...input.heuristic.warnings,
-          `AI 분석 결과 스키마가 일치하지 않아 휴리스틱 결과를 유지했습니다 (${safe.error.issues[0]?.message ?? "unknown"}).`,
+          `AI 분석 결과가 스키마와 맞지 않아 (재시도 ${pass1Retries}회 포함) 휴리스틱 결과를 유지했습니다 (${lastIssue.slice(0, 160)}).`,
         ],
       },
       model: `${provider.model} (${provider.name})`,
     };
   }
   if (truncated) {
-    safe.data.warnings = [
-      ...safe.data.warnings,
+    safeData.warnings = [
+      ...safeData.warnings,
       `코드가 ${CODE_BUDGET.toLocaleString()}자 이상이어서 일부만 분석되었습니다.`,
+    ];
+  }
+  if (detected.platform !== "generic") {
+    safeData.warnings = [
+      ...safeData.warnings,
+      `플랫폼 렌즈: ${lens.label} (확신 ${(detected.confidence * 100).toFixed(0)}%) 적용.`,
     ];
   }
 
   const pass1: AiAnalyzeResult = {
-    analysis: safe.data,
+    analysis: safeData,
     model: `${provider.model} (${provider.name})`,
   };
 
@@ -514,9 +641,19 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
   // blocks for items it would correct. Patches are validated through
   // the same zod schema the chatbot patches use, so a hallucinated
   // enum can't corrupt the merged view.
+  // Default ON for the local Ollama combo (qwen3.6 extract → gemma
+  // review): the whole point of this workflow is the 2-pass quality
+  // lift, so it shouldn't need an env flag on the lab box. Explicit
+  // input wins; REFINEMENT=on/off still forces; on the Anthropic path
+  // it stays off-by-default to avoid surprise cloud spend.
+  const envRefine = (process.env.REFINEMENT ?? "").toLowerCase();
   const refineEnabled =
     input.refinement ??
-    (process.env.REFINEMENT ?? "").toLowerCase() === "on";
+    (envRefine === "on"
+      ? true
+      : envRefine === "off"
+        ? false
+        : provider.name === "ollama");
   if (!refineEnabled) return pass1;
 
   try {
@@ -526,6 +663,8 @@ export async function runAiAnalysis(input: AiAnalyzeInput): Promise<AiAnalyzeRes
       filename: input.filename ?? null,
       docs,
       truncated,
+      lens,
+      probeSummary: summariseProbeHits(lens.probe(code)),
       provider: input.refinementProvider,
       model: input.refinementModel,
       signal: input.signal,
@@ -584,6 +723,10 @@ interface RefinementInput {
   filename: string | null;
   docs: string | null;
   truncated: boolean;
+  // Platform lens drives the reviewer's audit checklist; probeSummary is
+  // the line-grounded evidence list the reviewer diffs the JSON against.
+  lens: PlatformLens;
+  probeSummary: string;
   provider?: "ollama" | "anthropic" | "auto";
   model?: string;
   signal?: AbortSignal;
@@ -595,21 +738,21 @@ interface RefinementOutput {
 }
 
 const REFINE_REVIEW_PROMPT = [
-  "당신은 인지·행동 실험 코드 분석 결과를 *교차 검토*하는 리뷰어입니다.",
-  "qwen3.6 분석기가 1차 추출한 메타데이터(JSON) 와 원본 코드(다중 파일 번들) 를 입력으로 받습니다.",
-  "당신의 임무: 원본 코드를 다시 정독하고, 1차 추출이 *놓쳤거나 잘못 분류한* 항목을 찾아 patch 명령으로 emit.",
+  "당신은 인지·행동 실험 코드 분석 결과를 *교차 검토*하는 시니어 리뷰어입니다.",
+  "입력: (1) 1차 추출 JSON, (2) 원본 코드 번들, (3) 결정론적 정규식 probe 가 코드에서 뽑은 *근거 후보 목록* (이름 + 파일:라인), (4) 플랫폼별 감사 체크리스트.",
+  "당신의 임무는 추측이 아니라 *대조(diff)* 입니다: probe 후보·체크리스트 항목을 1차 JSON 과 한 줄씩 맞춰보고, 코드에 실재하지만 JSON 에 빠졌거나 잘못 분류된 항목을 patch 로 정정.",
   "",
-  "**출력 규칙 (필수)**:",
-  "1. patch 블럭만 출력. patch 외부의 텍스트, 마크다운, 설명 *모두 금지*.",
-  "2. 1차 추출이 정확하면 patch 0 개로 종료 (no-op 가 가장 안전한 응답).",
-  "3. 각 patch 는 코드 라인 근거를 가져야 함. 추측 금지 — 코드에 근거가 없으면 emit 하지 말 것.",
+  "**작업 규칙 (필수)**:",
+  "1. patch 블럭만 출력. patch 외부의 텍스트·마크다운·설명·사고과정 *모두 금지*.",
+  "2. probe 후보가 코드에 실재하고(라인 근거 확인) 1차 JSON 에 없으면 → 해당 op 로 upsert. 이미 정확히 있으면 그 항목은 건너뜀.",
+  "3. 누락을 빠뜨리는 것이 가장 큰 실패입니다. 단, *코드 라인 근거가 없는 항목은 절대 추가 금지* (probe 에 없고 코드에서도 못 찾으면 emit 안 함). 환각 patch 는 zod 에서 거부되어 시간 낭비.",
+  "4. 잘못 분류 정정: 단일값 상수가 factors 에 있으면 remove_factor + upsert_parameter(shape=constant); role 오분류는 upsert_factor 로 role 만 교정.",
   "",
-  "**우선 점검 영역**:",
-  "- factors: 누락된 IV (per-trial / within-session / between-subject), role 오분류, 단일값 변수를 IV 로 잘못 등록한 경우 (remove + parameter upsert).",
-  "- parameters: 누락된 셋업 상수 (timing, screen, paths). default 값과 unit 도 함께.",
-  "- saved_variables: 5 카테고리 — per-trial 자극, per-trial 반응, per-trial 타이밍, per-block 요약, per-session 메타. 누락된 항목 upsert.",
-  "- meta.block_phases: phase 가 여러 개인데 단일 n_blocks 로 평탄화된 경우 set_meta + (phase 정보는 단일 patch 에 못 담으므로 warnings 에 자연어 요약 — 본 grammar 에는 block_phases set 이 없음, n_blocks 만 정정).",
-  "- meta.domain_genre / framework / language: 잘못된 분류는 set_meta 로 정정.",
+  "**공통 점검 영역**:",
+  "- factors: 누락 IV (per-trial / within-session / between-subject), role 오분류, 상수를 IV 로 오등록.",
+  "- parameters: 누락 셋업 상수 (timing/screen/paths) — default·unit·shape 포함.",
+  "- saved_variables: per-trial 자극·반응·타이밍 / per-block 요약 / per-session 메타 5 카테고리 누락 upsert (타이밍은 채널별 분리).",
+  "- meta: 단일 n_blocks 평탄화 시 set_meta 로 대표값 정정 (block_phases 세부는 grammar 에 없으니 warnings 에 자연어 요약). domain_genre/framework/language 오분류는 set_meta.",
   "",
   "**사용 가능한 patch op (정확히 이 grammar — 다른 키 추가 금지)**:",
   '<patch>{"op":"set_meta","field":"n_blocks|n_trials_per_block|total_trials|estimated_duration_min|seed|summary|framework|language","value":...}</patch>',
@@ -627,7 +770,7 @@ const REFINE_REVIEW_PROMPT = [
   `- language: ${SUPPORTED_LANGS.join(" | ")}`,
   `- domain_genre: ${SUPPORTED_GENRES.join(" | ")}`,
   "",
-  "분석 후 patch 를 0~30 개 범위에서 emit. 그 외 텍스트 출력 금지.",
+  "probe 후보·체크리스트를 끝까지 대조한 뒤, 근거 있는 누락·오분류를 빠짐없이 patch 로 emit (전형적으로 5~30 개; 정말 정확하면 적게). patch 외 텍스트 절대 금지.",
 ].join("\n");
 
 const REFINE_CODE_BUDGET = 80_000;
@@ -656,13 +799,28 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
   });
   const code = input.code.slice(0, REFINE_CODE_BUDGET);
   const docs = (input.docs ?? "").slice(0, 30_000);
+  // System prompt = generic reviewer rules + this platform's audit
+  // checklist, so gemma reviews PTB code through the PTB lens, PsychoPy
+  // through the PsychoPy lens, etc.
+  const systemPrompt = [
+    REFINE_REVIEW_PROMPT,
+    "",
+    `**플랫폼: ${input.lens.label}**`,
+    ...input.lens.reviewChecklist,
+  ].join("\n");
+
   const userContent = [
     docs
-      ? "참고 문서(연구자 작성):\n```\n" + docs + "\n```\n"
+      ? "참고 문서(연구자 작성 — 설계 ground truth):\n```\n" + docs + "\n```\n"
       : "",
-    "1차 추출 JSON (1차 추출기):",
+    "1차 추출 JSON (qwen3.6):",
     "```json",
     JSON.stringify(input.pass1, null, 2),
+    "```",
+    "",
+    "결정론적 probe 가 코드에서 뽑은 *근거 후보* (각 항목을 위 JSON 과 대조하세요 — 코드에 있고 JSON 에 없으면 upsert):",
+    "```",
+    input.probeSummary,
     "```",
     "",
     `원본 코드 번들 (filename hint: ${input.filename ?? "(unknown)"})${
@@ -672,13 +830,13 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
     code,
     "```",
     "",
-    "위 1차 추출에서 잘못/누락된 항목만 patch 로 emit 하세요. 정확하면 0 개 emit.",
+    "probe 후보와 플랫폼 체크리스트를 1차 JSON 과 끝까지 대조한 뒤, 근거 있는 누락·오분류를 patch 로 emit 하세요. patch 외 텍스트 금지.",
   ]
     .filter(Boolean)
     .join("\n");
 
   const messages = [
-    { role: "system" as const, content: REFINE_REVIEW_PROMPT },
+    { role: "system" as const, content: systemPrompt },
     { role: "user" as const, content: userContent },
   ];
 
@@ -706,12 +864,17 @@ async function runRefinement(input: RefinementInput): Promise<RefinementOutput> 
   console.error(
     `[refine] start reviewer=${reviewer.model} (${reviewer.name}) num_ctx=${numCtx} num_predict=${REFINE_NUM_PREDICT} timeout=${timeoutMs}ms`,
   );
+  const reviewDecode = deterministicDecode();
   const t0 = Date.now();
   const text = await reviewer.chatText({
     messages,
-    temperature: 0.1,
+    temperature: reviewDecode.temperature,
     num_ctx: numCtx,
     num_predict: REFINE_NUM_PREDICT,
+    seed: reviewDecode.seed,
+    top_p: reviewDecode.top_p,
+    top_k: reviewDecode.top_k,
+    repeat_penalty: reviewDecode.repeat_penalty,
     signal,
   });
   const durationMs = Date.now() - t0;
