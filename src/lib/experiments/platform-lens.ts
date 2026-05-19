@@ -36,7 +36,8 @@ export type ProbeCategory =
   | "factor"
   | "parameter"
   | "saved"
-  | "structure";
+  | "structure" // experiment→session→block→trial nesting
+  | "display"; // stimulus/figure output — what is shown / plotted / saved as a fig
 
 export interface PlatformProbeHit {
   category: ProbeCategory;
@@ -224,6 +225,131 @@ function ident(s: string): string {
   return s.trim().replace(/[`'"]/g, "").slice(0, 64);
 }
 
+// Cross-platform probes for the two inductive-bias targets the lab
+// asked for and that every framework expresses similarly:
+//   (1) experiment→session→block→trial loop nesting (structure), and
+//   (2) visualization / stimulus *output* — what is drawn to the
+//       participant AND what is plotted / saved as a figure (display).
+// Called by every platform probe so the reviewer always gets grounded
+// hierarchy + display evidence regardless of framework.
+function probeStructureAndDisplay(bundle: string, sink: HitSink): void {
+  for (const w of walkBundle(bundle)) {
+    const t = w.text;
+    if (!t || /^\s*(#|\/\/|%)/.test(t)) continue;
+
+    // ---- loop nesting → structure ----
+    // MATLAB `for iR = 1:nBlocks`, Python `for iT in range(nT)`,
+    // JS `for (let i = 0; i < nTrials; i++)`.
+    let m = t.match(
+      /\bfor\s+(?:\(\s*(?:let|var|const)\s+)?([A-Za-z_]\w*)\s*(?:=\s*\d+\s*:|in\s+range\s*\(|=\s*0\s*;)/,
+    );
+    if (m) {
+      const v = m[1];
+      const lvl =
+        /sess|day|run\b|iS\b|iR\b|block|iB\b/i.test(v)
+          ? "session/block 레벨"
+          : /tr?i?al|iT\b|trl/i.test(v)
+            ? "trial 레벨"
+            : "루프 레벨";
+      sink.add({
+        category: "structure",
+        name: `loop ${ident(v)}`,
+        evidence: t,
+        line_hint: hintOf(w),
+        note: `${lvl} — n_* / block_phases / meta.hierarchy 에 반영`,
+      });
+    }
+    // Explicit session/day axis
+    m = t.match(
+      /\b(?:par\.|cfg\.|exp\.|this\.)?(day|session|run|nSession|nRun|nBlocks?|nTrials?|nT|nR)\b\s*[=:]/,
+    );
+    if (m) {
+      sink.add({
+        category: "structure",
+        name: ident(m[1]),
+        evidence: t,
+        line_hint: hintOf(w),
+        note: "계층 카운트/축 — hierarchy 한 줄에 포함",
+      });
+    }
+
+    // ---- visualization / stimulus output → display ----
+    // Figure/plot OUTPUT (experimenter-facing) + the saved figure file.
+    m = t.match(
+      /\b(figure|plot|imagesc|scatter|histogram|errorbar|bar|boxplot|heatmap|pcolor|surf)\s*\(/,
+    );
+    if (m) {
+      sink.add({
+        category: "display",
+        name: `plot:${ident(m[1])}`,
+        evidence: t,
+        line_hint: hintOf(w),
+        note: "시각화 출력 — 그려지는 변수는 saved/parameter 후보",
+      });
+    }
+    m = t.match(
+      /\b(?:saveas|savefig|exportgraphics|print)\s*\(?\s*[^,'"]*['"]?([^'",)]*\.(?:png|pdf|fig|svg|eps|jpg))/i,
+    );
+    if (m) {
+      sink.add({
+        category: "display",
+        name: `(figure file) ${ident(m[1])}`,
+        evidence: t,
+        line_hint: hintOf(w),
+        note: "저장 figure — saved_variables(sink=파일)",
+      });
+    }
+    m = t.match(/\b(?:plt|pyplot)\.(savefig|plot|imshow|scatter|hist|bar|errorbar)\s*\(/);
+    if (m) {
+      sink.add({
+        category: "display",
+        name: `plt.${ident(m[1])}`,
+        evidence: t,
+        line_hint: hintOf(w),
+        note: "matplotlib 시각화 출력",
+      });
+    }
+    // Participant-facing stimulus draw (what is *shown*).
+    m = t.match(
+      /\bScreen\s*\(\s*['"](DrawTexture|DrawDots|DrawLines|FillRect|FillOval|Flip|DrawText)['"]|\bDrawFormattedText\s*\(|\.draw\s*\(\s*\)|win\.flip\s*\(/,
+    );
+    if (m) {
+      sink.add({
+        category: "display",
+        name: `draw:${ident(m[1] ?? "stimulus")}`,
+        evidence: t,
+        line_hint: hintOf(w),
+        note: "자극 제시 — 무엇이 보이는지 정의하는 변수는 parameter/factor",
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// cross-platform inductive bias — prepended to every platform's lens so
+// hierarchy / condition / IV-role / visualization priors fire regardless
+// of framework, with the platform block adding the API specifics.
+// ---------------------------------------------------------------------------
+const HIERARCHY_CORE = [
+  "**계층·조건·조작변수·시각화 inductive bias (모든 플랫폼 공통, 최우선)**:",
+  "H1. 실험은 *experiment → session/day → run/block → trial* 로 중첩됩니다. 각 레벨의 *루프 변수*와 *개수*를 식별:",
+  "    - session/day: `par.day`/`session`/바깥 루프 → within_subject(longitudinal) 또는 between-day 분기.",
+  "    - block/run: `for iR=1:nBlocks` → meta.n_blocks (+ phase 별로 다르면 block_phases).",
+  "    - trial: `for iT=1:nT` → meta.n_trials_per_block, total_trials = blocks×trials(×sessions).",
+  "H2. `meta.hierarchy` 에 한 줄로 명시 (루프변수+개수+인덱스 매핑). 예: \"session: par.day 1..5; block: for iR=1:nBlocks(Day1=10/Day2-5=12); trial: for iT=1:nT(40)\". 같은 요약을 `meta.summary` 에도 반영(UI 가시성).",
+  "H3. **조작변수(IV=factors)** 는 *반드시* `role` 로 어느 계층에서 변하는지 표기: between_subject(피험자/그룹 배정)·within_subject(day/session)·within_session(block-kind)·per_trial(trial마다). role 없는 factor 금지.",
+  "H4. **conditions** = factor-level 조합 중 *코드에서 실제 실행되는* 것만. 카운터밸런싱/Latin-square 는 conditions 에 Cartesian 으로 풀지 말고 `meta.design_matrix` 에 자연어로.",
+  "H5. **시각화/자극 출력 변수**: (a) 참가자에게 *보이는 것*을 정하는 변수(자극 좌표/대비/방향/텍스트/피드백)는 parameter 또는 per_trial factor; (b) 실험자용 *figure/plot 출력*(saveas/savefig/print/plt.savefig 의 파일, 그려지는 변수)은 saved_variables 로 sink=파일명. 온라인 staircase/feedback plot 도 포함.",
+];
+
+const HIERARCHY_REVIEW = [
+  "**계층/조건/IV/시각화 감사 (공통, 먼저 점검)**:",
+  "□ meta.n_blocks·n_trials_per_block·total_trials 와 meta.hierarchy 가 코드 루프와 일치하는가? 비면 set_meta 로 채움(summary 도).",
+  "□ 모든 factor 에 role 이 있고, 그 role 이 실제 변하는 계층과 맞는가? (틀리면 upsert_factor 로 role 교정)",
+  "□ conditions 가 실제 실행 조합만인가? counterbalance 가 design_matrix 에 있는가? (없으면 set_meta design_matrix)",
+  "□ 시각화/자극 출력 변수가 누락됐는가? figure 저장 파일·plot 되는 변수가 saved_variables 에 있는가?",
+];
+
 // ---------------------------------------------------------------------------
 // Psychtoolbox / MATLAB lens
 // ---------------------------------------------------------------------------
@@ -348,6 +474,7 @@ function probePsychtoolbox(bundle: string): PlatformProbeHit[] {
       });
     }
   }
+  probeStructureAndDisplay(bundle, sink);
   return sink.all();
 }
 
@@ -481,6 +608,7 @@ function probePsychoPy(bundle: string): PlatformProbeHit[] {
       });
     }
   }
+  probeStructureAndDisplay(bundle, sink);
   return sink.all();
 }
 
@@ -628,6 +756,7 @@ function probeJsPsych(bundle: string): PlatformProbeHit[] {
       });
     }
   }
+  probeStructureAndDisplay(bundle, sink);
   return sink.all();
 }
 
@@ -712,6 +841,7 @@ function probeGeneric(bundle: string): PlatformProbeHit[] {
       });
     }
   }
+  probeStructureAndDisplay(bundle, sink);
   return sink.all();
 }
 
@@ -770,7 +900,14 @@ const LENSES: Record<Platform, PlatformLens> = {
 };
 
 export function lensFor(platform: Platform): PlatformLens {
-  return LENSES[platform];
+  const base = LENSES[platform];
+  // Cross-platform hierarchy / condition / IV-role / visualization bias
+  // always leads; the platform block adds API-surface specifics.
+  return {
+    ...base,
+    extractionLens: [...HIERARCHY_CORE, ...base.extractionLens],
+    reviewChecklist: [...HIERARCHY_REVIEW, ...base.reviewChecklist],
+  };
 }
 
 // Render probe hits as a compact, grounded evidence list for the
@@ -785,16 +922,24 @@ export function summariseProbeHits(
     parameter: [],
     saved: [],
     structure: [],
+    display: [],
   };
   for (const h of hits.slice(0, max)) byCat[h.category].push(h);
   const lines: string[] = [];
   const titles: Record<ProbeCategory, string> = {
-    factor: "factors(IV) 후보",
+    factor: "factors(조작변수/IV) 후보",
     parameter: "parameters 후보",
     saved: "saved_variables 후보",
-    structure: "구조/phase 후보",
+    structure: "계층(session→block→trial)/phase 후보",
+    display: "시각화/자극 출력 후보",
   };
-  for (const cat of ["factor", "saved", "parameter", "structure"] as ProbeCategory[]) {
+  for (const cat of [
+    "structure",
+    "factor",
+    "saved",
+    "display",
+    "parameter",
+  ] as ProbeCategory[]) {
     const items = byCat[cat];
     if (items.length === 0) continue;
     lines.push(`■ ${titles[cat]} (${items.length}):`);

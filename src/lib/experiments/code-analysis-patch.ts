@@ -64,6 +64,8 @@ const SET_META_FIELDS = [
   "estimated_duration_min",
   "seed",
   "summary",
+  "hierarchy",
+  "design_matrix",
   "framework",
   "language",
 ] as const;
@@ -103,7 +105,9 @@ const SetMetaPatchSchema = z
         return;
       }
       case "seed":
-      case "summary": {
+      case "summary":
+      case "hierarchy":
+      case "design_matrix": {
         const r = z.string().max(20_000).nullable().safeParse(data.value);
         if (!r.success) fail(`${data.field} 은(는) 문자열 또는 null 이어야 합니다`);
         return;

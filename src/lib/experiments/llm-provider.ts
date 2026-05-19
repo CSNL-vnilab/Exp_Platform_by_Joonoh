@@ -26,6 +26,8 @@ import {
   ping as ollamaPing,
   modelFor as ollamaModelFor,
   MODELS as OLLAMA_MODELS,
+  CODE_ANALYSIS_PREFS,
+  REVIEW_PREFS,
   listModels as ollamaListModels,
   type ChatMessage,
 } from "@/lib/ollama";
@@ -109,6 +111,29 @@ export class OllamaProvider implements LLMProvider {
 // argument was ignored for 60s after the first call, silently using
 // the wrong model for the second pass.
 const ollamaModelCache = new Map<string, { value: string; expires: number }>();
+
+function modelFamily(tag: string): string {
+  return tag.split(":")[0];
+}
+
+// Preference list to try when the requested tag isn't pulled, chosen by
+// model family so a qwen request walks the extraction prefs and a gemma
+// request walks the review prefs.
+function prefsFor(want: string): readonly string[] {
+  const fam = modelFamily(want);
+  if (fam === "qwen3.6") return CODE_ANALYSIS_PREFS;
+  if (fam === "gemma4") return REVIEW_PREFS;
+  return [];
+}
+
+// Resolve `preferred` to a tag that is *actually pulled* on this host.
+// The old impl returned `want` whenever ANY same-family tag existed
+// (`tags.some(startsWith)`) — so a stale "qwen3.6:latest" default 404'd
+// at chat time on a box that only has "qwen3.6:36b". We now bind to a
+// concrete present tag: exact want → family prefs → fallback → ANY
+// pulled tag of the wanted/fallback family (covers custom quant tags
+// like "qwen3.6:36b-q5"). Per-tag cached 60s, keyed by the request so
+// the extraction (qwen) and review (gemma) resolutions don't collide.
 export async function pickOllamaModel(preferred?: string): Promise<string> {
   const want = preferred ?? ollamaModelFor("code.analysis");
   const cached = ollamaModelCache.get(want);
@@ -117,20 +142,33 @@ export async function pickOllamaModel(preferred?: string): Promise<string> {
   let chosen = want;
   try {
     const tags = await ollamaListModels();
-    const has = (t: string) => tags.includes(t) || tags.some((x) => x.startsWith(`${t.split(":")[0]}:`));
-    if (!has(want)) {
-      if (has(fb)) chosen = fb;
-      else {
-        // Neither requested nor fallback is pulled. Don't paper over
-        // the absence — caller's chat call would 404 anyway and the
-        // resulting error gets caught silently somewhere upstream.
-        // Throw with a clear message so the analyzer warning surfaces
-        // *which* model was missing.
-        throw new Error(
-          `Ollama 모델이 호스트에 없습니다: 요청 "${want}" / 폴백 "${fb}" — \`ollama pull ${want}\` 으로 받아주세요`,
-        );
+    const tagSet = new Set(tags);
+    const candidates = [want, ...prefsFor(want), fb];
+    let picked: string | null = null;
+    for (const c of candidates) {
+      if (tagSet.has(c)) {
+        picked = c;
+        break;
       }
     }
+    if (!picked) {
+      const wantFam = modelFamily(want);
+      picked =
+        tags.find((t) => modelFamily(t) === wantFam) ??
+        tags.find((t) => modelFamily(t) === modelFamily(fb)) ??
+        null;
+    }
+    if (!picked) {
+      // Nothing usable is pulled. Throw with the exact pull command so
+      // the analyzer warning tells the operator what's missing instead
+      // of a downstream 404 swallowed upstream.
+      throw new Error(
+        `Ollama 모델이 호스트에 없습니다: 요청 "${want}" / 폴백 "${fb}" / 후보 [${prefsFor(
+          want,
+        ).join(", ")}] — \`ollama pull ${want}\` 으로 받아주세요`,
+      );
+    }
+    chosen = picked;
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("Ollama 모델이")) throw err;
     // network glitch — keep `want` and let downstream fail loudly

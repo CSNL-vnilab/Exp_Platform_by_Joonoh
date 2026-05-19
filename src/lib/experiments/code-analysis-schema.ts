@@ -204,6 +204,12 @@ export const AnalysisMetaSchema = z.object({
   // counterbalance schemes that don't fit the conditions array
   // (e.g. "subjNum mod 4 → AABB / ABBA / BABA / BBAA pattern across days").
   design_matrix: longStr.nullable().default(null),
+  // Explicit experiment→session→block→trial nesting in one line, with
+  // the loop variable + count at each level and how indices map.
+  // e.g. "session: par.day 1..5 (within_subject); block: for iR=1:nBlocks
+  // (Day1=10 train, Day2-5=12 test); trial: for iT=1:nT (40); total ≈
+  // 5×~11×40". Optional, backward-compatible (defaults null on old rows).
+  hierarchy: longStr.nullable().default(null),
   // free-form summary the AI / heuristic can use to convey intent
   summary: longStr.nullable().default(null),
 });
@@ -280,6 +286,7 @@ export const CODE_ANALYSIS_JSON_SCHEMA_HINT = `{
         "seed":                  { "type": ["string","null"]  },
         "summary":               { "type": ["string","null"]  },
         "design_matrix":         { "type": ["string","null"]  },
+        "hierarchy":             { "type": ["string","null"]  },
         "block_phases": {
           "type": "array",
           "items": {

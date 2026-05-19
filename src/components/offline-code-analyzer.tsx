@@ -1046,6 +1046,20 @@ export function OfflineCodeAnalyzer({
                       className={inputCls + " font-mono"}
                     />
                   </div>
+                  <div className="mt-3">
+                    <label className="text-[11px] text-muted">
+                      계층 구조 (experiment→session→block→trial 중첩 — 루프변수·개수·인덱스 매핑)
+                    </label>
+                    <textarea
+                      value={merged.meta.hierarchy ?? ""}
+                      onChange={(e) =>
+                        setMeta("hierarchy", e.target.value || null)
+                      }
+                      placeholder="예: session: par.day 1..5 (within_subject); block: for iR=1:nBlocks (Day1=10 train / Day2-5=12 test); trial: for iT=1:nT (40); total ≈ 5×~11×40"
+                      rows={2}
+                      className={inputCls + " font-mono"}
+                    />
+                  </div>
                 </section>
 
                 {/* block phases */}

@@ -493,6 +493,32 @@ JSON. 추출·리뷰 양 패스 모두 적용. 재현성과 다양성을 맞바�
 > Anthropic 미사용 전제: `REFINEMENT_PROVIDER` 기본값은 ollama 경로에서
 > gemma 로 귀결. `claude-opus-4-7` 관련 항목은 키가 없으면 자동 무시된다.
 
+### 가용 로컬 모델 바인딩
+
+랩 박스 pull 기준: 추출 `qwen3.6:36b`(MoE, 최강) → `:27b` 폴백,
+리뷰 `gemma4:26b`. `pickOllamaModel` 이 **실제 pull 된 concrete 태그**를
+선호순(`CODE_ANALYSIS_PREFS`/`REVIEW_PREFS`)으로 바인딩 — 예전엔 같은
+family 태그가 하나라도 있으면 없는 `qwen3.6:latest` 를 그대로 넘겨 chat
+단계에서 404 나던 버그를 수정. 커스텀 양자화 태그(`qwen3.6:36b-q5` 등)도
+family 일치로 자동 사용. `OFFLINE_CODE_MODEL` 로 강제 지정 가능.
+
+### inductive bias 주입 (계층·조건·조작변수·시각화)
+
+플랫폼 렌즈 앞에 *공통 바이어스*(`HIERARCHY_CORE`)를 항상 prepend:
+
+- **계층**: experiment→session/day→run/block→trial 의 루프변수+개수+인덱스
+  매핑을 식별해 `meta.n_blocks/n_trials_per_block/total_trials/block_phases`
+  + 신규 **`meta.hierarchy`** 한 줄에 명시(요약은 `meta.summary` 에도 미러,
+  UI 에 편집 필드 추가). `set_meta` grammar 에 `hierarchy`·`design_matrix`
+  추가 — 리뷰어가 직접 교정 가능.
+- **조작변수(IV)**: 모든 factor 에 `role` 필수, role 이 *실제 변하는 계층*
+  과 일치하는지 리뷰어가 대조.
+- **conditions**: 실행되는 조합만, counterbalance 는 `meta.design_matrix`.
+- **시각화/자극 출력**: 신규 probe category `display` — 그려지는 변수·
+  figure 저장(saveas/savefig/print/plt.savefig)·자극 제시(Screen Draw*,
+  win.flip, .draw())를 근거와 함께 추출해 saved_variables(sink=파일)/
+  parameter 로 분류하도록 리뷰어에 grounding.
+
 ---
 
 ## 8. 한 줄 요약
