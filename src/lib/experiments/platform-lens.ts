@@ -322,6 +322,40 @@ function probeStructureAndDisplay(bundle: string, sink: HitSink): void {
         note: "자극 제시 — 무엇이 보이는지 정의하는 변수는 parameter/factor",
       });
     }
+
+    // ---- inference clues: indirect IVs visible only at a call site ----
+    // A stimulus/trajectory generator call. Its definition is often
+    // outside the bundle (addpath(genpath)/handle), so the per-trial
+    // IVs it produces are never assigned literally in view. Surface the
+    // CALL SITE as a factor clue so the model infers the generator's
+    // trial-varying inputs/outputs as per_trial factors (line_hint =
+    // call site). Absence of the definition is NOT a reason to skip.
+    m = t.match(
+      /(?:\[[^\]]*\]|\b[A-Za-z_]\w*)\s*=\s*(\w*(?:StimGenerator|[Tt]rajector|genTraj|makeStim|[Oo]cclusion|[Kk]inematic|gen[A-Z]\w*[Ss]tim)\w*)\s*\(/,
+    );
+    if (m) {
+      sink.add({
+        category: "factor",
+        name: `→ ${ident(m[1])}()`,
+        evidence: t,
+        line_hint: hintOf(w),
+        note: "생성기 호출부 — trial별 입력/출력이 per_trial IV (정의가 번들 밖이어도 호출부 근거로 추론·등록)",
+      });
+    }
+    // A per-trial sink whose RHS is a function call: par.results.X{iR}
+    // (iT) = f(...). f's varying inputs are per_trial IV candidates.
+    m = t.match(
+      /\bpar\.(?:results\.)?[A-Za-z_]\w*\s*(?:\{[^}]*\}|\([^)]*\))?\s*=\s*([A-Za-z_]\w{2,})\s*\(/,
+    );
+    if (m && !/^(zeros|ones|nan|cell|struct|size|length|numel|repmat|deal|min|max|sum|mean|round|mod|rand|randn|randi)$/i.test(m[1])) {
+      sink.add({
+        category: "factor",
+        name: `← ${ident(m[1])}()`,
+        evidence: t,
+        line_hint: hintOf(w),
+        note: "per-trial 저장값이 함수 출력 — 그 함수의 trial별 입력이 per_trial IV (호출부 근거로 추론)",
+      });
+    }
   }
 }
 
@@ -340,6 +374,7 @@ const HIERARCHY_CORE = [
   "H3. **조작변수(IV=factors)** 는 *반드시* `role` 로 어느 계층에서 변하는지 표기: between_subject(피험자/그룹 배정)·within_subject(day/session)·within_session(block-kind)·per_trial(trial마다). role 없는 factor 금지.",
   "H4. **conditions** = factor-level 조합 중 *코드에서 실제 실행되는* 것만. 카운터밸런싱/Latin-square 는 conditions 에 Cartesian 으로 풀지 말고 `meta.design_matrix` 에 자연어로.",
   "H5. **시각화/자극 출력 변수**: (a) 참가자에게 *보이는 것*을 정하는 변수(자극 좌표/대비/방향/텍스트/피드백)는 parameter 또는 per_trial factor; (b) 실험자용 *figure/plot 출력*(saveas/savefig/print/plt.savefig 의 파일, 그려지는 변수)은 saved_variables 로 sink=파일명. 온라인 staircase/feedback plot 도 포함.",
+  "H6. **간접 IV 추론 (정의가 번들 밖이어도)**: 생성기/궤적 함수(StimGenerator·trajectory·genTraj·makeStim·Occlusion 등)가 *호출만* 되고 정의가 번들에 없거나, per-trial 저장값의 RHS 가 함수 호출이면 — 그 함수의 *trial별 변하는 입력*과 *출력 변수*를 `per_trial` factor 로 **추론해 등록**. line_hint = 호출부. \"정의를 못 봤다\"는 누락 사유가 아님 — 호출부 근거로 등록하고 description 에 추론 근거를 1줄.",
 ];
 
 const HIERARCHY_REVIEW = [
@@ -348,6 +383,7 @@ const HIERARCHY_REVIEW = [
   "□ 모든 factor 에 role 이 있고, 그 role 이 실제 변하는 계층과 맞는가? (틀리면 upsert_factor 로 role 교정)",
   "□ conditions 가 실제 실행 조합만인가? counterbalance 가 design_matrix 에 있는가? (없으면 set_meta design_matrix)",
   "□ 시각화/자극 출력 변수가 누락됐는가? figure 저장 파일·plot 되는 변수가 saved_variables 에 있는가?",
+  "□ probe 의 '생성기 호출부'(→fn()/←fn()) 후보가 per_trial factor 로 등록됐는가? 정의가 번들 밖이어도 호출부 근거로 upsert_factor (role=per_trial, line_hint=호출부).",
 ];
 
 // ---------------------------------------------------------------------------

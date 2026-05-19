@@ -545,10 +545,27 @@ family 일치로 자동 사용. `OFFLINE_CODE_MODEL` 로 강제 지정 가능.
 | TimeExp1 n_blocks/n_trials/block_phases/genre | **전부 gt 일치** (계층 캡처 ✅) |
 | TimeExp1 2-pass 효과 | params 27→**46%**, saved 88→**92%**, 0→**18 patch**, `StairTrainTest` IV 복구·단일값 `condition` 제거 |
 
-정직한 잔여 한계: TimeExp1 factor recall 45% 고착 — kinematic 모션
-IV(`tvm/dir/speed/start/occ_deg` 11개)는 trajectory/StimGenerator
-파일이 28-file 번들에 안 들어와 probe·리뷰어가 근거를 못 봄.
-번들러 선택 로직 튜닝이 다음 lever (probe/프롬프트로는 한계).
+### Stage-2 (2026-05-19): 번들러 파일선택 + 추론 clue
+
+위 잔여 한계(factor recall 45%)를 두 lever 로 해소:
+
+- **번들러 도메인 보충 선택** (`code-bundler.ts`): ref-graph 는
+  addpath(genpath)/handle 로 호출되는 생성기를 못 찾음. *콘텐츠 신호*
+  (per-trial sink·tvm/speed/dir·StimGenerator·trial 루프)로 점수화해
+  미선택 파일을 예산 내 보충. 생성기 파일명 PRIORITY 패턴도 추가.
+- **추론 clue** (`platform-lens.ts`): 생성기 *호출부* 와 per-trial
+  저장값의 함수-RHS 를 `factor` clue 로 probe + HIERARCHY H6 규칙
+  "정의가 번들 밖이어도 호출부 근거로 per_trial 추론 등록".
+
+검증 (실제 TimeExp1, seed 42, 결정론):
+
+| 단계 | factor recall | params | 비고 |
+|---|---|---|---|
+| Stage-1 | 45% (9/20) | 27% | kinematic IV 11개 누락 |
+| **Stage-2 baseline** | **90% (18/20)** | 27% | tvm/dir/speed/start/occ 전부 복구 |
+| **Stage-2 + 2-pass** | **95% (19/20)** | **42%** | 리뷰어 25 patch·0 reject, `StairTrainTest` 추가 복구 |
+
+잔여: `condition`(단일값 — IV 아님으로 분류, gt 의 bogus 항목) 1개만 미스 ≈ 정상.
 
 ---
 
