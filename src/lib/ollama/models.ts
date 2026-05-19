@@ -31,11 +31,10 @@ export const CODE_ANALYSIS_PREFS = [
   "qwen3.6:27b",
 ] as const;
 
-export const REVIEW_PREFS = [
-  "gemma4:26b",
-  "gemma4:31b",
-  "qwen3.6:35b-a3b",
-] as const;
+// Reviewer stays in the gemma family on purpose: a qwen reviewer would
+// re-run pass-1's own family and defeat cross-checking. No cross-family
+// entry here; pickOllamaModel's fallback is also family-locked.
+export const REVIEW_PREFS = ["gemma4:26b", "gemma4:31b"] as const;
 
 export type ModelKey = keyof typeof MODELS;
 

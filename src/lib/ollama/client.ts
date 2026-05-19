@@ -156,7 +156,34 @@ async function withOllamaRetry<T>(
       lastErr = e;
     }
     if (attempt < OLLAMA_MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+      // Abortable backoff — a caller cancel / timeout signal interrupts
+      // the wait immediately, not after the full sleep (Codex R2 NEW #6
+      // / R3 #5: also honour an already-aborted signal and detach the
+      // listener when the timer wins, so no leak and no full wait).
+      if (signal?.aborted) {
+        throw signal.reason instanceof Error
+          ? signal.reason
+          : new DOMException("aborted", "AbortError");
+      }
+      await new Promise<void>((resolve, reject) => {
+        // timer & onAbort are mutually referential (onAbort clears the
+        // timer; the timer detaches onAbort) — `let` is required.
+        // eslint-disable-next-line prefer-const
+        let timer: ReturnType<typeof setTimeout>;
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(
+            signal?.reason instanceof Error
+              ? signal.reason
+              : new DOMException("aborted", "AbortError"),
+          );
+        };
+        timer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, 800 * (attempt + 1));
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
@@ -210,17 +237,19 @@ export async function chatJson<T = unknown>(opts: ChatJsonOptions): Promise<T> {
   const parsed = await withOllamaRetry<unknown>(
     async (attempt) => {
       const options = { ...baseOptions };
-      // On a retry, perturb the sampler so a deterministic bad sample
-      // isn't reproduced verbatim: bump a pinned seed, else nudge
-      // temperature. Attempt 0 stays exactly as configured so the
-      // happy path is fully reproducible.
-      if (attempt > 0) {
-        if (typeof options.seed === "number") options.seed += attempt;
-        else
-          options.temperature = Math.min(
-            0.7,
-            (options.temperature ?? 0.1) + 0.2 * attempt,
-          );
+      // Determinism is preserved across retries: a *pinned* seed is
+      // NEVER perturbed (same input → same output, even after a
+      // transient empty/non-JSON first attempt — which is usually
+      // model-warmup and just succeeds on retry; a genuinely bad
+      // deterministic output is recovered at the analyzer layer via a
+      // corrective message that changes the prompt, not the seed).
+      // Only when no seed is pinned (already non-deterministic) do we
+      // nudge temperature to diversify the retry.
+      if (attempt > 0 && typeof options.seed !== "number") {
+        options.temperature = Math.min(
+          0.7,
+          (options.temperature ?? 0.1) + 0.2 * attempt,
+        );
       }
       const body: Record<string, unknown> = {
         model,
@@ -343,11 +372,10 @@ export async function chat(opts: ChatOptions): Promise<string> {
     num_predict: 2048,
   });
   return withOllamaRetry<string>(
-    async (attempt) => {
+    async () => {
+      // Pinned seed is never perturbed — retries stay deterministic
+      // (transient empties just succeed on the next identical call).
       const options = { ...baseOptions };
-      if (attempt > 0 && typeof options.seed === "number") {
-        options.seed += attempt;
-      }
       const res = await ollamaFetch(
         "/api/chat",
         {

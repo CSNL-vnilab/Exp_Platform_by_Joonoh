@@ -501,21 +501,55 @@ export function OfflineCodeAnalyzer({
     }
   };
 
+  // A remove_* patch in the overrides layer can't delete a base /
+  // heuristic / AI item — mergeByKey only adds. The canonical "delete
+  // an AI item" path is the removed* tombstone set the manual delete
+  // buttons use (stripRemoved() honours it on save, visible* filters on
+  // it). Interview / chatbot removals must mirror into it or the item
+  // re-appears (Codex R2 NEW #1).
+  const tombstonePatch = (p: Patch) => {
+    if (p.op === "remove_factor")
+      setRemovedFactors((s) => new Set(s).add(p.name));
+    else if (p.op === "remove_parameter")
+      setRemovedParams((s) => new Set(s).add(p.name));
+    else if (p.op === "remove_condition")
+      setRemovedConds((s) => new Set(s).add(p.label));
+    else if (p.op === "remove_saved_variable")
+      setRemovedSaved((s) => new Set(s).add(p.name));
+  };
+
   // Fold an option's patches onto a local copy then commit once (avoids
   // stale-state batching). Returns false (and toasts) on the first
   // rejected patch without partially applying.
   const applyIvPatches = (patches?: Patch[]): boolean => {
     if (!patches || patches.length === 0) return true;
-    let cur = overrides;
+    // Pre-validate against the current snapshot for the toast + return
+    // value. The actual commit uses a functional updater so it composes
+    // with a concurrent chat-patch accept in the same React tick instead
+    // of clobbering it (Codex R1 #6). applyPatch is pure, so the
+    // re-fold inside the updater (and StrictMode double-invoke) is safe.
+    let probe = overrides;
     for (const p of patches) {
-      const r = applyPatch(cur, p);
+      const r = applyPatch(probe, p);
       if (r.error) {
         toast(`적용 실패: ${r.error}`, "error");
         return false;
       }
-      cur = r.next;
+      probe = r.next;
     }
-    setOverrides(cur);
+    setOverrides((prev) => {
+      let cur = prev;
+      for (const p of patches) {
+        const r = applyPatch(cur, p);
+        // Snapshot already validated this set; if a concurrent same-
+        // tick edit invalidates one patch vs the latest state, skip
+        // just that patch and keep the rest (best-effort) rather than
+        // silently dropping the whole accept (Codex R2 R1-INC #3).
+        if (!r.error) cur = r.next;
+      }
+      return cur;
+    });
+    patches.forEach(tombstonePatch);
     return true;
   };
 
@@ -553,9 +587,24 @@ export function OfflineCodeAnalyzer({
         .filter(Boolean);
       patches = [{ op: "upsert_factor", name: b.name, levels }];
     } else {
-      // factor_rename: add the renamed factor, drop the old one
+      // factor_rename: carry the old factor's full attributes onto the
+      // new name so type/levels/role/description aren't lost (Codex R3
+      // #6), then drop the old one.
+      const old = merged.factors.find((f) => f.name === b.name);
       patches = [
-        { op: "upsert_factor", name: v },
+        {
+          op: "upsert_factor",
+          name: v,
+          ...(old
+            ? {
+                type: old.type,
+                levels: old.levels,
+                role: old.role,
+                description: old.description,
+                line_hint: old.line_hint,
+              }
+            : {}),
+        },
         { op: "remove_factor", name: b.name },
       ];
     }
@@ -567,6 +616,12 @@ export function OfflineCodeAnalyzer({
   const saveToDb = async () => {
     if (!experimentId) return;
     setSavingDb(true);
+    const removedSet = {
+      factors: removedFactors,
+      parameters: removedParams,
+      conditions: removedConds,
+      saved_variables: removedSaved,
+    };
     try {
       const res = await fetch(`/api/experiments/${experimentId}/offline-code`, {
         method: "PUT",
@@ -576,14 +631,9 @@ export function OfflineCodeAnalyzer({
           code_filename: filename,
           code_lang: lang,
           model,
-          heuristic,
-          ai,
-          overrides: stripRemoved(overrides, {
-            factors: removedFactors,
-            parameters: removedParams,
-            conditions: removedConds,
-            saved_variables: removedSaved,
-          }),
+          heuristic: stripRemovedAnalysis(heuristic, removedSet),
+          ai: stripRemovedAnalysis(ai, removedSet),
+          overrides: stripRemoved(overrides, removedSet),
         }),
       });
       const json = await res.json();
@@ -708,26 +758,51 @@ export function OfflineCodeAnalyzer({
   const acceptPatch = (id: number) => {
     const target = pendingPatches.find((p) => p.id === id);
     if (!target || target.kind !== "valid") return;
-    const result = applyPatch(overrides, target.patch);
-    if (result.error) {
-      toast(`패치 적용 실패: ${result.error}`, "error");
+    const probe = applyPatch(overrides, target.patch);
+    if (probe.error) {
+      toast(`패치 적용 실패: ${probe.error}`, "error");
       return;
     }
-    setOverrides(result.next);
+    // Functional updater so an interview answer in the same tick can't
+    // clobber this accept (and vice-versa) — Codex R1 #6.
+    setOverrides((prev) => {
+      const r = applyPatch(prev, target.patch);
+      return r.error ? prev : r.next;
+    });
+    tombstonePatch(target.patch);
     setPendingPatches((prev) => prev.filter((p) => p.id !== id));
   };
   const rejectPatch = (id: number) =>
     setPendingPatches((prev) => prev.filter((p) => p.id !== id));
   const acceptAllPatches = () => {
-    let next = overrides;
+    const valid = pendingPatches.filter(
+      (p): p is Extract<PendingPatch, { kind: "valid" }> => p.kind === "valid",
+    );
+    // Pre-validate vs snapshot for the error toast; commit via a
+    // functional updater so concurrent interview/accept folds compose
+    // instead of clobbering (Codex R1 #6).
+    let probe = overrides;
     const errors: string[] = [];
-    for (const p of pendingPatches) {
-      if (p.kind !== "valid") continue;
-      const r = applyPatch(next, p.patch);
+    const accepted: Patch[] = [];
+    for (const p of valid) {
+      const r = applyPatch(probe, p.patch);
       if (r.error) errors.push(`${p.summary}: ${r.error}`);
-      else next = r.next;
+      else {
+        probe = r.next;
+        accepted.push(p.patch);
+      }
     }
-    setOverrides(next);
+    setOverrides((prev) => {
+      let cur = prev;
+      for (const p of accepted) {
+        const r = applyPatch(cur, p);
+        if (!r.error) cur = r.next;
+      }
+      return cur;
+    });
+    // Tombstone only patches that actually passed validation (Codex R3
+    // #3) — don't hide an item whose patch was rejected.
+    accepted.forEach(tombstonePatch);
     // keep invalid blocks visible so the user can see what was rejected
     setPendingPatches((prev) => prev.filter((p) => p.kind === "invalid"));
     if (errors.length) toast(`일부 패치 적용 실패:\n${errors.join("\n")}`, "error");
@@ -2367,6 +2442,31 @@ function stripRemoved(
     parameters: (overrides.parameters ?? []).filter((p) => !removed.parameters.has(p.name)),
     conditions: (overrides.conditions ?? []).filter((c) => !removed.conditions.has(c.label)),
     saved_variables: (overrides.saved_variables ?? []).filter(
+      (s) => !removed.saved_variables.has(s.name),
+    ),
+  };
+}
+
+// Persist tombstones: physically drop removed items from the
+// heuristic / AI layers too, so a deleted base/AI item doesn't
+// resurrect on reload via the server-side re-merge (Codex R3 #4; also
+// fixes the pre-existing manual-delete persistence gap).
+function stripRemovedAnalysis(
+  a: CodeAnalysis | null,
+  removed: {
+    factors: Set<string>;
+    parameters: Set<string>;
+    conditions: Set<string>;
+    saved_variables: Set<string>;
+  },
+): CodeAnalysis | null {
+  if (!a) return a;
+  return {
+    ...a,
+    factors: a.factors.filter((f) => !removed.factors.has(f.name)),
+    parameters: a.parameters.filter((p) => !removed.parameters.has(p.name)),
+    conditions: a.conditions.filter((c) => !removed.conditions.has(c.label)),
+    saved_variables: a.saved_variables.filter(
       (s) => !removed.saved_variables.has(s.name),
     ),
   };

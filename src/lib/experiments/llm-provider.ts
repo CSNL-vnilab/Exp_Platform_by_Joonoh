@@ -134,16 +134,36 @@ function prefsFor(want: string): readonly string[] {
 // pulled tag of the wanted/fallback family (covers custom quant tags
 // like "qwen3.6:36b-q5"). Per-tag cached 60s, keyed by the request so
 // the extraction (qwen) and review (gemma) resolutions don't collide.
-export async function pickOllamaModel(preferred?: string): Promise<string> {
+export async function pickOllamaModel(
+  preferred?: string,
+  // "review" guarantees the resolver never collapses to the code
+  // (qwen) family even for an arbitrary REFINEMENT_MODEL tag — the
+  // review pass must stay a *different* family from pass-1 (Codex R2
+  // R1-INC #4). Default "code".
+  purpose: "code" | "review" = "code",
+): Promise<string> {
   const want = preferred ?? ollamaModelFor("code.analysis");
-  const cached = ollamaModelCache.get(want);
+  const cacheKey = `${purpose}:${want}`;
+  const cached = ollamaModelCache.get(cacheKey);
   if (cached && cached.expires > Date.now()) return cached.value;
-  const fb = OLLAMA_MODELS.codeAnalysisFallback;
+  // Family-correct fallback: a review request (or a gemma tag) must
+  // NOT degrade to the qwen extraction fallback. Review → gemma
+  // (reviewFast); code → code-analysis fallback.
+  const fb =
+    purpose === "review" || modelFamily(want) === "gemma4"
+      ? OLLAMA_MODELS.reviewFast
+      : OLLAMA_MODELS.codeAnalysisFallback;
+  // The extraction (pass-1) family. A review pass must never resolve
+  // to it — even if REFINEMENT_MODEL explicitly names a qwen tag —
+  // because same-family review defeats cross-checking (Codex R3 #2).
+  const codeFamily = modelFamily(OLLAMA_MODELS.codeAnalysis);
+  const banned = (tag: string) =>
+    purpose === "review" && modelFamily(tag) === codeFamily;
   let chosen = want;
   try {
     const tags = await ollamaListModels();
     const tagSet = new Set(tags);
-    const candidates = [want, ...prefsFor(want), fb];
+    const candidates = [want, ...prefsFor(want), fb].filter((c) => !banned(c));
     let picked: string | null = null;
     for (const c of candidates) {
       if (tagSet.has(c)) {
@@ -153,9 +173,13 @@ export async function pickOllamaModel(preferred?: string): Promise<string> {
     }
     if (!picked) {
       const wantFam = modelFamily(want);
+      // For review, never cross into the code (qwen) family — only the
+      // requested family (unless banned) or the gemma fallback family.
       picked =
-        tags.find((t) => modelFamily(t) === wantFam) ??
-        tags.find((t) => modelFamily(t) === modelFamily(fb)) ??
+        (!banned(want)
+          ? tags.find((t) => modelFamily(t) === wantFam)
+          : undefined) ??
+        tags.find((t) => modelFamily(t) === modelFamily(fb) && !banned(t)) ??
         null;
     }
     if (!picked) {
@@ -173,7 +197,7 @@ export async function pickOllamaModel(preferred?: string): Promise<string> {
     if (err instanceof Error && err.message.startsWith("Ollama 모델이")) throw err;
     // network glitch — keep `want` and let downstream fail loudly
   }
-  ollamaModelCache.set(want, { value: chosen, expires: Date.now() + 60_000 });
+  ollamaModelCache.set(cacheKey, { value: chosen, expires: Date.now() + 60_000 });
   return chosen;
 }
 
@@ -298,21 +322,31 @@ export interface ResolveProviderOpts {
   anthropicModel?: string;
 }
 
+// Local-only invariant: the analyzer must keep researcher code/docs on
+// the box. The cloud (Anthropic) path is reachable ONLY via an explicit
+// request (override "anthropic" or LLM_PROVIDER/REFINEMENT_PROVIDER=
+// anthropic) AND only when local-only mode is disabled. The mere
+// presence of ANTHROPIC_API_KEY never routes to the cloud, and an
+// Ollama target never silently cloud-fails-over. Set LLM_LOCAL_ONLY=0
+// to allow the cloud path (e.g. a Vercel deploy with no Ollama).
+function localOnly(): boolean {
+  return process.env.LLM_LOCAL_ONLY !== "0";
+}
+
 export async function resolveProvider(
   opts: ResolveProviderOpts = {},
 ): Promise<LLMProvider> {
   const explicit = opts.override && opts.override !== "auto" ? opts.override : null;
   const envChoice = (process.env.LLM_PROVIDER as "ollama" | "anthropic" | undefined) ?? null;
-  const target =
-    explicit ??
-    envChoice ??
-    (process.env.ANTHROPIC_API_KEY ? "anthropic" : "ollama");
+  // Key presence must NOT route to the cloud — cloud is opt-in only.
+  const target = explicit ?? envChoice ?? "ollama";
 
   if (target === "anthropic") {
-    // Symmetric fallback: if Anthropic is unconfigured AND Ollama is
-    // reachable, fall through to Ollama instead of throwing on every
-    // analyzer call (review item #5). The reverse direction already
-    // does this below.
+    if (localOnly()) {
+      throw new Error(
+        "LLM_LOCAL_ONLY: Anthropic 경로가 비활성화돼 있습니다 (로컬 Ollama 전용). 클라우드가 필요하면 LLM_LOCAL_ONLY=0 으로 명시 해제하세요.",
+      );
+    }
     try {
       return new AnthropicProvider({ model: opts.anthropicModel });
     } catch (err) {
@@ -328,13 +362,18 @@ export async function resolveProvider(
   const p = new OllamaProvider(model);
   const h = await p.health();
   if (!h.ok) {
-    // last-resort: if Anthropic key exists, fall over to it instead of
-    // throwing — keeps the analyzer alive on a host where Ollama is
-    // momentarily down but the cloud key is configured.
-    if (process.env.ANTHROPIC_API_KEY) {
+    // Cloud fail-over only when local-only is explicitly disabled —
+    // otherwise an Ollama blip must NOT leak code/docs to the cloud.
+    if (!localOnly() && process.env.ANTHROPIC_API_KEY) {
       return new AnthropicProvider({ model: opts.anthropicModel });
     }
-    throw new Error("LLM 백엔드를 사용할 수 없습니다 (Ollama unreachable & ANTHROPIC_API_KEY 미설정)");
+    throw new Error(
+      `LLM 백엔드를 사용할 수 없습니다 (Ollama 연결 불가${
+        localOnly()
+          ? "; LLM_LOCAL_ONLY 모드 — 클라우드 폴백 안 함)"
+          : " & ANTHROPIC_API_KEY 미설정)"
+      }`,
+    );
   }
   return p;
 }
@@ -373,10 +412,8 @@ export async function resolveReviewProvider(
   // condition "ANTHROPIC_API_KEY && !OLLAMA_HOST" was inverted —
   // hosts with both env vars (every dev box) silently fell to Ollama
   // even when the user asked for the cloud reviewer.
-  const target =
-    explicit ??
-    envChoice ??
-    (process.env.ANTHROPIC_API_KEY ? "anthropic" : "ollama");
+  // Key presence must NOT route cloud — opt-in only (mirror resolveProvider).
+  const target = explicit ?? envChoice ?? "ollama";
 
   const ollamaTag =
     opts.ollamaModel ??
@@ -390,24 +427,29 @@ export async function resolveReviewProvider(
     "claude-opus-4-7";
 
   if (target === "anthropic") {
+    if (localOnly()) {
+      throw new Error(
+        "LLM_LOCAL_ONLY: review Anthropic 경로 비활성 (로컬 Ollama 전용). LLM_LOCAL_ONLY=0 으로 해제하세요.",
+      );
+    }
     try {
       return new AnthropicProvider({ model: anthropicTag });
     } catch (err) {
-      const ollamaP = new OllamaProvider(await pickOllamaModel(ollamaTag));
+      const ollamaP = new OllamaProvider(await pickOllamaModel(ollamaTag, "review"));
       const h = await ollamaP.health();
       if (h.ok) return ollamaP;
       throw err;
     }
   }
   // ollama
-  const model = await pickOllamaModel(ollamaTag);
+  const model = await pickOllamaModel(ollamaTag, "review");
   const p = new OllamaProvider(model);
   const h = await p.health();
   if (h.ok) return p;
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (!localOnly() && process.env.ANTHROPIC_API_KEY) {
     return new AnthropicProvider({ model: anthropicTag });
   }
   throw new Error(
-    "review LLM 백엔드를 사용할 수 없습니다 (Ollama unreachable & ANTHROPIC_API_KEY 미설정)",
+    "review LLM 백엔드를 사용할 수 없습니다 (Ollama 연결 불가; 클라우드 폴백은 LLM_LOCAL_ONLY=0 + ANTHROPIC_API_KEY 필요)",
   );
 }

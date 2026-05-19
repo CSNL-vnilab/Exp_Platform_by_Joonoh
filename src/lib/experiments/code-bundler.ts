@@ -145,8 +145,17 @@ function detectEntry(files: InputFile[], hint: string | null | undefined): Input
   if (hint) {
     const exact = files.find((f) => f.path === hint);
     if (exact) return exact;
-    const byBase = files.find((f) => basename(f.path) === basename(hint));
-    if (byBase) return byBase;
+    // Multiple files can share a basename (taskA/main.m, taskB/main.m).
+    // Pick deterministically — shallowest path, then lexicographic —
+    // not whatever upload/fetch order put first (Codex R2 R1-INC #5).
+    const depth = (p: string) =>
+      (p.replace(/\\/g, "/").match(/\//g) ?? []).length;
+    const baseMatches = files
+      .filter((f) => basename(f.path) === basename(hint))
+      .sort(
+        (a, b) => depth(a.path) - depth(b.path) || a.path.localeCompare(b.path),
+      );
+    if (baseMatches[0]) return baseMatches[0];
   }
   // explicit "main_*" → "run_*" → "index"/"app" preference, code-bearing only
   const code = files.filter((f) => {
@@ -164,7 +173,12 @@ function detectEntry(files: InputFile[], hint: string | null | undefined): Input
     if (b === "index.js" || b === "index.ts" || b === "app.py" || b === "app.js") s += 40;
     return s;
   };
-  const sorted = [...code].sort((a, b) => score(b) - score(a));
+  // Deterministic: break score ties by normalized path so the same
+  // repo always picks the same entry regardless of upload/fetch order
+  // (Codex R1 #7).
+  const sorted = [...code].sort(
+    (a, b) => score(b) - score(a) || a.path.localeCompare(b.path),
+  );
   return sorted[0] ?? null;
 }
 
@@ -359,8 +373,12 @@ export function bundle(files: InputFile[], opts: BundleOptions = {}): BundleResu
     .filter((f) => !alreadyIn.has(f.path))
     .map((f) => ({ f, ds: domainScore(f.content) }))
     .filter((x) => x.ds >= 2)
-    .sort((a, b) => b.ds - a.ds)
-    .slice(0, 8);
+    // tie-break by path so the supplement set is order-independent
+    .sort((a, b) => b.ds - a.ds || a.f.path.localeCompare(b.f.path))
+    // Generous cap (not 8): the global budget/maxFiles fit decides the
+    // final cut and *reports* drops, so a small high-signal file isn't
+    // silently pre-excluded behind 8 large ones (Codex R2 NEW #4).
+    .slice(0, 20);
   for (const { f, ds } of supplements) {
     const p = priorityOf(f.path);
     cands.push({
@@ -371,7 +389,11 @@ export function bundle(files: InputFile[], opts: BundleOptions = {}): BundleResu
     });
   }
 
-  cands.sort((a, b) => b.score - a.score);
+  // Score-then-path so budget fitting is fully order-independent
+  // (Codex R1 #7): same files in → same bundle out.
+  cands.sort(
+    (a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path),
+  );
 
   // 5. fit to budget
   const selected: BundleResult["selected"] = [];

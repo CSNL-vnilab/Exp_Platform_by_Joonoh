@@ -588,6 +588,37 @@ patch 가 `overrides` 에 즉시 반영(LLM 왕복·자유서식 파싱 없음 �
 확정 전 하위질문 보류·항상 skip 가능)을 그대로 차용. 모두 답하면
 기존 "저장"으로 컨펌된 해체가 영속화.
 
+### Stage-4: Codex 적대 리뷰 3라운드 + Opus 디버깅 (하드닝)
+
+prompt / atomic process / model preset / local routing 4영역에 Codex
+적대 리뷰 3라운드 → medium~critical 전부 해소:
+
+- **local routing**: `LLM_LOCAL_ONLY`(기본 on) — 키 존재만으로 클라우드
+  라우팅 금지, Ollama 실패 시 클라우드 폴백 금지. 리뷰어는 gemma 계열
+  고정(qwen 폴백 차단), `pickOllamaModel(tag, "review")`.
+- **atomic process**: `runRefinement` batch-atomic — upsert/set_meta 먼저,
+  remove 나중; cross-kind 짝만 인정, 같은-kind 모순 remove 스킵, *무효*
+  짝 upsert(스키마 거부)도 인지해 고아 삭제 방지. UI 패치는 functional
+  updater + tombstone 영속화(저장 시 ai/heuristic 에서도 제거).
+- **prompt**: 인젝션 방어 — `prompt-safety.ts`(deFence + INJECTION_GUARD)
+  를 추출·리뷰·챗봇 모두에 적용, 데이터/지시 분리 명문화. set_meta 에
+  `domain_genre` + 신규 `add_warning` op (프롬프트↔파서 일치). 모든
+  patch op 스키마 `.strict()`(의미오류 patch 가 silently 손상되던 것을
+  가시적 거부로).
+- **model preset**: 결정론 — retry 가 고정 seed 를 perturb 하지 않음
+  (재현성 유지), seed unsafe-int 클램프, 번들러 정렬 결정론 tiebreaker.
+
+Opus 디버깅에서 하드닝 프롬프트가 qwen pass-1 factor 추출을 억제
+(90→30%)함을 적발 → 보안 문구를 데이터-경계 guard 로 이전하고 factor
+섹션의 금지형 문장 제거. 재검증(실제 TimeExp1, seed 42):
+
+| 지표 | 결과 |
+|---|---|
+| factor recall (1-pass / 2-pass) | **90% / 90%** (회복 확인) |
+| parameters (2-pass) | 38→**54%** |
+| n_blocks·n_trials·block_phases·genre | 전부 gt 일치 |
+| 2-pass refinement | 22 applied · 1 rejected (.strict() 과대거부 없음) |
+
 ---
 
 ## 8. 한 줄 요약

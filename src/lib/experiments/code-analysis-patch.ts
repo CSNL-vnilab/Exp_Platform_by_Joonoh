@@ -19,6 +19,7 @@ import { z } from "zod/v4";
 import {
   CodeAnalysisOverridesSchema,
   SUPPORTED_FRAMEWORKS,
+  SUPPORTED_GENRES,
   SUPPORTED_LANGS,
   type CodeAnalysisOverrides,
   type Condition,
@@ -66,6 +67,7 @@ const SET_META_FIELDS = [
   "summary",
   "hierarchy",
   "design_matrix",
+  "domain_genre",
   "framework",
   "language",
 ] as const;
@@ -82,6 +84,10 @@ const SetMetaPatchSchema = z
     field: z.enum(SET_META_FIELDS),
     value: z.unknown(),
   })
+  // strict: reject extra keys instead of silently stripping — a model
+  // emitting e.g. upsert_factor fields onto set_meta must be visibly
+  // rejected, not coerced into a wrong record (Codex R2 R1-WRONG).
+  .strict()
   .superRefine((data, ctx) => {
     const fail = (msg: string) =>
       ctx.addIssue({ code: "custom", path: ["value"], message: msg });
@@ -112,6 +118,12 @@ const SetMetaPatchSchema = z
         if (!r.success) fail(`${data.field} 은(는) 문자열 또는 null 이어야 합니다`);
         return;
       }
+      case "domain_genre": {
+        const r = z.enum(SUPPORTED_GENRES).nullable().safeParse(data.value);
+        if (!r.success)
+          fail(`domain_genre 은(는) ${SUPPORTED_GENRES.join("|")} 또는 null 이어야 합니다`);
+        return;
+      }
       case "framework": {
         const r = z.enum(SUPPORTED_FRAMEWORKS).nullable().safeParse(data.value);
         if (!r.success)
@@ -135,12 +147,12 @@ const UpsertFactorPatchSchema = z.object({
   role: z.enum(FACTOR_ROLES).optional(),
   description: z.string().max(20_000).nullable().optional(),
   line_hint: lineHintSchema.optional(),
-});
+}).strict();
 
 const RemoveFactorPatchSchema = z.object({
   op: z.literal("remove_factor"),
   name: z.string().min(1).max(64),
-});
+}).strict();
 
 const UpsertParameterPatchSchema = z.object({
   op: z.literal("upsert_parameter"),
@@ -151,24 +163,24 @@ const UpsertParameterPatchSchema = z.object({
   shape: z.enum(PARAMETER_SHAPES).optional(),
   description: z.string().max(20_000).nullable().optional(),
   line_hint: lineHintSchema.optional(),
-});
+}).strict();
 
 const RemoveParameterPatchSchema = z.object({
   op: z.literal("remove_parameter"),
   name: z.string().min(1).max(64),
-});
+}).strict();
 
 const UpsertConditionPatchSchema = z.object({
   op: z.literal("upsert_condition"),
   label: z.string().min(1).max(64),
   factor_assignments: z.record(z.string(), z.string()).optional(),
   description: z.string().max(20_000).nullable().optional(),
-});
+}).strict();
 
 const RemoveConditionPatchSchema = z.object({
   op: z.literal("remove_condition"),
   label: z.string().min(1).max(64),
-});
+}).strict();
 
 const UpsertSavedVariablePatchSchema = z.object({
   op: z.literal("upsert_saved_variable"),
@@ -178,12 +190,22 @@ const UpsertSavedVariablePatchSchema = z.object({
   sink: z.string().max(2000).nullable().optional(),
   description: z.string().max(20_000).nullable().optional(),
   line_hint: lineHintSchema.optional(),
-});
+}).strict();
 
 const RemoveSavedVariablePatchSchema = z.object({
   op: z.literal("remove_saved_variable"),
   name: z.string().min(1).max(64),
-});
+}).strict();
+
+// Lets the reviewer flag something it cannot express as a structural
+// patch (e.g. multi-phase block decomposition, which has no array-set
+// op) instead of silently dropping the observation. The reviewer prompt
+// instructs this; without the op those instructions were unactionable
+// and zod-rejected (Codex R1 #2).
+const AddWarningPatchSchema = z.object({
+  op: z.literal("add_warning"),
+  text: z.string().min(1).max(500),
+}).strict();
 
 // op → schema (manual dispatch — set_meta uses superRefine which
 // can't sit inside z.discriminatedUnion, so we pick the right schema
@@ -198,6 +220,7 @@ const PATCH_SCHEMAS = {
   remove_condition: RemoveConditionPatchSchema,
   upsert_saved_variable: UpsertSavedVariablePatchSchema,
   remove_saved_variable: RemoveSavedVariablePatchSchema,
+  add_warning: AddWarningPatchSchema,
 } as const;
 
 const ALL_OPS = Object.keys(PATCH_SCHEMAS) as ReadonlyArray<keyof typeof PATCH_SCHEMAS>;
@@ -211,7 +234,8 @@ export type Patch =
   | z.infer<typeof UpsertConditionPatchSchema>
   | z.infer<typeof RemoveConditionPatchSchema>
   | z.infer<typeof UpsertSavedVariablePatchSchema>
-  | z.infer<typeof RemoveSavedVariablePatchSchema>;
+  | z.infer<typeof RemoveSavedVariablePatchSchema>
+  | z.infer<typeof AddWarningPatchSchema>;
 
 export type PatchValidationResult =
   | { ok: true; patch: Patch }
@@ -407,6 +431,13 @@ export function applyPatch(
         (s) => s.name !== patch.name,
       );
       break;
+    case "add_warning": {
+      const w = patch.text.trim();
+      const existing = next.warnings ?? [];
+      // de-dupe so a re-run reviewer doesn't pile identical notes
+      if (w && !existing.includes(w)) next.warnings = [...existing, w];
+      break;
+    }
   }
 
   // Defence in depth: re-parse the merged overrides through the
@@ -447,5 +478,7 @@ export function summarisePatch(p: Patch): string {
       return `saved variable "${p.name}" 추가/수정${p.format ? ` (${p.format})` : ""}`;
     case "remove_saved_variable":
       return `saved variable "${p.name}" 삭제`;
+    case "add_warning":
+      return `경고 추가: "${p.text.slice(0, 60)}${p.text.length > 60 ? "…" : ""}"`;
   }
 }
