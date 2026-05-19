@@ -72,6 +72,90 @@ function isUnderAllowedRoot(target: string): boolean {
   return false;
 }
 
+// True on Vercel / AWS Lambda / other serverless runtimes where there is
+// no `/Volumes` mount and no local Ollama. Used to turn the opaque
+// "경로를 찾을 수 없습니다" into an actionable explanation.
+function isServerlessEnv(): boolean {
+  return !!(
+    process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.NOW_REGION
+  );
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Strip a macOS duplicate-mount suffix: "CSNL_new-1" / "CSNL_new 2" →
+// "CSNL_new". macOS appends these when the same share name is mounted
+// while an earlier (often stale) mount of it still exists.
+function mountBase(name: string): string {
+  return name.replace(/[-\s]?\d+$/, "");
+}
+
+// Allow the auto-corrected path when its mount shares a base name with
+// *any* allow-listed /Volumes root — i.e. it is provably the same share
+// remounted under a different numeric suffix, not a new location. This
+// keeps the security boundary (same share only) without forcing the
+// admin to enumerate every -1/-2 suffix in CODE_SOURCE_ROOTS.
+function aliasAllowed(aliasPath: string): boolean {
+  if (isUnderAllowedRoot(aliasPath)) return true;
+  const m = aliasPath.match(/^\/Volumes\/([^/]+)/);
+  if (!m) return false;
+  const base = mountBase(m[1]);
+  for (const root of getAllowedRoots()) {
+    const rm = root.match(/^\/Volumes\/([^/]+)/);
+    if (rm && mountBase(rm[1]) === base) return true;
+  }
+  return false;
+}
+
+// When the supplied /Volumes path doesn't exist, look for a sibling
+// mount with the same base name (the classic "-1" remount) and remap.
+// Returns the corrected path + a human note, null if nothing matches,
+// or throws if the remap is ambiguous (>1 candidate resolves).
+async function resolveMountAlias(
+  absPath: string,
+): Promise<{ path: string; note: string } | null> {
+  const m = absPath.match(/^(\/Volumes\/)([^/]+)(\/.*)?$/);
+  if (!m) return null;
+  const prefix = m[1];
+  const mount = m[2];
+  const rest = m[3] ?? "";
+  const base = mountBase(mount);
+  let entries: string[];
+  try {
+    entries = await readdir("/Volumes");
+  } catch {
+    return null;
+  }
+  const sibRe = new RegExp(`^${escapeRe(base)}[-\\s]?\\d*$`);
+  const candidates: string[] = [];
+  for (const e of entries) {
+    if (e === mount || !sibRe.test(e)) continue;
+    const cand = `${prefix}${e}${rest}`;
+    if (!aliasAllowed(cand)) continue;
+    const st = await stat(cand).catch(() => null);
+    if (st) candidates.push(cand);
+  }
+  if (candidates.length === 1) {
+    return {
+      path: candidates[0],
+      note: `마운트 자동 보정: '${mount}' → '${candidates[0].split("/")[2]}'`,
+    };
+  }
+  if (candidates.length > 1) {
+    throw new Error(
+      `마운트 후보가 여러 개라 자동 보정할 수 없습니다 (${candidates
+        .map((c) => c.split("/")[2])
+        .join(", ")}). 정확한 경로로 다시 입력하세요.`,
+    );
+  }
+  return null;
+}
+
 // Resolve symlinks before recursion. The previous walker used `stat`
 // which follows links transparently — a symlink inside an allowed
 // root could point to /etc/shadow and the walker would happily
@@ -135,25 +219,60 @@ export async function fetchServerPath(absPath: string): Promise<FetchResult> {
     throw new Error("절대 경로만 허용합니다 (e.g. /Volumes/...)");
   }
   if (!isUnderAllowedRoot(absPath)) {
+    if (isServerlessEnv() && absPath.startsWith("/Volumes/")) {
+      throw new Error(
+        "서버리스(Vercel 등) 환경에서는 /Volumes 로컬 마운트를 읽을 수 없습니다. " +
+          "이 분석은 볼륨이 마운트되고 Ollama 가 실행 중인 로컬(랩) 머신에서 돌려야 합니다 — " +
+          "`npm run dev` 후 localhost 에서 실행하거나 GitHub 소스를 사용하세요.",
+      );
+    }
     throw new Error(
       `허용되지 않은 경로입니다. CODE_SOURCE_ROOTS 환경변수에 등록된 루트만 허용됩니다.`,
     );
   }
-  const st = await stat(absPath).catch(() => null);
-  if (!st) throw new Error(`경로를 찾을 수 없습니다: ${absPath}`);
+
+  // Resolve the path, auto-correcting a macOS duplicate-mount rename
+  // ('-1' suffix) when the literal path is gone (resolveMountAlias may
+  // throw if the remap is ambiguous).
+  let resolved = absPath;
+  let rootDisplay = absPath;
+  let st = await stat(resolved).catch(() => null);
+  if (!st) {
+    const alias = await resolveMountAlias(absPath);
+    if (alias) {
+      resolved = alias.path;
+      rootDisplay = `${alias.path}  (${alias.note})`;
+      st = await stat(resolved).catch(() => null);
+      console.error(`[source-fetcher] ${alias.note}`);
+    }
+  }
+  if (!st) {
+    if (isServerlessEnv()) {
+      throw new Error(
+        "경로를 찾을 수 없습니다 — 서버리스(Vercel) 런타임에는 /Volumes 마운트가 없습니다. " +
+          "볼륨이 마운트되고 Ollama 가 떠 있는 로컬(랩) 머신에서 분석기를 실행하세요.",
+      );
+    }
+    throw new Error(
+      `경로를 찾을 수 없습니다: ${absPath} — 볼륨이 마운트됐는지(\`ls /Volumes/\`), ` +
+        `경로 철자/대소문자, macOS 중복마운트('-1' 접미사)를 확인하세요.`,
+    );
+  }
+
   if (!st.isDirectory()) {
     // Single-file source — wrap as a 1-file list.
-    const content = await readFile(absPath, "utf8");
-    const base = path.basename(absPath);
+    const content = await readFile(resolved, "utf8");
+    const base = path.basename(resolved);
     return {
       files: [{ path: base, content }],
-      rootPath: path.dirname(absPath),
-      rootDisplay: absPath,
+      rootPath: path.dirname(resolved),
+      rootDisplay,
       truncated: false,
       skipped: [],
     };
   }
-  return readDirRecursive(absPath, absPath, DEFAULT_TOTAL_CAP);
+  const result = await readDirRecursive(resolved, resolved, DEFAULT_TOTAL_CAP);
+  return { ...result, rootDisplay };
 }
 
 // Heuristic: file is binary if it contains a NUL byte in the first
