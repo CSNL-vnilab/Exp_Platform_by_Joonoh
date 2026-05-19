@@ -41,6 +41,11 @@ import {
   summarisePatch,
   type Patch,
 } from "@/lib/experiments/code-analysis-patch";
+import {
+  buildInterview,
+  type InterviewQuestion,
+  type InterviewOption,
+} from "@/lib/experiments/interview";
 import type { ExperimentParameterSpec } from "@/types/database";
 
 const SAVED_FORMATS = [
@@ -473,6 +478,90 @@ export function OfflineCodeAnalyzer({
   const visibleParams = merged.parameters.filter((p) => !removedParams.has(p.name));
   const visibleConds = merged.conditions.filter((c) => !removedConds.has(c.label));
   const visibleSaved = merged.saved_variables.filter((s) => !removedSaved.has(s.name));
+
+  // ---- confirmation interview ----------------------------------------
+  // A short grounded multiple-choice loop over the *uncertain* parts of
+  // the deconstruction. Each answer applies typed patches through the
+  // same applyPatch channel the chatbot uses, so confirming refines the
+  // analysis deterministically. Snapshotted on open (not recomputed per
+  // keystroke) so the experimenter's position stays stable.
+  const [ivQs, setIvQs] = useState<InterviewQuestion[] | null>(null);
+  const [ivIdx, setIvIdx] = useState(0);
+  const [ivDone, setIvDone] = useState<Set<string>>(new Set());
+  const [ivText, setIvText] = useState("");
+
+  const startInterview = () => {
+    const qs = buildInterview(merged);
+    setIvQs(qs);
+    setIvIdx(0);
+    setIvDone(new Set());
+    setIvText("");
+    if (qs.length === 0) {
+      toast("확인이 필요한 불확실 항목이 없습니다 — 해체가 충분히 명확합니다.", "success");
+    }
+  };
+
+  // Fold an option's patches onto a local copy then commit once (avoids
+  // stale-state batching). Returns false (and toasts) on the first
+  // rejected patch without partially applying.
+  const applyIvPatches = (patches?: Patch[]): boolean => {
+    if (!patches || patches.length === 0) return true;
+    let cur = overrides;
+    for (const p of patches) {
+      const r = applyPatch(cur, p);
+      if (r.error) {
+        toast(`적용 실패: ${r.error}`, "error");
+        return false;
+      }
+      cur = r.next;
+    }
+    setOverrides(cur);
+    return true;
+  };
+
+  const advanceInterview = (id: string) => {
+    const done = new Set(ivDone);
+    done.add(id);
+    setIvDone(done);
+    setIvText("");
+    const qs = ivQs ?? [];
+    let next = ivIdx + 1;
+    while (next < qs.length && done.has(qs[next].id)) next += 1;
+    setIvIdx(Math.min(next, qs.length));
+  };
+
+  const answerOption = (q: InterviewQuestion, opt: InterviewOption) => {
+    if (!applyIvPatches(opt.patches)) return;
+    advanceInterview(q.id);
+  };
+
+  const answerText = (q: InterviewQuestion) => {
+    const v = ivText.trim();
+    if (!q.text) return;
+    if (!v) {
+      advanceInterview(q.id); // empty ⇒ treat as skip
+      return;
+    }
+    const b = q.text.build;
+    let patches: Patch[];
+    if (b.mode === "set_meta") {
+      patches = [{ op: "set_meta", field: b.field, value: v }];
+    } else if (b.mode === "factor_levels") {
+      const levels = v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      patches = [{ op: "upsert_factor", name: b.name, levels }];
+    } else {
+      // factor_rename: add the renamed factor, drop the old one
+      patches = [
+        { op: "upsert_factor", name: v },
+        { op: "remove_factor", name: b.name },
+      ];
+    }
+    if (!applyIvPatches(patches)) return;
+    advanceInterview(q.id);
+  };
 
   // ---- save -----------------------------------------------------------
   const saveToDb = async () => {
@@ -983,6 +1072,169 @@ export function OfflineCodeAnalyzer({
                     </ul>
                   </div>
                 )}
+
+                {/* confirmation interview — grounded one-question-at-a-time
+                    loop over the uncertain parts of the deconstruction */}
+                <section className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-xs text-sky-950">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">
+                      확인 인터뷰 — 해체 결과 컨펌
+                    </h3>
+                    {ivQs === null ? (
+                      <button
+                        type="button"
+                        onClick={startInterview}
+                        className="rounded bg-sky-600 px-2 py-1 font-medium text-white hover:bg-sky-700"
+                      >
+                        인터뷰 시작
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-sky-700">
+                          답변 {ivDone.size}/{ivQs.length}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={startInterview}
+                          className="rounded border border-sky-400 px-2 py-1 font-medium text-sky-700 hover:bg-sky-100"
+                        >
+                          다시 생성
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {ivQs === null && (
+                    <p className="text-[11px] text-sky-800">
+                      불확실한 항목(역할 미정 IV·단일값 변수·추론된 변수·계층
+                      구조·파라미터 형태 등)을 한 번에 하나씩, 코드 근거와 함께
+                      물어봅니다. 답하면 해체 결과에 바로 반영됩니다.
+                    </p>
+                  )}
+
+                  {ivQs !== null && ivQs.length === 0 && (
+                    <p className="text-[11px] text-sky-800">
+                      확인이 필요한 불확실 항목이 없습니다 — 해체가 충분히
+                      명확합니다.
+                    </p>
+                  )}
+
+                  {ivQs !== null &&
+                    ivQs.length > 0 &&
+                    ivDone.size >= ivQs.length && (
+                      <p className="rounded bg-emerald-100 p-2 text-[11px] font-medium text-emerald-900">
+                        모든 항목을 확인했습니다. 아래 “저장”으로 컨펌된 해체를
+                        저장하세요.
+                      </p>
+                    )}
+
+                  {ivQs !== null &&
+                    ivQs.length > 0 &&
+                    ivDone.size < ivQs.length &&
+                    (() => {
+                      const idx =
+                        ivIdx < ivQs.length
+                          ? ivIdx
+                          : ivQs.findIndex((x) => !ivDone.has(x.id));
+                      const q = ivQs[idx];
+                      if (!q) return null;
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-sky-200 px-1.5 py-0.5 text-[10px] font-medium uppercase text-sky-800">
+                              {q.topic}
+                            </span>
+                            <span className="text-[11px] text-sky-700">
+                              질문 {idx + 1}/{ivQs.length}
+                              {ivDone.has(q.id) ? " · 답변됨" : ""}
+                            </span>
+                          </div>
+                          <p className="font-medium text-sky-950">
+                            {q.question}
+                          </p>
+                          {q.evidence && (
+                            <p className="rounded bg-white/70 px-2 py-1 font-mono text-[10px] text-sky-700">
+                              근거: {q.evidence}
+                            </p>
+                          )}
+
+                          {q.kind === "single" && q.options && (
+                            <div className="flex flex-col gap-1">
+                              {q.options.map((opt, oi) => (
+                                <button
+                                  key={oi}
+                                  type="button"
+                                  onClick={() => answerOption(q, opt)}
+                                  className={`rounded border px-2 py-1 text-left font-medium ${
+                                    opt.tone === "primary"
+                                      ? "border-sky-500 bg-sky-600 text-white hover:bg-sky-700"
+                                      : opt.tone === "danger"
+                                        ? "border-red-300 bg-white text-red-700 hover:bg-red-50"
+                                        : "border-sky-300 bg-white text-sky-800 hover:bg-sky-100"
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {q.kind === "text" && q.text && (
+                            <div className="flex flex-col gap-1">
+                              <input
+                                value={ivText}
+                                onChange={(e) => setIvText(e.target.value)}
+                                placeholder={q.text.placeholder}
+                                className={inputCls + " font-mono"}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    answerText(q);
+                                  }
+                                }}
+                              />
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => answerText(q)}
+                                  className="rounded bg-sky-600 px-2 py-1 font-medium text-white hover:bg-sky-700"
+                                >
+                                  적용
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => advanceInterview(q.id)}
+                                  className="rounded border border-sky-300 bg-white px-2 py-1 font-medium text-sky-700 hover:bg-sky-100"
+                                >
+                                  건너뜀
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between pt-1">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => setIvIdx(Math.max(0, idx - 1))}
+                              className="text-[11px] text-sky-600 disabled:opacity-40 hover:underline"
+                            >
+                              ← 이전
+                            </button>
+                            {q.kind === "single" && (
+                              <button
+                                type="button"
+                                onClick={() => advanceInterview(q.id)}
+                                className="text-[11px] text-sky-600 hover:underline"
+                              >
+                                건너뜀 →
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                </section>
 
                 {/* meta */}
                 <section>

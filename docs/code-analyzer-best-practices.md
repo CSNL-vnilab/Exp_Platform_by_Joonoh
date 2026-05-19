@@ -567,6 +567,27 @@ family 일치로 자동 사용. `OFFLINE_CODE_MODEL` 로 강제 지정 가능.
 
 잔여: `condition`(단일값 — IV 아님으로 분류, gt 의 bogus 항목) 1개만 미스 ≈ 정상.
 
+### Stage-3: 확인 인터뷰 (실험자 컨펌 피드백 루프)
+
+자동 해체의 *마지막 마일*은 사람이 확정. `src/lib/experiments/interview.ts`
+(순수·결정론·browser-safe)가 merged 분석의 *불확실 지점*만 골라
+우선순위·근거(file:line) 기반 객관식 질문으로 변환:
+
+1. 추론 clue factor (호출부 기반) → per_trial 확정 / 제거
+2. role 미정 factor → 5개 role 중 선택 (derived ⇒ 제거)
+3. 단일값 factor → 조작변수 vs 고정 상수(parameter 로 이동)
+4. 빈 levels (role 확정된 것만) → 텍스트 입력
+5. `meta.hierarchy` 결측 → 한 줄 입력 (현재 추정치 근거로)
+6. parameter shape 미정 → constant/vector/expression/input
+7. 분석기 정성 메모 → 확인 (bookkeeping 경고는 자동 제외)
+
+UI(`offline-code-analyzer.tsx`)는 warnings 아래 "확인 인터뷰" 패널로
+한 번에 한 질문씩 제시; 답하면 **기존 `applyPatch` 채널**로 typed
+patch 가 `overrides` 에 즉시 반영(LLM 왕복·자유서식 파싱 없음 →
+즉시·신뢰가능). archiver 인터뷰 방법론(grounded·객관식 우선·
+확정 전 하위질문 보류·항상 skip 가능)을 그대로 차용. 모두 답하면
+기존 "저장"으로 컨펌된 해체가 영속화.
+
 ---
 
 ## 8. 한 줄 요약
