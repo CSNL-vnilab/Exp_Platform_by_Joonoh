@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ClassBadge } from "@/components/class-badge";
+import { PromoEmailModal } from "@/components/promo-email-modal";
 import { formatDateKR } from "@/lib/utils/date";
-import type { ParticipantClass, UserRole } from "@/types/database";
+import type { ParticipantClass } from "@/types/database";
 
 interface ParticipantListRow {
   id: string;
-  // PII fields only populated when caller is admin. Non-admin researchers
-  // get the pseudonymous view only.
+  // PII open to every authenticated lab member (2026-05-19 directive).
   name?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -20,10 +20,8 @@ interface ParticipantListRow {
   class: ParticipantClass | null;
   completed_count: number;
   last_booking_at: string | null;
-}
-
-interface Props {
-  role: UserRole;
+  last_participated_at: string | null;
+  experiment_names: string[];
 }
 
 const PAGE_SIZE = 20;
@@ -36,14 +34,33 @@ const CLASS_FILTERS: Array<{ value: "" | ParticipantClass; label: string }> = [
   { value: "vip", label: "VIP" },
 ];
 
-export function ParticipantsList({ role }: Props) {
+function ExperimentCell({ names }: { names: string[] }) {
+  if (!names || names.length === 0) return <span className="text-muted">-</span>;
+  const head = names[0];
+  const rest = names.length - 1;
+  return (
+    <span className="text-foreground" title={names.join(", ")}>
+      {head}
+      {rest > 0 && (
+        <span className="ml-1 text-xs text-muted">+{rest}</span>
+      )}
+    </span>
+  );
+}
+
+export function ParticipantsList() {
   const router = useRouter();
-  const isAdmin = role === "admin";
 
   const [rows, setRows] = useState<ParticipantListRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Checkbox selection for the recruitment ("홍보") blast. Keyed by
+  // participant id so it survives pagination — select-all only toggles
+  // the rows visible on the current page.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [promoOpen, setPromoOpen] = useState(false);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -107,6 +124,31 @@ export function ParticipantsList({ role }: Props) {
     router.push(`/participants/${id}`);
   }
 
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const pageIds = useMemo(() => rows.map((r) => r.id), [rows]);
+  const allPageSelected =
+    pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+
+  function togglePage() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        for (const id of pageIds) next.delete(id);
+      } else {
+        for (const id of pageIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
   return (
     <div className="space-y-4">
       <Card>
@@ -116,11 +158,7 @@ export function ParticipantsList({ role }: Props) {
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={
-                isAdmin
-                  ? "이름·전화·이메일·공개 ID 검색"
-                  : "공개 ID 검색"
-              }
+              placeholder="이름·전화·이메일·공개 ID 검색"
               className="w-64 rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
             <select
@@ -140,6 +178,28 @@ export function ParticipantsList({ role }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      {selectedIds.size > 0 && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center gap-3 py-3">
+            <span className="text-sm font-medium text-foreground">
+              {selectedIds.size}명 선택됨
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="text-xs text-muted underline-offset-2 hover:underline"
+            >
+              선택 해제
+            </button>
+            <div className="ml-auto">
+              <Button size="sm" onClick={() => setPromoOpen(true)}>
+                홍보 메일 보내기
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {error && (
         <Card>
@@ -168,13 +228,23 @@ export function ParticipantsList({ role }: Props) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-card text-left">
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        aria-label="이 페이지 전체 선택"
+                        checked={allPageSelected}
+                        onChange={togglePage}
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                      />
+                    </th>
                     <th className="px-4 py-3 font-medium text-muted">공개 ID</th>
-                    {isAdmin && (
-                      <th className="px-4 py-3 font-medium text-muted">이름</th>
-                    )}
+                    <th className="px-4 py-3 font-medium text-muted">이름</th>
+                    <th className="px-4 py-3 font-medium text-muted">이메일</th>
+                    <th className="px-4 py-3 font-medium text-muted">연락처</th>
+                    <th className="px-4 py-3 font-medium text-muted">참여 실험</th>
                     <th className="px-4 py-3 font-medium text-muted">클래스</th>
                     <th className="px-4 py-3 font-medium text-muted">완료 세션</th>
-                    <th className="px-4 py-3 font-medium text-muted">최근 예약일</th>
+                    <th className="px-4 py-3 font-medium text-muted">최근 참여일</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -184,14 +254,33 @@ export function ParticipantsList({ role }: Props) {
                       onClick={() => go(r.id)}
                       className="cursor-pointer border-b border-border last:border-b-0 hover:bg-card/50"
                     >
+                      <td
+                        className="px-4 py-3"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`${r.name ?? r.public_code ?? "참여자"} 선택`}
+                          checked={selectedIds.has(r.id)}
+                          onChange={() => toggleOne(r.id)}
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                        />
+                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-foreground">
                         {r.public_code ?? "-"}
                       </td>
-                      {isAdmin && (
-                        <td className="px-4 py-3 text-foreground">
-                          {r.name ?? "-"}
-                        </td>
-                      )}
+                      <td className="px-4 py-3 text-foreground">
+                        {r.name ?? "-"}
+                      </td>
+                      <td className="px-4 py-3 text-muted">
+                        {r.email ?? "-"}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-muted">
+                        {r.phone ?? "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <ExperimentCell names={r.experiment_names ?? []} />
+                      </td>
                       <td className="px-4 py-3">
                         <ClassBadge value={r.class} />
                       </td>
@@ -199,7 +288,11 @@ export function ParticipantsList({ role }: Props) {
                         {r.completed_count}
                       </td>
                       <td className="px-4 py-3 text-muted">
-                        {r.last_booking_at ? formatDateKR(r.last_booking_at) : "-"}
+                        {r.last_participated_at
+                          ? formatDateKR(r.last_participated_at)
+                          : r.last_booking_at
+                            ? formatDateKR(r.last_booking_at)
+                            : "-"}
                       </td>
                     </tr>
                   ))}
@@ -234,6 +327,16 @@ export function ParticipantsList({ role }: Props) {
           </Button>
         </div>
       )}
+
+      <PromoEmailModal
+        open={promoOpen}
+        onClose={() => setPromoOpen(false)}
+        participantIds={[...selectedIds]}
+        onSent={() => {
+          setSelectedIds(new Set());
+          void load();
+        }}
+      />
     </div>
   );
 }

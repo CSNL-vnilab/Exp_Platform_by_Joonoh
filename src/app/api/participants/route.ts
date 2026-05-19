@@ -42,15 +42,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Admin gate: non-admin researchers never receive PII fields in list
-    // responses. Only `public_code` + `class` + aggregated counts. (QC C2.)
+    // Service-role client for the lab-wide roster. Any authenticated,
+    // logged-in lab member may read the full roster + PII as of the
+    // 2026-05-19 directive (the prior admin-only PII gate was removed).
     const admin0 = createAdminClient();
-    const { data: profile } = await admin0
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle();
-    const isAdmin = profile?.role === "admin";
 
     const url = new URL(request.url);
     const classFilter = parseClassFilter(url.searchParams.get("class"));
@@ -177,14 +172,16 @@ export async function GET(request: NextRequest) {
     // ------------------------------------------------------------------
     // Switched from cookie-bound `supabase` (RLS) to `admin` so every
     // researcher can see the lab-wide participant roster, not just the
-    // people they personally booked. PII protection still happens here:
-    // non-admin researchers only get id + created_at columns (the server
-    // never serializes name/phone/email/gender/birthdate for them, even
-    // accidentally). User directive 2026-04-28: 모든 연구원이 lab 참여자
-    // 목록을 암호화된 public_code 형태로 파악할 수 있어야 한다.
-    const baseCols = isAdmin
-      ? "id, name, phone, email, gender, birthdate, created_at"
-      : "id, created_at";
+    // people they personally booked.
+    //
+    // User directive 2026-05-19 (supersedes the 2026-04-28
+    // public_code-only rule): the 참여자 관리 workflow — name / email /
+    // phone / participated-experiment names + checkbox + 홍보 발송 — is
+    // open to ALL researchers, not just admin. So PII is now serialized
+    // for every authenticated lab member. `isAdmin` is retained only for
+    // any future admin-exclusive surface; it no longer gates the roster.
+    const baseCols =
+      "id, name, phone, email, gender, birthdate, created_at";
 
     let query = admin
       .from("participants")
@@ -194,18 +191,8 @@ export async function GET(request: NextRequest) {
       query = query.in("id", candidateIds);
     }
     if (search && !search.toUpperCase().startsWith(`${lab.code}-`)) {
-      // Non-public-code search is admin-only: it probes name/phone, which
-      // would otherwise leak identity to researchers ("does CSNL-XXXXXX
-      // correspond to name Y?"). Researchers must search by public_code.
-      if (!isAdmin) {
-        return NextResponse.json({
-          participants: [],
-          total: 0,
-          limit,
-          offset,
-          lab: { id: lab.id, code: lab.code },
-        });
-      }
+      // Name/phone substring search — open to all lab members per the
+      // 2026-05-19 directive (previously admin-only).
       const phoneDigits = search.replace(/\D/g, "");
       if (phoneDigits.length >= 4) {
         query = query.or(`name.ilike.%${search}%,phone.ilike.%${phoneDigits}%`);
@@ -256,32 +243,58 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // H1: compute per-participant completed_count (scoped to this lab's
-    // experiments) and last_booking_at so the list UI stops rendering "0"/"-"
-    // for every row. One grouped query per page.
+    // Per-participant booking aggregate (scoped to this lab's
+    // experiments): completed_count, last_booking_at, last_participated_at
+    // (latest *completed* session) and the distinct experiment titles the
+    // person took part in. One grouped query per page.
     const aggregateByParticipant = new Map<
       string,
-      { completed_count: number; last_booking_at: string | null }
+      {
+        completed_count: number;
+        last_booking_at: string | null;
+        last_participated_at: string | null;
+        experiments: Map<string, string>; // title -> latest slot_start
+      }
     >();
     if (ids.length > 0) {
       const { data: bookingRows } = await admin
         .from("bookings")
-        .select("participant_id, status, slot_start, experiments!inner(lab_id)")
+        .select(
+          "participant_id, status, slot_start, experiments!inner(lab_id, title)",
+        )
         .eq("experiments.lab_id", lab.id)
         .in("participant_id", ids);
       type Row = {
         participant_id: string;
         status: string;
         slot_start: string;
+        experiments: { title: string | null } | null;
       };
       for (const r of ((bookingRows ?? []) as unknown) as Row[]) {
         const prev = aggregateByParticipant.get(r.participant_id) ?? {
           completed_count: 0,
           last_booking_at: null as string | null,
+          last_participated_at: null as string | null,
+          experiments: new Map<string, string>(),
         };
-        if (r.status === "completed") prev.completed_count += 1;
+        if (r.status === "completed") {
+          prev.completed_count += 1;
+          if (
+            !prev.last_participated_at ||
+            r.slot_start > prev.last_participated_at
+          ) {
+            prev.last_participated_at = r.slot_start;
+          }
+        }
         if (!prev.last_booking_at || r.slot_start > prev.last_booking_at) {
           prev.last_booking_at = r.slot_start;
+        }
+        const title = r.experiments?.title?.trim();
+        if (title) {
+          const seen = prev.experiments.get(title);
+          if (!seen || r.slot_start > seen) {
+            prev.experiments.set(title, r.slot_start);
+          }
         }
         aggregateByParticipant.set(r.participant_id, prev);
       }
@@ -315,15 +328,23 @@ export async function GET(request: NextRequest) {
       const agg = aggregateByParticipant.get(p.id) ?? {
         completed_count: 0,
         last_booking_at: null,
+        last_participated_at: null,
+        experiments: new Map<string, string>(),
       };
-      const base = {
+      // Experiment names, most-recent participation first.
+      const experimentNames = [...agg.experiments.entries()]
+        .sort((a, b) => (a[1] < b[1] ? 1 : -1))
+        .map(([title]) => title);
+      // PII open to all authenticated lab members (2026-05-19 directive).
+      return {
         id: p.id,
         created_at: p.created_at,
         public_code: publicCodeByParticipant.get(p.id) ?? null,
         lab_code: lab.code,
-        // H1: populate from bookings aggregate, not from the stale class row.
         completed_count: agg.completed_count,
         last_booking_at: agg.last_booking_at,
+        last_participated_at: agg.last_participated_at,
+        experiment_names: experimentNames,
         class: cls
           ? {
               class: cls.class,
@@ -334,11 +355,6 @@ export async function GET(request: NextRequest) {
               completed_count: cls.completed_count,
             }
           : null,
-      };
-      // Only admins see PII; researchers get the pseudonymous view.
-      if (!isAdmin) return base;
-      return {
-        ...base,
         name: p.name,
         phone: p.phone,
         email: p.email,

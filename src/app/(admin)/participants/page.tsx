@@ -4,20 +4,21 @@ import { ParticipantsList } from "./participants-list";
 export const dynamic = "force-dynamic";
 
 export default async function ParticipantsPage() {
-  // Admins and researchers both see this page; researchers get a name-less
-  // view driven by the `role` prop. `requireUser` already redirects to
-  // /login when no session is present.
-  const profile = await requireUser();
+  // Admins and researchers both see the full roster + 홍보 발송 workflow
+  // (2026-05-19 directive). `requireUser` redirects to /login when no
+  // session is present and blocks disabled accounts.
+  await requireUser();
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground">참여자 관리</h1>
         <p className="mt-1 text-sm text-muted">
-          연구실 참여자의 클래스 상태와 예약 이력을 확인합니다.
+          연구실 참여자의 이름·연락처·참여 실험·클래스를 확인하고, 선택한
+          참여자에게 홍보 메일을 발송합니다.
         </p>
       </div>
-      <ParticipantsList role={profile.role} />
+      <ParticipantsList />
     </div>
   );
 }
