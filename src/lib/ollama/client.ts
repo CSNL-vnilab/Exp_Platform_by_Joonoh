@@ -27,6 +27,9 @@ export interface GenerateOptions extends DecodeKnobs {
   task?: Task;
   prompt: string;
   system?: string;
+  // See ChatOptions.think — defaults false (we want the answer, not
+  // the reasoning trace, on every path).
+  think?: boolean;
   signal?: AbortSignal;
 }
 
@@ -34,6 +37,13 @@ export interface ChatOptions extends DecodeKnobs {
   model?: string;
   task?: Task;
   messages: ChatMessage[];
+  // Thinking models (qwen3.6, gemma4 on Ollama ≥0.20, deepseek-r1, …)
+  // emit reasoning tokens that (a) count against num_predict and (b)
+  // do NOT land in message.content. For every analyzer/reviewer/chatbot
+  // path in this codebase we want the *answer*, not the trace — so this
+  // defaults to false everywhere (matching chatJson). Pass true only if
+  // a caller genuinely wants the chain-of-thought surfaced.
+  think?: boolean;
   signal?: AbortSignal;
 }
 
@@ -161,6 +171,7 @@ export async function generate(opts: GenerateOptions): Promise<string> {
       prompt: opts.prompt,
       system: opts.system,
       stream: false,
+      think: opts.think ?? false,
       options: buildOptions(opts, {
         temperature: 0.2,
         num_ctx: 8192,
@@ -179,11 +190,8 @@ export interface ChatJsonOptions extends ChatOptions {
   // omitted, the request just sets `format: "json"` so the model
   // produces parseable JSON.
   schema?: string | object;
-  // For thinking-models (Qwen3.6, deepseek-r1, …), thinking tokens
-  // count against `num_predict` and frequently exhaust the budget on
-  // long-context structured output. Default `think: false` keeps the
-  // model in non-thinking mode, which is what we want for extraction.
-  think?: boolean;
+  // `think` is inherited from ChatOptions (defaults false) — thinking
+  // tokens would exhaust num_predict on long structured output.
 }
 
 export async function chatJson<T = unknown>(opts: ChatJsonOptions): Promise<T> {
@@ -342,7 +350,13 @@ export async function chat(opts: ChatOptions): Promise<string> {
       }
       const res = await ollamaFetch(
         "/api/chat",
-        { model, messages: opts.messages, stream: false, options },
+        {
+          model,
+          messages: opts.messages,
+          stream: false,
+          think: opts.think ?? false,
+          options,
+        },
         opts.signal,
       );
       const data = (await res.json()) as { message?: { content?: string } };
@@ -361,6 +375,7 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
       model,
       messages: opts.messages,
       stream: true,
+      think: opts.think ?? false,
       options: {
         temperature: opts.temperature ?? 0.2,
         num_ctx: opts.num_ctx ?? 8192,

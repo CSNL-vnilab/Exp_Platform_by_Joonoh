@@ -776,12 +776,19 @@ const REFINE_REVIEW_PROMPT = [
   "probe 후보·체크리스트를 끝까지 대조한 뒤, 근거 있는 누락·오분류를 빠짐없이 patch 로 emit (전형적으로 5~30 개; 정말 정확하면 적게). patch 외 텍스트 절대 금지.",
 ].join("\n");
 
-const REFINE_CODE_BUDGET = 80_000;
-// 32K is the safe native context for most local Ollama gemma4 / qwen
-// pulls without rope tweaks. Hosts with bigger models can override
-// via REFINEMENT_NUM_CTX env. Earlier 65K default tripped Ollama's
-// "invalid num_ctx" rejection on stock gemma4:31b pulls.
-const REFINE_NUM_CTX_DEFAULT = 32_768;
+// Reviewer code budget. Was 80K which — together with the probe
+// summary + checklist + pass-1 JSON — blew past a 32K reviewer ctx on
+// real experiments (TimeExp1, 68K bundle): gemma never saw the
+// instructions and emitted 0 patches. The reviewer doesn't need the
+// whole bundle: the probe summary already hands it line-grounded
+// candidates. 40K of the entry + top helpers + probes fits and lets
+// gemma actually act. (Validated: TimeExp1 2-pass went 0→N patches.)
+const REFINE_CODE_BUDGET = 40_000;
+// 64K native context. The earlier 32K default was too small for the
+// reviewer prompt on real experiments; qwen3.6:35b-a3b and gemma4:26b
+// /31b all run fine at 64K on the lab box (validated). Still env-
+// overridable via REFINEMENT_NUM_CTX and clamped to REFINE_NUM_CTX_MAX.
+const REFINE_NUM_CTX_DEFAULT = 65_536;
 const REFINE_NUM_CTX_MAX = 1_048_576;
 const REFINE_NUM_PREDICT = 8_192;
 // Hard ceiling to avoid hung reviewers masquerading as success.

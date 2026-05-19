@@ -460,6 +460,35 @@ function probePsychtoolbox(bundle: string): PlatformProbeHit[] {
       });
     }
 
+    // per-trial kinematic / motion IVs (motion-reproduction PTB).
+    // These define the moving stimulus per trial → per_trial factors;
+    // routinely missed because they live in a trajectory generator,
+    // not the main block/trial loop. (Observed TimeExp1 misses:
+    // tvm1-3, dir1/2, speed1/2, start1/2, occ_deg.)
+    m = t.match(
+      /\b(?:par\.(?:trial|kin|stim|mot)\.)?((?:tvm|speed|spd|dir|start|end|occlu?|sca_bound)\d*|occ_deg|eyepos|handpos)\s*(?:\{[^}]*\}|\([^)]*\))?\s*=/i,
+    );
+    if (m && !/^(end|start)$/i.test(m[1])) {
+      sink.add({
+        category: "factor",
+        name: ident(m[1]),
+        evidence: t,
+        line_hint: hintOf(w),
+        note: "per-trial 운동학/자극 IV (motion-reproduction) — role=per_trial",
+      });
+    }
+    // generic per-trial stimulus/kinematic sub-struct assignment.
+    m = t.match(/\bpar\.(?:trial|stim|kin)\.([A-Za-z_]\w*)\s*(?:\{[^}]*\}|\([^)]*\))?\s*=/);
+    if (m) {
+      sink.add({
+        category: "factor",
+        name: ident(m[1]),
+        evidence: t,
+        line_hint: hintOf(w),
+        note: "per-trial 자극/운동 sub-struct — per_trial 후보",
+      });
+    }
+
     // timing / setup parameters
     m = t.match(
       /\bpar\.([A-Za-z_]\w*)\s*=\s*([0-9.]+)\s*;?\s*%?.*$/,

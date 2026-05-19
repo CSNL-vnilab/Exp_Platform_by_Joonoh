@@ -6,14 +6,14 @@ export const MODELS = {
   // (gemma4:31b OOMs / isn't present here). Both slots point at it.
   reviewDeep: "gemma4:26b",
   reviewFast: "gemma4:26b",
-  reasoning: "qwen3.6:36b",
+  reasoning: "qwen3.6:35b-a3b",
   // Code-analysis (pass-1): qwen3.6 MoE (36b-A3B) is the strongest
   // local extractor; the 27b dense is the fallback. The runtime
   // resolver (pickOllamaModel) walks CODE_ANALYSIS_PREFS and binds to
   // whichever tag is *actually pulled* — so a stale "qwen3.6:latest"
   // default can't 404 anymore. Override via env OFFLINE_CODE_MODEL.
-  codeAnalysis: process.env.OFFLINE_CODE_MODEL ?? "qwen3.6:36b",
-  codeAnalysisFallback: "qwen3.6:27b",
+  codeAnalysis: process.env.OFFLINE_CODE_MODEL ?? "qwen3.6:35b-a3b",
+  codeAnalysisFallback: "qwen3.6:latest",
   embedding: "qwen3-embedding:8b",
   embeddingLite: "bge-m3:latest",
   ocr: "glm-ocr:latest",
@@ -25,15 +25,16 @@ export const MODELS = {
 // gives up, so an unlisted custom tag (e.g. "qwen3.6:36b-q5") still
 // works without code changes.
 export const CODE_ANALYSIS_PREFS = [
+  "qwen3.6:35b-a3b",
+  "qwen3.6:latest",
   "qwen3.6:36b",
   "qwen3.6:27b",
-  "qwen3.6:latest",
 ] as const;
 
 export const REVIEW_PREFS = [
   "gemma4:26b",
   "gemma4:31b",
-  "qwen3.6:36b",
+  "qwen3.6:35b-a3b",
 ] as const;
 
 export type ModelKey = keyof typeof MODELS;

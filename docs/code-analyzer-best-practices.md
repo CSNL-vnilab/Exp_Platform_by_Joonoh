@@ -519,6 +519,37 @@ family 일치로 자동 사용. `OFFLINE_CODE_MODEL` 로 강제 지정 가능.
   win.flip, .draw())를 근거와 함께 추출해 saved_variables(sink=파일)/
   parameter 로 분류하도록 리뷰어에 grounding.
 
+### 라이브 Ollama 검증 (2026-05-19, 랩 박스)
+
+실제 Ollama (qwen3.6:35b-a3b 추출 / gemma4:26b 리뷰) + 실제 TimeExp1
+코드로 전체 사이클을 돌려 검증. 발견·수정:
+
+- **버그 (검증으로 발견·수정)**: `chat()`/`generate()`/`streamChat()`
+  가 `think:false` 를 안 보내, Ollama ≥0.20 의 thinking 모델
+  (gemma4·qwen3.6)에서 num_predict 가 thinking 토큰에 다 먹혀
+  **리뷰어 응답이 빈 문자열** → patch 0 개. 옛 "gemma 가 0 patch"
+  증상의 진짜 원인. `chatJson` 처럼 전 경로 `think:false` 기본화.
+- **리뷰어 ctx**: 32K 는 실제 68K 번들+probe+체크리스트+pass1 을
+  못 담아 gemma 가 지시문조차 못 봄 → 0 patch. 코드예산 80K→40K
+  (probe 가 line 근거 제공), `REFINEMENT_NUM_CTX` 기본 64K 로.
+- **모델 바인딩**: `pickOllamaModel` 이 실제 pull 태그
+  (`qwen3.6:35b-a3b`, `gemma4:26b`)로 정확 바인딩 — 검증됨.
+- **마운트 자동보정**: `/Volumes/CSNL_new`(미마운트) →
+  `/Volumes/CSNL_new-1` 자동 보정 라이브 확인.
+
+결과 (seed 42, 결정론 — 재실행 시 recall 완전 동일):
+
+| 대상 | 지표 |
+|---|---|
+| cross-framework fixtures (5개) | overall **91.9%**, 2-pass 15 patch 적용 |
+| TimeExp1 n_blocks/n_trials/block_phases/genre | **전부 gt 일치** (계층 캡처 ✅) |
+| TimeExp1 2-pass 효과 | params 27→**46%**, saved 88→**92%**, 0→**18 patch**, `StairTrainTest` IV 복구·단일값 `condition` 제거 |
+
+정직한 잔여 한계: TimeExp1 factor recall 45% 고착 — kinematic 모션
+IV(`tvm/dir/speed/start/occ_deg` 11개)는 trajectory/StimGenerator
+파일이 28-file 번들에 안 들어와 probe·리뷰어가 근거를 못 봄.
+번들러 선택 로직 튜닝이 다음 lever (probe/프롬프트로는 한계).
+
 ---
 
 ## 8. 한 줄 요약
