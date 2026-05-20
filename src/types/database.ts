@@ -520,6 +520,43 @@ export interface Database {
         };
         Relationships: [];
       };
+      participant_blacklist_requests: {
+        Row: {
+          id: string;
+          participant_id: string;
+          lab_id: string;
+          requested_by: string;
+          reason: string;
+          phone_last4: string | null;
+          status: "pending" | "approved" | "rejected";
+          approved_by: string | null;
+          approved_at: string | null;
+          rejected_reason: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          participant_id: string;
+          lab_id: string;
+          requested_by: string;
+          reason: string;
+          phone_last4?: string | null;
+          status?: "pending" | "approved" | "rejected";
+          approved_by?: string | null;
+          approved_at?: string | null;
+          rejected_reason?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          status?: "pending" | "approved" | "rejected";
+          approved_by?: string | null;
+          approved_at?: string | null;
+          rejected_reason?: string | null;
+          phone_last4?: string | null;
+          reason?: string;
+        };
+        Relationships: [];
+      };
       bookings: {
         Row: {
           id: string;

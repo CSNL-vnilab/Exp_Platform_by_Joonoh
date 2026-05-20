@@ -190,13 +190,39 @@ export async function POST(request: NextRequest) {
       .filter((r) => r.status === "sent")
       .map((r) => r.participant_id),
   );
+
+  // HARD GATE: blacklisted participants must NEVER receive a promo
+  // email (2026-05-20 directive). Computed lab-wide and overrides
+  // every other deliverability flag — even a perfectly valid email
+  // is excluded when the latest non-expired class is 'blacklist'.
+  const { data: classRows } = await admin
+    .from("participant_classes")
+    .select("participant_id, class, valid_from, valid_until")
+    .in("participant_id", ids)
+    .order("valid_from", { ascending: false });
+  const blacklistedSet = new Set<string>();
+  const nowMs = Date.now();
+  const seenLatest = new Set<string>();
+  for (const r of (classRows ?? []) as Array<{
+    participant_id: string;
+    class: string;
+    valid_until: string | null;
+  }>) {
+    if (seenLatest.has(r.participant_id)) continue;
+    if (r.valid_until && new Date(r.valid_until).getTime() <= nowMs) continue;
+    seenLatest.add(r.participant_id);
+    if (r.class === "blacklist") blacklistedSet.add(r.participant_id);
+  }
+
   const recipients = participants.map((p) => {
     const email = (p.email ?? "").trim();
+    const blacklisted = blacklistedSet.has(p.id);
     return {
       id: p.id,
       name: p.name ?? null,
       email,
-      deliverable: !isUndeliverableEmail(email),
+      blacklisted,
+      deliverable: !blacklisted && !isUndeliverableEmail(email),
       alreadySent: alreadySent.has(p.id),
     };
   });
@@ -219,6 +245,7 @@ export async function POST(request: NextRequest) {
         deliverable: deliverable.length,
         undeliverable: recipients.length - deliverable.length,
         alreadySent: recipients.filter((r) => r.alreadySent).length,
+        blacklisted: recipients.filter((r) => r.blacklisted).length,
       },
     });
   }

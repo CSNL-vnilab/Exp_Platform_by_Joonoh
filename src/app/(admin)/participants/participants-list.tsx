@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ClassBadge } from "@/components/class-badge";
 import { PromoEmailModal } from "@/components/promo-email-modal";
+import { BlacklistRequestModal } from "@/components/blacklist-request-modal";
 import { formatDateKR } from "@/lib/utils/date";
 import type { ParticipantClass } from "@/types/database";
 
@@ -17,7 +18,17 @@ interface ParticipantListRow {
   email?: string | null;
   public_code: string | null;
   lab_code: string;
-  class: ParticipantClass | null;
+  // Server returns the full participant_classes snapshot, not just the
+  // enum — the row carries the reason etc. so the UI can surface it
+  // for blacklisted entries.
+  class: {
+    class: ParticipantClass;
+    reason: string | null;
+    assigned_kind: string | null;
+    valid_from: string;
+    valid_until: string | null;
+    completed_count: number;
+  } | null;
   completed_count: number;
   last_booking_at: string | null;
   last_participated_at: string | null;
@@ -69,6 +80,7 @@ export function ParticipantsList() {
   // the rows visible on the current page.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [promoOpen, setPromoOpen] = useState(false);
+  const [blacklistOpen, setBlacklistOpen] = useState(false);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -223,7 +235,14 @@ export function ParticipantsList() {
             >
               선택 해제
             </button>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setBlacklistOpen(true)}
+              >
+                블랙리스트 등록 신청
+              </Button>
               <Button size="sm" onClick={() => setPromoOpen(true)}>
                 홍보 메일 보내기
               </Button>
@@ -313,7 +332,17 @@ export function ParticipantsList() {
                         <ExperimentCell names={r.experiment_names ?? []} />
                       </td>
                       <td className="px-4 py-3">
-                        <ClassBadge value={r.class} />
+                        <div className="flex flex-col gap-1">
+                          <ClassBadge value={r.class?.class ?? null} />
+                          {r.class?.class === "blacklist" && r.class.reason && (
+                            <span
+                              className="text-xs text-rose-700"
+                              title={r.class.reason}
+                            >
+                              {r.class.reason}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 tabular-nums text-foreground">
                         {r.completed_count}
@@ -365,6 +394,16 @@ export function ParticipantsList() {
         participantIds={[...selectedIds]}
         experimentMode={mode === "all" ? null : mode}
         onSent={() => {
+          setSelectedIds(new Set());
+          void load();
+        }}
+      />
+
+      <BlacklistRequestModal
+        open={blacklistOpen}
+        onClose={() => setBlacklistOpen(false)}
+        participantIds={[...selectedIds]}
+        onSubmitted={() => {
           setSelectedIds(new Set());
           void load();
         }}
