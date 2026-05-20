@@ -26,6 +26,14 @@ interface ParticipantListRow {
 
 const PAGE_SIZE = 20;
 
+type ModeTab = "offline" | "online" | "all";
+
+const MODE_TABS: Array<{ value: ModeTab; label: string; hint: string }> = [
+  { value: "offline", label: "오프라인", hint: "오프라인·하이브리드 모집 참여자" },
+  { value: "online", label: "온라인", hint: "온라인 실험 참여자" },
+  { value: "all", label: "전체", hint: "모드 구분 없음" },
+];
+
 const CLASS_FILTERS: Array<{ value: "" | ParticipantClass; label: string }> = [
   { value: "", label: "전체 클래스" },
   { value: "newbie", label: "뉴비" },
@@ -65,6 +73,10 @@ export function ParticipantsList() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [classFilter, setClassFilter] = useState<"" | ParticipantClass>("");
+  // 2026-05-20 user directive ("온라인/오프라인 DB 분기 = 같은 DB,
+  // 모드별 뷰 분리"): default to offline so the canonical recruited
+  // pool isn't polluted by online experiments (TimeExpOnline1 + E2E).
+  const [mode, setMode] = useState<ModeTab>("offline");
   const [page, setPage] = useState(0); // 0-indexed
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -80,7 +92,8 @@ export function ParticipantsList() {
 
   useEffect(() => {
     setPage(0);
-  }, [classFilter]);
+    setSelectedIds(new Set());
+  }, [classFilter, mode]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,6 +102,7 @@ export function ParticipantsList() {
       const q = new URLSearchParams();
       if (classFilter) q.set("class", classFilter);
       if (debouncedSearch) q.set("search", debouncedSearch);
+      if (mode !== "all") q.set("mode", mode);
       q.set("limit", String(PAGE_SIZE));
       q.set("offset", String(page * PAGE_SIZE));
       const res = await fetch(`/api/participants?${q.toString()}`);
@@ -107,7 +121,7 @@ export function ParticipantsList() {
     } finally {
       setLoading(false);
     }
-  }, [classFilter, debouncedSearch, page]);
+  }, [classFilter, debouncedSearch, mode, page]);
 
   useEffect(() => {
     void load();
@@ -152,7 +166,24 @@ export function ParticipantsList() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-1">
+            {MODE_TABS.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => setMode(t.value)}
+                title={t.hint}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  mode === t.value
+                    ? "border-foreground bg-foreground text-white"
+                    : "border-border text-muted hover:bg-card"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="search"
@@ -332,6 +363,7 @@ export function ParticipantsList() {
         open={promoOpen}
         onClose={() => setPromoOpen(false)}
         participantIds={[...selectedIds]}
+        experimentMode={mode === "all" ? null : mode}
         onSent={() => {
           setSelectedIds(new Set());
           void load();

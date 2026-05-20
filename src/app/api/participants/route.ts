@@ -49,6 +49,14 @@ export async function GET(request: NextRequest) {
 
     const url = new URL(request.url);
     const classFilter = parseClassFilter(url.searchParams.get("class"));
+    // 2026-05-20: mode tab on 참여자 관리 — scope the roster + aggregate
+    // to participants who have bookings on experiments of this mode.
+    // "all" (default) preserves the lab-wide view.
+    const modeParam = (url.searchParams.get("mode") ?? "all").toLowerCase();
+    const modeFilter: "offline" | "online" | "hybrid" | "all" =
+      modeParam === "offline" || modeParam === "online" || modeParam === "hybrid"
+        ? modeParam
+        : "all";
     const search = (url.searchParams.get("search") ?? "").trim();
     const labCode =
       (url.searchParams.get("lab") ?? "").trim() || DEFAULT_LAB_CODE;
@@ -125,6 +133,39 @@ export async function GET(request: NextRequest) {
           total: 0,
           limit,
           offset,
+        });
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Mode filter — scope the roster to participants who have bookings
+    // on experiments of `modeFilter` ('offline' / 'online' / 'hybrid').
+    // Intersects with the class filter when both are set.
+    // ------------------------------------------------------------------
+    if (modeFilter !== "all") {
+      const { data: modeRows } = await admin
+        .from("bookings")
+        .select("participant_id, experiments!inner(lab_id, experiment_mode)")
+        .eq("experiments.lab_id", lab.id)
+        .eq("experiments.experiment_mode", modeFilter);
+      const modeIds = new Set<string>();
+      for (const r of ((modeRows ?? []) as unknown) as Array<{
+        participant_id: string;
+      }>) {
+        if (r.participant_id) modeIds.add(r.participant_id);
+      }
+      if (candidateIds) {
+        candidateIds = candidateIds.filter((id) => modeIds.has(id));
+      } else {
+        candidateIds = [...modeIds];
+      }
+      if (candidateIds.length === 0) {
+        return NextResponse.json({
+          participants: [],
+          total: 0,
+          limit,
+          offset,
+          lab: { id: lab.id, code: lab.code },
         });
       }
     }
@@ -257,13 +298,19 @@ export async function GET(request: NextRequest) {
       }
     >();
     if (ids.length > 0) {
-      const { data: bookingRows } = await admin
+      let bq = admin
         .from("bookings")
         .select(
-          "participant_id, status, slot_start, experiments!inner(lab_id, title)",
+          "participant_id, status, slot_start, experiments!inner(lab_id, title, experiment_mode)",
         )
         .eq("experiments.lab_id", lab.id)
         .in("participant_id", ids);
+      if (modeFilter !== "all") {
+        // Aggregate (실험명·완료세션·최근참여일) reflects only the active
+        // mode so the columns match the visible roster scope.
+        bq = bq.eq("experiments.experiment_mode", modeFilter);
+      }
+      const { data: bookingRows } = await bq;
       type Row = {
         participant_id: string;
         status: string;

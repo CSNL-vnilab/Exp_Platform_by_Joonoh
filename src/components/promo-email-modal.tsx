@@ -42,11 +42,16 @@ export function PromoEmailModal({
   open,
   onClose,
   participantIds,
+  experimentMode,
   onSent,
 }: {
   open: boolean;
   onClose: () => void;
   participantIds: string[];
+  // Scope the active-experiments dropdown to a single mode so an
+  // offline-recruitment blast can't accidentally pick an online (often
+  // e2e/test) experiment, and vice versa. null = no scope.
+  experimentMode?: "offline" | "online" | "hybrid" | null;
   onSent?: () => void;
 }) {
   const { toast } = useToast();
@@ -75,7 +80,10 @@ export function PromoEmailModal({
     setTab("edit");
     setDone(null);
     setLoadingExps(true);
-    fetch("/api/participants/promo-email")
+    const url = experimentMode
+      ? `/api/participants/promo-email?mode=${experimentMode}`
+      : "/api/participants/promo-email";
+    fetch(url)
       .then(async (r) => {
         if (!r.ok) throw new Error();
         const b = (await r.json()) as { experiments: PromoExperiment[] };
@@ -83,7 +91,7 @@ export function PromoEmailModal({
       })
       .catch(() => toast("활성 실험 목록을 불러오지 못했습니다", "error"))
       .finally(() => setLoadingExps(false));
-  }, [open, toast]);
+  }, [open, toast, experimentMode]);
 
   // Load the editable template + recipient breakdown for an experiment.
   const loadTemplate = useCallback(

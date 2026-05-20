@@ -70,16 +70,28 @@ async function requireMember(): Promise<
   return { ok: true, userId: user.id, admin };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await requireMember();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
-  const { data, error } = await auth.admin
+  // Scope the dropdown to the active mode tab on the participants page
+  // so an offline-recruitment blast doesn't accidentally pick an online
+  // (often e2e/test) experiment, and vice versa.
+  const modeParam = (
+    new URL(request.url).searchParams.get("mode") ?? "all"
+  ).toLowerCase();
+  const modeFilter =
+    modeParam === "offline" || modeParam === "online" || modeParam === "hybrid"
+      ? modeParam
+      : null;
+  let q = auth.admin
     .from("experiments")
-    .select("id, title, project_name, status, start_date, end_date")
+    .select("id, title, project_name, status, start_date, end_date, experiment_mode")
     .eq("status", "active")
     .order("created_at", { ascending: false });
+  if (modeFilter) q = q.eq("experiment_mode", modeFilter);
+  const { data, error } = await q;
   if (error) {
     return NextResponse.json(
       { error: "활성 실험 목록을 불러오지 못했습니다" },
