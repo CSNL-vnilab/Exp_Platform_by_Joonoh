@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
   const { data: exp } = await admin
     .from("experiments")
     .select(
-      "id, title, project_name, status, start_date, end_date, daily_start_time, daily_end_time, weekdays, session_duration_minutes, session_type, required_sessions, participation_fee, description, experiment_mode",
+      "id, title, project_name, status, start_date, end_date, daily_start_time, daily_end_time, weekdays, session_duration_minutes, session_type, required_sessions, participation_fee, description, experiment_mode, location_id, experiment_locations(name)",
     )
     .eq("id", experimentId)
     .maybeSingle();
@@ -152,6 +152,8 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+  const locationName =
+    (exp.experiment_locations as { name?: string | null } | null)?.name ?? null;
   const experiment: PromoExperimentInput = {
     id: exp.id,
     title: exp.title,
@@ -168,6 +170,7 @@ export async function POST(request: NextRequest) {
     description: exp.description ?? null,
     experiment_mode:
       (exp.experiment_mode as "offline" | "online" | "hybrid" | null) ?? null,
+    location_name: locationName,
   };
 
   // Resolve recipients.

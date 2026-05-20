@@ -13,7 +13,11 @@
 import { wrapEmailHtml } from "@/lib/services/email-shell";
 import { escapeHtml } from "@/lib/utils/validation";
 import { formatDateKR } from "@/lib/utils/date";
-import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
+import {
+  BRAND_FULL_NAME,
+  BRAND_NAME,
+  brandContactEmailOrNull,
+} from "@/lib/branding";
 
 export interface PromoExperimentInput {
   id: string;
@@ -30,6 +34,9 @@ export interface PromoExperimentInput {
   participation_fee: number;
   description?: string | null;
   experiment_mode?: "offline" | "online" | "hybrid" | null;
+  // Resolved experiment_locations.name (joined by the route). Surfaced
+  // as "· 장소: …" when present.
+  location_name?: string | null;
 }
 
 const WEEKDAY_LABELS_KO = ["일", "월", "화", "수", "목", "금", "토"];
@@ -71,39 +78,38 @@ export function buildPromoTemplate(experiment: PromoExperimentInput): {
     experiment.participation_fee > 0
       ? `${experiment.participation_fee.toLocaleString("ko-KR")}원`
       : "무료";
-  const modeLine =
-    experiment.experiment_mode === "online"
-      ? "온라인"
-      : experiment.experiment_mode === "hybrid"
-        ? "하이브리드"
-        : "오프라인";
+  // Strip seconds off "HH:MM:SS" times — recruitment emails read better
+  // as "13:00 ~ 18:00" than "13:00:00 ~ 18:00:00".
+  const hhmm = (t: string | null | undefined) =>
+    t ? t.slice(0, 5) : "";
   const timeLine =
     experiment.daily_start_time && experiment.daily_end_time
-      ? `${experiment.daily_start_time} ~ ${experiment.daily_end_time}`
+      ? `${hhmm(experiment.daily_start_time)} ~ ${hhmm(experiment.daily_end_time)}`
       : "-";
 
+  // User-pasted template (2026-05-20): no project line, no mode tag on
+  // the session, no description block, no opt-out footer; long lab
+  // name in the intro and short BRAND_NAME in the sign-off.
   const lines = [
-    "안녕하세요, 참여자 여러분.",
+    "안녕하세요, ",
     "",
-    `${BRAND_NAME}에서 「${experiment.title}」 실험 참여자를 모집합니다.`,
+    `${BRAND_FULL_NAME}에서 「${experiment.title}」 실험 참여자를 모집합니다.`,
     "아래 내용을 확인하시고 관심이 있으시면 예약 페이지에서 편하신 시간을 선택해 주세요.",
     "",
-    `· 프로젝트: ${experiment.project_name ?? "-"}`,
     `· 모집 기간: ${formatDateKR(experiment.start_date)} ~ ${formatDateKR(experiment.end_date)}`,
     `· 운영 요일: ${formatWeekdays(experiment.weekdays)}`,
     `· 운영 시간: ${timeLine}`,
-    `· 세션: ${sessionLine} · ${modeLine}`,
+    `· 세션: ${sessionLine}`,
     `· 참여비: ${feeLine}`,
   ];
-  if (experiment.description && experiment.description.trim()) {
-    lines.push("", "[실험 소개]", experiment.description.trim());
-  }
+  const loc = experiment.location_name?.trim();
+  if (loc) lines.push(`· 장소: ${loc}`);
   lines.push(
     "",
     "▶ 예약 페이지:",
     bookingUrlFor(experiment.id),
     "",
-    "더 이상 모집 안내를 원하지 않으시면 이 메일에 회신해 주세요.",
+    "감사합니다",
     `${BRAND_NAME} 드림`,
   );
 

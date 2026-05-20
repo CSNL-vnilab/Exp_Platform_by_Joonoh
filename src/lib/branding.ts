@@ -19,6 +19,12 @@ const PLACEHOLDER_CONTACT_EMAIL = "contact@example.com";
 const PLACEHOLDER_SUBTITLE = "연구실 실험 예약 시스템";
 
 export const BRAND_NAME = process.env.NEXT_PUBLIC_LAB_NAME || PLACEHOLDER_NAME;
+// Long-form lab name used in prose contexts (e.g. recruitment email
+// intro: "서울대학교 ... 연구실 (CSNL) 에서 ..."). Falls back to the
+// short BRAND_NAME so a deployment without the env var still renders
+// grammatically. Sign-offs and tight UI labels keep using BRAND_NAME.
+export const BRAND_FULL_NAME =
+  process.env.NEXT_PUBLIC_LAB_FULL_NAME || BRAND_NAME;
 export const BRAND_SUBTITLE =
   process.env.NEXT_PUBLIC_LAB_SUBTITLE || PLACEHOLDER_SUBTITLE;
 export const BRAND_PI = process.env.NEXT_PUBLIC_LAB_PI || "";
