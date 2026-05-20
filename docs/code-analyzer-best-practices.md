@@ -410,6 +410,217 @@ docs/code-analyzer-best-practices.md
 
 ---
 
+## 7b. 2-pass refinement (PR #5, env-gated)
+
+기본 1-pass (qwen3.6 단일 패스) 의 fact 추출 정확도를 보강하기 위해, 환경변수로 켜는 review pass 를 추가했다. 켜면 분석기가 다음 흐름으로 동작:
+
+1. pass-1 — 기존 추출기 (qwen3.6 default).
+2. pass-2 — *다른* 모델 (gemma4:31b default) 이 pass-1 결과 + 원본 코드를 받아 `<patch>` 블럭만 emit.
+3. patch 들은 챗봇 patch 채널과 동일한 strict zod validator (PR #4) 를 통과 → 유효 patch 만 pass-1 위에 적용.
+4. 거부된 patch / timeout 은 `warnings` 에 한국어 1줄로 surface.
+
+### 환경변수
+
+| Var | Default | 설명 |
+|---|---|---|
+| `REFINEMENT` | (off) | `on` 일 때만 pass-2 활성. |
+| `REFINEMENT_PROVIDER` | auto | `ollama` / `anthropic` / `auto`. |
+| `REFINEMENT_MODEL` | `gemma4:31b` | Ollama 태그 또는 anthropic 모델. 빠른 review 가 필요하면 `gemma4:26b`. |
+| `ANTHROPIC_REFINEMENT_MODEL` | `ANTHROPIC_CODE_MODEL` 또는 `claude-opus-4-7` | 클라우드 review 모델 별도 지정. |
+| `REFINEMENT_NUM_CTX` | 32768 | gemma4 native ctx 한도. 큰 모델은 더 올릴 수 있음. clamp [1, 1_048_576]. |
+| `REFINEMENT_TIMEOUT_MS` | 600000 (10 min) | gemma4:31b 가 80KB+30KB 프롬프트에 ~6 min 걸릴 수 있음. clamp [1, 1_800_000]. |
+
+### 운영 노트
+
+- **bench A/B**: `REFINEMENT=on npx tsx scripts/bench-fixtures.mjs` 와 그냥 돌린 결과를 비교. bench 출력은 fixture 라인에 `· refine N±M (Xs, model)` 추가; refinement 가 throw 했으면 `· refine FAILED: <warning>` (warning 안에 `[timeout]` 또는 `[error]` 태그 포함).
+- **로깅**: refinement 시작 시 stderr 에 `[refine] start reviewer=… num_ctx=… num_predict=… timeout=…` 한 줄. 6 분 hung 일 때 grep 가능.
+- **Fall-back**: refinement 가 throw 하면 (모델 없음 / 타임아웃 / 검증 실패) 분석기는 1-pass 결과를 그대로 반환하고 warnings 에 사유를 적는다 — 절대로 분석을 실패시키지 않는다.
+- **A/B 통계 주의**: 양쪽 모두 `temperature=0.1`, RNG seed 고정 안 됨. 단일 fixture 한 번 돌린 ±1pp 차이는 sampling noise 일 수 있음 — 결정적 비교는 fixture × 3 회 평균 권장 (다음 라운드 후속).
+
+---
+
+## 7c. 로컬 hi-fi 워크플로우 — gemma + qwen3.6, 결정론·플랫폼 렌즈
+
+Anthropic API 없이 (로컬 Ollama 전용) "시간이 더 걸려도 일정하고 신뢰
+가능한 고품질" 을 목표로 한 워크플로우. 별도 env 없이 랩 박스에서
+바로 동작한다.
+
+### 파이프라인
+
+1. **플랫폼 감지** (`platform-lens.ts`): 번들 전체를 가중 신호로 스캔해
+   PTB / PsychoPy / jsPsych / generic 중 택1 (단일 파일 휴리스틱보다 강함).
+2. **pass-1 (qwen3.6) — 플랫폼 렌즈 적용**: 시스템 프롬프트에 해당 플랫폼
+   에서 trial/block/condition/IV/saved 가 *어떻게 인코딩되는지* + 그 플랫폼
+   고유의 흔한 실수 목록을 주입. 결정론 디코딩.
+3. **pass-1 스키마 재시도**: 유효 JSON 이지만 스키마 위반이면 위반 항목을
+   인용해 교정 재요청 (seed 를 attempt 만큼 perturb). 소진 시 휴리스틱
+   폴백 — 하드 실패 없음.
+4. **pass-2 (gemma) — probe 근거 대조 리뷰**: 결정론적 정규식 probe 가
+   코드에서 뽑은 *근거 후보(이름+파일:라인)* 와 플랫폼 감사 체크리스트를
+   리뷰어에게 함께 줘서, "JSON 을 리뷰" 가 아니라 "근거 목록 ↔ JSON diff"
+   를 시킨다. 이전 리뷰어가 "0 patch 가 안전" 으로 편향돼 gemma 가 아무
+   것도 안 내던 문제를 해소. 모든 patch 는 zod 검증 통과만 적용 → 환각
+   불가.
+5. **Ollama 경로에서 refinement 기본 ON**: 이 조합의 존재 이유가 2-pass
+   품질이므로 랩 박스에선 env 없이 켜진다. `REFINEMENT=off` 로 강제 비활성,
+   `input.refinement` 가 최우선.
+
+### 결정론 (재현 가능성)
+
+`temperature=0` + `top_k=1` + 고정 `seed` → 같은 Ollama 빌드/번들이면 같은
+JSON. 추출·리뷰 양 패스 모두 적용. 재현성과 다양성을 맞바꾸려면
+`ANALYZER_TEMPERATURE>0` (이 경우에도 seed 고정이라 *seed 별* 재현).
+`scripts/bench-fixtures.mjs` 의 "±1pp 는 noise" 주의는 이제 seed 고정으로
+완화된다.
+
+### 마운트 / 서버리스
+
+- `/Volumes/CSNL_new` 가 없고 `/Volumes/CSNL_new-1` 로 remount 된 macOS
+  중복마운트를 **자동 보정** (동일 share 의 -N 형제만, base 이름 일치 시
+  허용). 후보가 둘 이상이면 모호하다고 명확히 거부.
+- Vercel/Lambda 등 서버리스에서 `/Volumes` 접근 시 "로컬에서 실행하라" 는
+  실행 가능한 한국어 에러 (기존의 불투명한 "경로를 찾을 수 없습니다" 대체).
+
+### 환경변수 (추가분)
+
+| Var | Default | 설명 |
+|---|---|---|
+| `ANALYZER_SEED` | 42 | 추출·리뷰 RNG seed. `off`/빈값 = seed 미지정. |
+| `ANALYZER_TEMPERATURE` | 0 | 0=greedy(완전 재현). >0=seeded sampling. |
+| `ANALYZER_PASS1_RETRIES` | 1 | 스키마 위반 시 교정 재요청 횟수 (clamp [0,3]). |
+| `OLLAMA_MAX_RETRIES` | 2 | 빈 응답/일시 오류 재시도 (clamp [0,5]). caller cancel·timeout 은 즉시 전파. |
+
+> Anthropic 미사용 전제: `REFINEMENT_PROVIDER` 기본값은 ollama 경로에서
+> gemma 로 귀결. `claude-opus-4-7` 관련 항목은 키가 없으면 자동 무시된다.
+
+### 가용 로컬 모델 바인딩
+
+랩 박스 pull 기준: 추출 `qwen3.6:36b`(MoE, 최강) → `:27b` 폴백,
+리뷰 `gemma4:26b`. `pickOllamaModel` 이 **실제 pull 된 concrete 태그**를
+선호순(`CODE_ANALYSIS_PREFS`/`REVIEW_PREFS`)으로 바인딩 — 예전엔 같은
+family 태그가 하나라도 있으면 없는 `qwen3.6:latest` 를 그대로 넘겨 chat
+단계에서 404 나던 버그를 수정. 커스텀 양자화 태그(`qwen3.6:36b-q5` 등)도
+family 일치로 자동 사용. `OFFLINE_CODE_MODEL` 로 강제 지정 가능.
+
+### inductive bias 주입 (계층·조건·조작변수·시각화)
+
+플랫폼 렌즈 앞에 *공통 바이어스*(`HIERARCHY_CORE`)를 항상 prepend:
+
+- **계층**: experiment→session/day→run/block→trial 의 루프변수+개수+인덱스
+  매핑을 식별해 `meta.n_blocks/n_trials_per_block/total_trials/block_phases`
+  + 신규 **`meta.hierarchy`** 한 줄에 명시(요약은 `meta.summary` 에도 미러,
+  UI 에 편집 필드 추가). `set_meta` grammar 에 `hierarchy`·`design_matrix`
+  추가 — 리뷰어가 직접 교정 가능.
+- **조작변수(IV)**: 모든 factor 에 `role` 필수, role 이 *실제 변하는 계층*
+  과 일치하는지 리뷰어가 대조.
+- **conditions**: 실행되는 조합만, counterbalance 는 `meta.design_matrix`.
+- **시각화/자극 출력**: 신규 probe category `display` — 그려지는 변수·
+  figure 저장(saveas/savefig/print/plt.savefig)·자극 제시(Screen Draw*,
+  win.flip, .draw())를 근거와 함께 추출해 saved_variables(sink=파일)/
+  parameter 로 분류하도록 리뷰어에 grounding.
+
+### 라이브 Ollama 검증 (2026-05-19, 랩 박스)
+
+실제 Ollama (qwen3.6:35b-a3b 추출 / gemma4:26b 리뷰) + 실제 TimeExp1
+코드로 전체 사이클을 돌려 검증. 발견·수정:
+
+- **버그 (검증으로 발견·수정)**: `chat()`/`generate()`/`streamChat()`
+  가 `think:false` 를 안 보내, Ollama ≥0.20 의 thinking 모델
+  (gemma4·qwen3.6)에서 num_predict 가 thinking 토큰에 다 먹혀
+  **리뷰어 응답이 빈 문자열** → patch 0 개. 옛 "gemma 가 0 patch"
+  증상의 진짜 원인. `chatJson` 처럼 전 경로 `think:false` 기본화.
+- **리뷰어 ctx**: 32K 는 실제 68K 번들+probe+체크리스트+pass1 을
+  못 담아 gemma 가 지시문조차 못 봄 → 0 patch. 코드예산 80K→40K
+  (probe 가 line 근거 제공), `REFINEMENT_NUM_CTX` 기본 64K 로.
+- **모델 바인딩**: `pickOllamaModel` 이 실제 pull 태그
+  (`qwen3.6:35b-a3b`, `gemma4:26b`)로 정확 바인딩 — 검증됨.
+- **마운트 자동보정**: `/Volumes/CSNL_new`(미마운트) →
+  `/Volumes/CSNL_new-1` 자동 보정 라이브 확인.
+
+결과 (seed 42, 결정론 — 재실행 시 recall 완전 동일):
+
+| 대상 | 지표 |
+|---|---|
+| cross-framework fixtures (5개) | overall **91.9%**, 2-pass 15 patch 적용 |
+| TimeExp1 n_blocks/n_trials/block_phases/genre | **전부 gt 일치** (계층 캡처 ✅) |
+| TimeExp1 2-pass 효과 | params 27→**46%**, saved 88→**92%**, 0→**18 patch**, `StairTrainTest` IV 복구·단일값 `condition` 제거 |
+
+### Stage-2 (2026-05-19): 번들러 파일선택 + 추론 clue
+
+위 잔여 한계(factor recall 45%)를 두 lever 로 해소:
+
+- **번들러 도메인 보충 선택** (`code-bundler.ts`): ref-graph 는
+  addpath(genpath)/handle 로 호출되는 생성기를 못 찾음. *콘텐츠 신호*
+  (per-trial sink·tvm/speed/dir·StimGenerator·trial 루프)로 점수화해
+  미선택 파일을 예산 내 보충. 생성기 파일명 PRIORITY 패턴도 추가.
+- **추론 clue** (`platform-lens.ts`): 생성기 *호출부* 와 per-trial
+  저장값의 함수-RHS 를 `factor` clue 로 probe + HIERARCHY H6 규칙
+  "정의가 번들 밖이어도 호출부 근거로 per_trial 추론 등록".
+
+검증 (실제 TimeExp1, seed 42, 결정론):
+
+| 단계 | factor recall | params | 비고 |
+|---|---|---|---|
+| Stage-1 | 45% (9/20) | 27% | kinematic IV 11개 누락 |
+| **Stage-2 baseline** | **90% (18/20)** | 27% | tvm/dir/speed/start/occ 전부 복구 |
+| **Stage-2 + 2-pass** | **95% (19/20)** | **42%** | 리뷰어 25 patch·0 reject, `StairTrainTest` 추가 복구 |
+
+잔여: `condition`(단일값 — IV 아님으로 분류, gt 의 bogus 항목) 1개만 미스 ≈ 정상.
+
+### Stage-3: 확인 인터뷰 (실험자 컨펌 피드백 루프)
+
+자동 해체의 *마지막 마일*은 사람이 확정. `src/lib/experiments/interview.ts`
+(순수·결정론·browser-safe)가 merged 분석의 *불확실 지점*만 골라
+우선순위·근거(file:line) 기반 객관식 질문으로 변환:
+
+1. 추론 clue factor (호출부 기반) → per_trial 확정 / 제거
+2. role 미정 factor → 5개 role 중 선택 (derived ⇒ 제거)
+3. 단일값 factor → 조작변수 vs 고정 상수(parameter 로 이동)
+4. 빈 levels (role 확정된 것만) → 텍스트 입력
+5. `meta.hierarchy` 결측 → 한 줄 입력 (현재 추정치 근거로)
+6. parameter shape 미정 → constant/vector/expression/input
+7. 분석기 정성 메모 → 확인 (bookkeeping 경고는 자동 제외)
+
+UI(`offline-code-analyzer.tsx`)는 warnings 아래 "확인 인터뷰" 패널로
+한 번에 한 질문씩 제시; 답하면 **기존 `applyPatch` 채널**로 typed
+patch 가 `overrides` 에 즉시 반영(LLM 왕복·자유서식 파싱 없음 →
+즉시·신뢰가능). archiver 인터뷰 방법론(grounded·객관식 우선·
+확정 전 하위질문 보류·항상 skip 가능)을 그대로 차용. 모두 답하면
+기존 "저장"으로 컨펌된 해체가 영속화.
+
+### Stage-4: Codex 적대 리뷰 3라운드 + Opus 디버깅 (하드닝)
+
+prompt / atomic process / model preset / local routing 4영역에 Codex
+적대 리뷰 3라운드 → medium~critical 전부 해소:
+
+- **local routing**: `LLM_LOCAL_ONLY`(기본 on) — 키 존재만으로 클라우드
+  라우팅 금지, Ollama 실패 시 클라우드 폴백 금지. 리뷰어는 gemma 계열
+  고정(qwen 폴백 차단), `pickOllamaModel(tag, "review")`.
+- **atomic process**: `runRefinement` batch-atomic — upsert/set_meta 먼저,
+  remove 나중; cross-kind 짝만 인정, 같은-kind 모순 remove 스킵, *무효*
+  짝 upsert(스키마 거부)도 인지해 고아 삭제 방지. UI 패치는 functional
+  updater + tombstone 영속화(저장 시 ai/heuristic 에서도 제거).
+- **prompt**: 인젝션 방어 — `prompt-safety.ts`(deFence + INJECTION_GUARD)
+  를 추출·리뷰·챗봇 모두에 적용, 데이터/지시 분리 명문화. set_meta 에
+  `domain_genre` + 신규 `add_warning` op (프롬프트↔파서 일치). 모든
+  patch op 스키마 `.strict()`(의미오류 patch 가 silently 손상되던 것을
+  가시적 거부로).
+- **model preset**: 결정론 — retry 가 고정 seed 를 perturb 하지 않음
+  (재현성 유지), seed unsafe-int 클램프, 번들러 정렬 결정론 tiebreaker.
+
+Opus 디버깅에서 하드닝 프롬프트가 qwen pass-1 factor 추출을 억제
+(90→30%)함을 적발 → 보안 문구를 데이터-경계 guard 로 이전하고 factor
+섹션의 금지형 문장 제거. 재검증(실제 TimeExp1, seed 42):
+
+| 지표 | 결과 |
+|---|---|
+| factor recall (1-pass / 2-pass) | **90% / 90%** (회복 확인) |
+| parameters (2-pass) | 38→**54%** |
+| n_blocks·n_trials·block_phases·genre | 전부 gt 일치 |
+| 2-pass refinement | 22 applied · 1 rejected (.strict() 과대거부 없음) |
+
+---
+
 ## 8. 한 줄 요약
 
 > 옛 “경로 두 개를 손으로 입력하세요” 가 → "주소 한 줄 + 분석 버튼 → 표를 검토하세요" 로 바뀌었고, TimeExp1 ground truth 대비 *기계 채점 가능* 항목 자동 회복률이 ~30 → 79% 로 올라갔다. 핵심 lever 는 (1) call-graph 번들러로 컨텍스트를 정제, (2) README/summary 자동 주입, (3) save-focused prompt + qwen3.6:latest. 디자인-수준 해석 (Day1=훈련-only 같은 *질적* 구분, single-value 변수가 IV 가 아님 같은 판단) 은 마지막 마일을 사람이 마무리하도록 모든 셀을 편집 가능하게 + 챗봇 1~2턴으로 patch 가능하게 만들어 두었다.

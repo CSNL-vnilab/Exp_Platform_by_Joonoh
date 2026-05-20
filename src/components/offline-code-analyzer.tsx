@@ -41,6 +41,11 @@ import {
   summarisePatch,
   type Patch,
 } from "@/lib/experiments/code-analysis-patch";
+import {
+  buildInterview,
+  type InterviewQuestion,
+  type InterviewOption,
+} from "@/lib/experiments/interview";
 import type { ExperimentParameterSpec } from "@/types/database";
 
 const SAVED_FORMATS = [
@@ -474,10 +479,149 @@ export function OfflineCodeAnalyzer({
   const visibleConds = merged.conditions.filter((c) => !removedConds.has(c.label));
   const visibleSaved = merged.saved_variables.filter((s) => !removedSaved.has(s.name));
 
+  // ---- confirmation interview ----------------------------------------
+  // A short grounded multiple-choice loop over the *uncertain* parts of
+  // the deconstruction. Each answer applies typed patches through the
+  // same applyPatch channel the chatbot uses, so confirming refines the
+  // analysis deterministically. Snapshotted on open (not recomputed per
+  // keystroke) so the experimenter's position stays stable.
+  const [ivQs, setIvQs] = useState<InterviewQuestion[] | null>(null);
+  const [ivIdx, setIvIdx] = useState(0);
+  const [ivDone, setIvDone] = useState<Set<string>>(new Set());
+  const [ivText, setIvText] = useState("");
+
+  const startInterview = () => {
+    const qs = buildInterview(merged);
+    setIvQs(qs);
+    setIvIdx(0);
+    setIvDone(new Set());
+    setIvText("");
+    if (qs.length === 0) {
+      toast("확인이 필요한 불확실 항목이 없습니다 — 해체가 충분히 명확합니다.", "success");
+    }
+  };
+
+  // A remove_* patch in the overrides layer can't delete a base /
+  // heuristic / AI item — mergeByKey only adds. The canonical "delete
+  // an AI item" path is the removed* tombstone set the manual delete
+  // buttons use (stripRemoved() honours it on save, visible* filters on
+  // it). Interview / chatbot removals must mirror into it or the item
+  // re-appears (Codex R2 NEW #1).
+  const tombstonePatch = (p: Patch) => {
+    if (p.op === "remove_factor")
+      setRemovedFactors((s) => new Set(s).add(p.name));
+    else if (p.op === "remove_parameter")
+      setRemovedParams((s) => new Set(s).add(p.name));
+    else if (p.op === "remove_condition")
+      setRemovedConds((s) => new Set(s).add(p.label));
+    else if (p.op === "remove_saved_variable")
+      setRemovedSaved((s) => new Set(s).add(p.name));
+  };
+
+  // Fold an option's patches onto a local copy then commit once (avoids
+  // stale-state batching). Returns false (and toasts) on the first
+  // rejected patch without partially applying.
+  const applyIvPatches = (patches?: Patch[]): boolean => {
+    if (!patches || patches.length === 0) return true;
+    // Pre-validate against the current snapshot for the toast + return
+    // value. The actual commit uses a functional updater so it composes
+    // with a concurrent chat-patch accept in the same React tick instead
+    // of clobbering it (Codex R1 #6). applyPatch is pure, so the
+    // re-fold inside the updater (and StrictMode double-invoke) is safe.
+    let probe = overrides;
+    for (const p of patches) {
+      const r = applyPatch(probe, p);
+      if (r.error) {
+        toast(`적용 실패: ${r.error}`, "error");
+        return false;
+      }
+      probe = r.next;
+    }
+    setOverrides((prev) => {
+      let cur = prev;
+      for (const p of patches) {
+        const r = applyPatch(cur, p);
+        // Snapshot already validated this set; if a concurrent same-
+        // tick edit invalidates one patch vs the latest state, skip
+        // just that patch and keep the rest (best-effort) rather than
+        // silently dropping the whole accept (Codex R2 R1-INC #3).
+        if (!r.error) cur = r.next;
+      }
+      return cur;
+    });
+    patches.forEach(tombstonePatch);
+    return true;
+  };
+
+  const advanceInterview = (id: string) => {
+    const done = new Set(ivDone);
+    done.add(id);
+    setIvDone(done);
+    setIvText("");
+    const qs = ivQs ?? [];
+    let next = ivIdx + 1;
+    while (next < qs.length && done.has(qs[next].id)) next += 1;
+    setIvIdx(Math.min(next, qs.length));
+  };
+
+  const answerOption = (q: InterviewQuestion, opt: InterviewOption) => {
+    if (!applyIvPatches(opt.patches)) return;
+    advanceInterview(q.id);
+  };
+
+  const answerText = (q: InterviewQuestion) => {
+    const v = ivText.trim();
+    if (!q.text) return;
+    if (!v) {
+      advanceInterview(q.id); // empty ⇒ treat as skip
+      return;
+    }
+    const b = q.text.build;
+    let patches: Patch[];
+    if (b.mode === "set_meta") {
+      patches = [{ op: "set_meta", field: b.field, value: v }];
+    } else if (b.mode === "factor_levels") {
+      const levels = v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      patches = [{ op: "upsert_factor", name: b.name, levels }];
+    } else {
+      // factor_rename: carry the old factor's full attributes onto the
+      // new name so type/levels/role/description aren't lost (Codex R3
+      // #6), then drop the old one.
+      const old = merged.factors.find((f) => f.name === b.name);
+      patches = [
+        {
+          op: "upsert_factor",
+          name: v,
+          ...(old
+            ? {
+                type: old.type,
+                levels: old.levels,
+                role: old.role,
+                description: old.description,
+                line_hint: old.line_hint,
+              }
+            : {}),
+        },
+        { op: "remove_factor", name: b.name },
+      ];
+    }
+    if (!applyIvPatches(patches)) return;
+    advanceInterview(q.id);
+  };
+
   // ---- save -----------------------------------------------------------
   const saveToDb = async () => {
     if (!experimentId) return;
     setSavingDb(true);
+    const removedSet = {
+      factors: removedFactors,
+      parameters: removedParams,
+      conditions: removedConds,
+      saved_variables: removedSaved,
+    };
     try {
       const res = await fetch(`/api/experiments/${experimentId}/offline-code`, {
         method: "PUT",
@@ -487,14 +631,9 @@ export function OfflineCodeAnalyzer({
           code_filename: filename,
           code_lang: lang,
           model,
-          heuristic,
-          ai,
-          overrides: stripRemoved(overrides, {
-            factors: removedFactors,
-            parameters: removedParams,
-            conditions: removedConds,
-            saved_variables: removedSaved,
-          }),
+          heuristic: stripRemovedAnalysis(heuristic, removedSet),
+          ai: stripRemovedAnalysis(ai, removedSet),
+          overrides: stripRemoved(overrides, removedSet),
         }),
       });
       const json = await res.json();
@@ -619,26 +758,51 @@ export function OfflineCodeAnalyzer({
   const acceptPatch = (id: number) => {
     const target = pendingPatches.find((p) => p.id === id);
     if (!target || target.kind !== "valid") return;
-    const result = applyPatch(overrides, target.patch);
-    if (result.error) {
-      toast(`패치 적용 실패: ${result.error}`, "error");
+    const probe = applyPatch(overrides, target.patch);
+    if (probe.error) {
+      toast(`패치 적용 실패: ${probe.error}`, "error");
       return;
     }
-    setOverrides(result.next);
+    // Functional updater so an interview answer in the same tick can't
+    // clobber this accept (and vice-versa) — Codex R1 #6.
+    setOverrides((prev) => {
+      const r = applyPatch(prev, target.patch);
+      return r.error ? prev : r.next;
+    });
+    tombstonePatch(target.patch);
     setPendingPatches((prev) => prev.filter((p) => p.id !== id));
   };
   const rejectPatch = (id: number) =>
     setPendingPatches((prev) => prev.filter((p) => p.id !== id));
   const acceptAllPatches = () => {
-    let next = overrides;
+    const valid = pendingPatches.filter(
+      (p): p is Extract<PendingPatch, { kind: "valid" }> => p.kind === "valid",
+    );
+    // Pre-validate vs snapshot for the error toast; commit via a
+    // functional updater so concurrent interview/accept folds compose
+    // instead of clobbering (Codex R1 #6).
+    let probe = overrides;
     const errors: string[] = [];
-    for (const p of pendingPatches) {
-      if (p.kind !== "valid") continue;
-      const r = applyPatch(next, p.patch);
+    const accepted: Patch[] = [];
+    for (const p of valid) {
+      const r = applyPatch(probe, p.patch);
       if (r.error) errors.push(`${p.summary}: ${r.error}`);
-      else next = r.next;
+      else {
+        probe = r.next;
+        accepted.push(p.patch);
+      }
     }
-    setOverrides(next);
+    setOverrides((prev) => {
+      let cur = prev;
+      for (const p of accepted) {
+        const r = applyPatch(cur, p);
+        if (!r.error) cur = r.next;
+      }
+      return cur;
+    });
+    // Tombstone only patches that actually passed validation (Codex R3
+    // #3) — don't hide an item whose patch was rejected.
+    accepted.forEach(tombstonePatch);
     // keep invalid blocks visible so the user can see what was rejected
     setPendingPatches((prev) => prev.filter((p) => p.kind === "invalid"));
     if (errors.length) toast(`일부 패치 적용 실패:\n${errors.join("\n")}`, "error");
@@ -984,6 +1148,169 @@ export function OfflineCodeAnalyzer({
                   </div>
                 )}
 
+                {/* confirmation interview — grounded one-question-at-a-time
+                    loop over the uncertain parts of the deconstruction */}
+                <section className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-xs text-sky-950">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">
+                      확인 인터뷰 — 해체 결과 컨펌
+                    </h3>
+                    {ivQs === null ? (
+                      <button
+                        type="button"
+                        onClick={startInterview}
+                        className="rounded bg-sky-600 px-2 py-1 font-medium text-white hover:bg-sky-700"
+                      >
+                        인터뷰 시작
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-sky-700">
+                          답변 {ivDone.size}/{ivQs.length}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={startInterview}
+                          className="rounded border border-sky-400 px-2 py-1 font-medium text-sky-700 hover:bg-sky-100"
+                        >
+                          다시 생성
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {ivQs === null && (
+                    <p className="text-[11px] text-sky-800">
+                      불확실한 항목(역할 미정 IV·단일값 변수·추론된 변수·계층
+                      구조·파라미터 형태 등)을 한 번에 하나씩, 코드 근거와 함께
+                      물어봅니다. 답하면 해체 결과에 바로 반영됩니다.
+                    </p>
+                  )}
+
+                  {ivQs !== null && ivQs.length === 0 && (
+                    <p className="text-[11px] text-sky-800">
+                      확인이 필요한 불확실 항목이 없습니다 — 해체가 충분히
+                      명확합니다.
+                    </p>
+                  )}
+
+                  {ivQs !== null &&
+                    ivQs.length > 0 &&
+                    ivDone.size >= ivQs.length && (
+                      <p className="rounded bg-emerald-100 p-2 text-[11px] font-medium text-emerald-900">
+                        모든 항목을 확인했습니다. 아래 “저장”으로 컨펌된 해체를
+                        저장하세요.
+                      </p>
+                    )}
+
+                  {ivQs !== null &&
+                    ivQs.length > 0 &&
+                    ivDone.size < ivQs.length &&
+                    (() => {
+                      const idx =
+                        ivIdx < ivQs.length
+                          ? ivIdx
+                          : ivQs.findIndex((x) => !ivDone.has(x.id));
+                      const q = ivQs[idx];
+                      if (!q) return null;
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-sky-200 px-1.5 py-0.5 text-[10px] font-medium uppercase text-sky-800">
+                              {q.topic}
+                            </span>
+                            <span className="text-[11px] text-sky-700">
+                              질문 {idx + 1}/{ivQs.length}
+                              {ivDone.has(q.id) ? " · 답변됨" : ""}
+                            </span>
+                          </div>
+                          <p className="font-medium text-sky-950">
+                            {q.question}
+                          </p>
+                          {q.evidence && (
+                            <p className="rounded bg-white/70 px-2 py-1 font-mono text-[10px] text-sky-700">
+                              근거: {q.evidence}
+                            </p>
+                          )}
+
+                          {q.kind === "single" && q.options && (
+                            <div className="flex flex-col gap-1">
+                              {q.options.map((opt, oi) => (
+                                <button
+                                  key={oi}
+                                  type="button"
+                                  onClick={() => answerOption(q, opt)}
+                                  className={`rounded border px-2 py-1 text-left font-medium ${
+                                    opt.tone === "primary"
+                                      ? "border-sky-500 bg-sky-600 text-white hover:bg-sky-700"
+                                      : opt.tone === "danger"
+                                        ? "border-red-300 bg-white text-red-700 hover:bg-red-50"
+                                        : "border-sky-300 bg-white text-sky-800 hover:bg-sky-100"
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {q.kind === "text" && q.text && (
+                            <div className="flex flex-col gap-1">
+                              <input
+                                value={ivText}
+                                onChange={(e) => setIvText(e.target.value)}
+                                placeholder={q.text.placeholder}
+                                className={inputCls + " font-mono"}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    answerText(q);
+                                  }
+                                }}
+                              />
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => answerText(q)}
+                                  className="rounded bg-sky-600 px-2 py-1 font-medium text-white hover:bg-sky-700"
+                                >
+                                  적용
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => advanceInterview(q.id)}
+                                  className="rounded border border-sky-300 bg-white px-2 py-1 font-medium text-sky-700 hover:bg-sky-100"
+                                >
+                                  건너뜀
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between pt-1">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => setIvIdx(Math.max(0, idx - 1))}
+                              className="text-[11px] text-sky-600 disabled:opacity-40 hover:underline"
+                            >
+                              ← 이전
+                            </button>
+                            {q.kind === "single" && (
+                              <button
+                                type="button"
+                                onClick={() => advanceInterview(q.id)}
+                                className="text-[11px] text-sky-600 hover:underline"
+                              >
+                                건너뜀 →
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                </section>
+
                 {/* meta */}
                 <section>
                   <h3 className="mb-2 text-sm font-semibold">실험 구조 메타</h3>
@@ -1042,6 +1369,20 @@ export function OfflineCodeAnalyzer({
                         setMeta("design_matrix", e.target.value || null)
                       }
                       placeholder="예: subjNum mod 4 → AABB / ABBA / BABA / BBAA pattern across days"
+                      rows={2}
+                      className={inputCls + " font-mono"}
+                    />
+                  </div>
+                  <div className="mt-3">
+                    <label className="text-[11px] text-muted">
+                      계층 구조 (experiment→session→block→trial 중첩 — 루프변수·개수·인덱스 매핑)
+                    </label>
+                    <textarea
+                      value={merged.meta.hierarchy ?? ""}
+                      onChange={(e) =>
+                        setMeta("hierarchy", e.target.value || null)
+                      }
+                      placeholder="예: session: par.day 1..5 (within_subject); block: for iR=1:nBlocks (Day1=10 train / Day2-5=12 test); trial: for iT=1:nT (40); total ≈ 5×~11×40"
                       rows={2}
                       className={inputCls + " font-mono"}
                     />
@@ -2101,6 +2442,31 @@ function stripRemoved(
     parameters: (overrides.parameters ?? []).filter((p) => !removed.parameters.has(p.name)),
     conditions: (overrides.conditions ?? []).filter((c) => !removed.conditions.has(c.label)),
     saved_variables: (overrides.saved_variables ?? []).filter(
+      (s) => !removed.saved_variables.has(s.name),
+    ),
+  };
+}
+
+// Persist tombstones: physically drop removed items from the
+// heuristic / AI layers too, so a deleted base/AI item doesn't
+// resurrect on reload via the server-side re-merge (Codex R3 #4; also
+// fixes the pre-existing manual-delete persistence gap).
+function stripRemovedAnalysis(
+  a: CodeAnalysis | null,
+  removed: {
+    factors: Set<string>;
+    parameters: Set<string>;
+    conditions: Set<string>;
+    saved_variables: Set<string>;
+  },
+): CodeAnalysis | null {
+  if (!a) return a;
+  return {
+    ...a,
+    factors: a.factors.filter((f) => !removed.factors.has(f.name)),
+    parameters: a.parameters.filter((p) => !removed.parameters.has(p.name)),
+    conditions: a.conditions.filter((c) => !removed.conditions.has(c.label)),
+    saved_variables: a.saved_variables.filter(
       (s) => !removed.saved_variables.has(s.name),
     ),
   };

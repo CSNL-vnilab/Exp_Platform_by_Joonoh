@@ -80,10 +80,36 @@ const NOISE_PATTERNS = [
 
 const PRIORITY_PATTERNS: Array<{ rx: RegExp; bonus: number; role: BundleResult["selected"][number]["role"] }> = [
   { rx: /(^|\/)(setup|exp_info|param[s]?_|param[A-Z]|init_|config|settings)/i, bonus: 100, role: "config" },
+  // Stimulus / trajectory / motion generators hold the per-trial IVs
+  // (tvm/speed/dir/occ in motion-reproduction). They're frequently
+  // reached only via addpath(genpath) or a function handle, so the
+  // ref-graph misses them — give the *filename* a strong bonus and
+  // also rescue them by content below (domainSupplement).
+  { rx: /(stim_?gen|stimgenerator|trajector|kinematic|motion_?gen|gen_?stim|make_?stim|occlu)/i, bonus: 80, role: "supporting" },
   { rx: /(^|\/)(make_|build_|generate_|prep_|seed_|trial_schedule)/i, bonus: 60, role: "supporting" },
   { rx: /summary|results?_|save_|backup_/i, bonus: 50, role: "supporting" },
   { rx: /run_loop|trial_run|run_block|main_loop|orchestrate/i, bonus: 40, role: "supporting" },
 ];
+
+// Content signals that a file holds per-trial IV / stimulus-generation
+// / data-sink logic even when no filename pattern or ref-graph edge
+// points at it. Used by the domain-supplement pass so a generically
+// named trajectory generator reached only via genpath/handle still
+// makes the bundle. Each distinct hit adds to the file's domain score.
+const DOMAIN_CONTENT_SIGNALS: RegExp[] = [
+  /\bpar\.results\.\w+|\bpar\.tp\.\w+|\bpar\.trial\.\w+|\bpar\.kin\.\w+/,
+  /\b(tvm\d|speed\d|spd\d|dir\d|start\d|occ_deg|sca_bound\d|eyepos|handpos)\b/i,
+  /\b(trajector|kinematic|StimGenerator|genTraj|makeStim|occlusion)\w*/i,
+  /\.addData\s*\(|\bto_csv\b|\bsave\s*\(\s*['"][^'"]+\.mat|writeFile\s*\(|np\.save\s*\(/,
+  /\bfor\s+i?[RT]\w*\s*=\s*1\s*:/,
+  /jsPsych\.timelineVariable|randomization\.factorial|importConditions\s*\(/,
+];
+
+function domainScore(content: string): number {
+  let s = 0;
+  for (const rx of DOMAIN_CONTENT_SIGNALS) if (rx.test(content)) s += 1;
+  return s;
+}
 
 const DEMOTE_PATTERNS = [
   { rx: /(^|\/)(disp|draw|tex_template|stimuli|ui|render|gui|dialog)/i, penalty: 40 },
@@ -119,8 +145,17 @@ function detectEntry(files: InputFile[], hint: string | null | undefined): Input
   if (hint) {
     const exact = files.find((f) => f.path === hint);
     if (exact) return exact;
-    const byBase = files.find((f) => basename(f.path) === basename(hint));
-    if (byBase) return byBase;
+    // Multiple files can share a basename (taskA/main.m, taskB/main.m).
+    // Pick deterministically — shallowest path, then lexicographic —
+    // not whatever upload/fetch order put first (Codex R2 R1-INC #5).
+    const depth = (p: string) =>
+      (p.replace(/\\/g, "/").match(/\//g) ?? []).length;
+    const baseMatches = files
+      .filter((f) => basename(f.path) === basename(hint))
+      .sort(
+        (a, b) => depth(a.path) - depth(b.path) || a.path.localeCompare(b.path),
+      );
+    if (baseMatches[0]) return baseMatches[0];
   }
   // explicit "main_*" → "run_*" → "index"/"app" preference, code-bearing only
   const code = files.filter((f) => {
@@ -138,7 +173,12 @@ function detectEntry(files: InputFile[], hint: string | null | undefined): Input
     if (b === "index.js" || b === "index.ts" || b === "app.py" || b === "app.js") s += 40;
     return s;
   };
-  const sorted = [...code].sort((a, b) => score(b) - score(a));
+  // Deterministic: break score ties by normalized path so the same
+  // repo always picks the same entry regardless of upload/fetch order
+  // (Codex R1 #7).
+  const sorted = [...code].sort(
+    (a, b) => score(b) - score(a) || a.path.localeCompare(b.path),
+  );
   return sorted[0] ?? null;
 }
 
@@ -313,7 +353,47 @@ export function bundle(files: InputFile[], opts: BundleOptions = {}): BundleResu
     const p = priorityOf(f.path);
     cands.push({ file: f, score: 100 + p.score, role: p.role, hop: 2 });
   }
-  cands.sort((a, b) => b.score - a.score);
+
+  // 4b. domain-relevant supplement. The ref-graph resolves identifiers
+  // to filenames, but motion/stimulus generators are commonly reached
+  // via addpath(genpath(...)) or a function handle — no resolvable
+  // edge — so the per-trial IVs they hold (tvm/speed/dir/occ in
+  // motion-reproduction) never reach the model (observed: TimeExp1
+  // factor recall stuck at 45%). Rescue any not-yet-selected file whose
+  // *content* carries strong per-trial-IV / stimulus-generation signal.
+  // Scored above twoHop (100+) and below oneHop direct refs (1000+) so
+  // it makes the budget without displacing the entry or its direct
+  // callees.
+  const alreadyIn = new Set<string>([
+    entry.path,
+    ...oneHop.keys(),
+    ...twoHop.keys(),
+  ]);
+  const supplements = usable
+    .filter((f) => !alreadyIn.has(f.path))
+    .map((f) => ({ f, ds: domainScore(f.content) }))
+    .filter((x) => x.ds >= 2)
+    // tie-break by path so the supplement set is order-independent
+    .sort((a, b) => b.ds - a.ds || a.f.path.localeCompare(b.f.path))
+    // Generous cap (not 8): the global budget/maxFiles fit decides the
+    // final cut and *reports* drops, so a small high-signal file isn't
+    // silently pre-excluded behind 8 large ones (Codex R2 NEW #4).
+    .slice(0, 20);
+  for (const { f, ds } of supplements) {
+    const p = priorityOf(f.path);
+    cands.push({
+      file: f,
+      score: 600 + ds * 40 + p.score,
+      role: p.role,
+      hop: 2,
+    });
+  }
+
+  // Score-then-path so budget fitting is fully order-independent
+  // (Codex R1 #7): same files in → same bundle out.
+  cands.sort(
+    (a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path),
+  );
 
   // 5. fit to budget
   const selected: BundleResult["selected"] = [];
