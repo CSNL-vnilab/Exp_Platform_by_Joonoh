@@ -60,8 +60,6 @@ CREATE POLICY blacklist_req_read
   );
 
 COMMENT ON TABLE participant_blacklist_requests IS
-  '연구원이 제출하고 관리자가 승인/반려하는 블랙리스트 등록 요청. ' ||
-  'pending → admin 승인 시 assign_participant_class_manual 발동 + ' ||
-  'participants.phone에 last-4 stamping. 라이트한 모더레이션 큐.';
+  '연구원이 제출하고 관리자가 승인/반려하는 블랙리스트 등록 요청. pending → admin 승인 시 assign_participant_class_manual 발동 + participants.phone에 last-4 stamping. 라이트한 모더레이션 큐.';
 COMMENT ON COLUMN participant_blacklist_requests.phone_last4 IS
   '식별용 last-4 digits만 저장. 승인 시 participants.phone에 복사 (UNIQUE(phone,email)는 email로 분리되므로 충돌 없음).';
