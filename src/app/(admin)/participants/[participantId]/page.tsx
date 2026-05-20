@@ -141,9 +141,10 @@ export default async function ParticipantDetailPage({
     else if (b.status === "no_show") stats.no_show++;
   }
 
-  // QC R-C1: strip PII from the RSC payload when the caller isn't admin.
-  // Non-admin researchers only see the pseudonymous public_code view.
-  const isAdmin = profile.role === "admin";
+  // PII is unconditional as of the 2026-05-19 directive (see the
+  // matching note in /api/participants). `profile.role` is still
+  // forwarded so the detail component can keep blacklist/vip
+  // dropdown options admin-only.
 
   // Pull class audit history (QC R-H3) — surfaced as a collapsible card.
   let audit: ParticipantDetailData["audit"] = [];
@@ -161,25 +162,15 @@ export default async function ParticipantDetailPage({
   }
 
   const data: ParticipantDetailData = {
-    participant: isAdmin
-      ? {
-          id: participant.id,
-          name: participant.name,
-          phone: participant.phone,
-          email: participant.email,
-          gender: participant.gender,
-          birthdate: participant.birthdate,
-          created_at: participant.created_at,
-        }
-      : {
-          id: participant.id,
-          name: null,
-          phone: null,
-          email: null,
-          gender: null,
-          birthdate: null,
-          created_at: participant.created_at,
-        },
+    participant: {
+      id: participant.id,
+      name: participant.name,
+      phone: participant.phone,
+      email: participant.email,
+      gender: participant.gender,
+      birthdate: participant.birthdate,
+      created_at: participant.created_at,
+    },
     lab_identity: {
       public_code: publicCode,
       lab_code: labCode,

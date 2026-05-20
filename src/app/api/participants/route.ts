@@ -7,8 +7,11 @@ import type {
   ParticipantClass,
   ParticipantClassRow,
 } from "@/types/database";
-// Note: search on name/phone only runs in admin branch below. Researchers'
-// searches are restricted to public_code matching (pseudonymous lookup).
+// As of the 2026-05-19 directive ("모든 연구원에게 개방"), name / phone /
+// email search and the full participant roster are available to every
+// authenticated lab member. Only the destructive admin actions (merge,
+// direct blacklist/vip class assignment, blacklist-request approval)
+// remain admin-gated.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

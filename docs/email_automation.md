@@ -277,6 +277,32 @@ booking 이 `cancelled` 가 되면 `processReminders()` 가 자동으로 해당 
 
 라우트 레벨에서 rate-limit (한 연구원당 한 주 1회) — 입력하면 다음 주부터 자동 중단.
 
+### E11. 참여자 홍보 메일 일괄 발송 (BCC blast)
+
+| 속성 | 값 |
+|---|---|
+| 발생 시점 | 참여자 관리에서 체크박스 선택 → "홍보 메일 보내기" → 모달에서 발송 확정 즉시 |
+| 수신자 | **To: 발신 계정(self, `GMAIL_USER`), BCC: 선택한 deliverable 참여자 전원**. 주소록 상호 노출 없음. |
+| 트리거 | `POST /api/participants/promo-email { mode: "send", confirm: true }` |
+| 코드 | `src/lib/services/participant-promo-email.ts` (템플릿 + 렌더링), `src/components/promo-email-modal.tsx` (편집·미리보기) |
+| 제목 | 기본 `[연구실] {실험명} 실험 참여자 모집 안내` (편집 가능) |
+| 본문 | 실험 메타데이터(모집 기간 / 운영 요일·시간 / 세션 / 참여비 / 소개 / 예약 URL)로 자동 시드되며 운영자가 자유롭게 수정. URL 자동 링크 + nl2br. |
+| 권한 | admin + researcher 모두 사용 가능. |
+| 자동 제외 | (a) 이메일 없음/placeholder, (b) 같은 실험으로 기발송(participant_promo_sends), (c) **블랙리스트 — 어떤 경우에도 발송되지 않는 hard gate.** |
+| 발송 후 | 수신자 1명당 `participant_promo_sends` 1행 INSERT. 다음번에는 자동으로 "기발송" 으로 분류. |
+
+### E12. 블랙리스트 등록 승인 요청 (관리자에게)
+
+| 속성 | 값 |
+|---|---|
+| 발생 시점 | 연구원이 참여자 관리에서 "블랙리스트 등록 신청" → 모달 제출 즉시 |
+| 수신자 | **To: 발신 계정(self), CC: 신청자(researcher)의 contact_email** |
+| 트리거 | `POST /api/participants/blacklist-requests` (한 행 INSERT 당 한 통, 같이 신청한 N명이면 N통). 페이지 진행은 막지 않는 fire-and-forget |
+| 코드 | `src/lib/services/blacklist-request-email.ts` |
+| 제목 | `[연구실] 블랙리스트 승인 요청 — {참여자 이름}` |
+| 본문 | 신청자·참여자·공개 ID·끝 4자리·사유 + **승인 큐로 이동** 버튼 |
+| 후속 | 관리자가 큐(`/blacklist-requests`)에서 승인 → `assign_participant_class_manual` RPC + `participants.phone` 끝 4자리 stamp + 미래 예약 cascade-cancel. 반려도 같은 큐에서. |
+
 ---
 
 ## 3. 실험자가 자주 조정하는 항목 — 빠른 레퍼런스
@@ -346,6 +372,7 @@ booking 이 `cancelled` 가 되면 `processReminders()` 가 자동으로 해당 
 | `NEXT_PUBLIC_LAB_NAME` / `_CONTACT_EMAIL` 미설정 prod 빌드는 cold-start 시 throw | `src/instrumentation.ts` (P0 #1) |
 | 환경 미설정 시 메일 본문의 `mailto:` 라인은 자동 숨김 (placeholder 누출 방지) | `brandContactEmailOrNull()` |
 | 연구원 cc 가 참여자 이메일과 동일하면 cc 안 함 (중복 수신 방지) | `runEmail` |
+| **블랙리스트 클래스 참여자에게는 홍보 메일(E11) 을 절대 발송하지 않음** — 이메일 유효성과 무관하게 deliverable=false 로 강제 | `src/app/api/participants/promo-email/route.ts` `blacklistedSet` |
 
 ---
 
@@ -362,6 +389,8 @@ src/lib/services/
 ├─ payment-info-email-template.ts     # E6 메일 빌더
 ├─ reminder.service.ts                # E2/E3 (템플릿 + dispatch 한 파일)
 ├─ lab-notifications.service.ts       # E8/E9
+├─ participant-promo-email.ts         # E11 (홍보 메일 BCC blast)
+├─ blacklist-request-email.ts         # E12 (블랙리스트 승인 요청)
 └─ email-retry.service.ts             # outbox 재시도
 
 src/app/api/
@@ -373,6 +402,8 @@ src/app/api/
 ├─ cron/metadata-reminders/route.ts                      # E10
 ├─ cron/outbox-retry/route.ts                            # 모든 채널 재시도
 ├─ notifications/reminders/route.ts                      # E2/E3
+├─ participants/promo-email/route.ts                     # E11 dispatch + preview
+├─ participants/blacklist-requests/route.ts              # E12 dispatch on create
 └─ registration-requests/route.ts                        # E7
 
 .github/workflows/

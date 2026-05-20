@@ -335,7 +335,10 @@ flowchart LR
 
 | 저장지점 | 무엇이 들어가나 | 접근 통제 |
 |---|---|---|
-| Supabase `participants` | 전체 PII (전화·이메일 평문, RRN 은 HMAC) | RLS — researcher 본인 + admin |
+| Supabase `participants` | 전체 PII (전화·이메일 평문, RRN 은 HMAC). 블랙리스트 클래스 행은 `phone` 가 끝 4자리만 저장됨 | 2026-05-19 directive: 모든 인증된 lab member(admin + researcher) 조회 가능 — 직접 블랙리스트/VIP 지정·병합·블랙리스트 승인 만 admin-only |
+| Supabase `participant_classes` + `participant_class_audit` | 클래스 이력 (newbie / royal / blacklist / vip) | 같음. 변경은 `assign_participant_class_manual` RPC 통한 advisory-locked + audit trigger |
+| Supabase `participant_blacklist_requests` (migration 00061) | 연구원 신청 → 관리자 승인 큐 (pending / approved / rejected) | researcher 는 본인 신청만 SELECT, admin 은 전체. 승인 시 phone last-4 stamp + cascade-cancel |
+| Supabase `participant_promo_sends` (migration 00060) | 홍보 메일 발송 감사 로그 (수신자별 1행) | service-role 만 쓰기 |
 | Supabase `bookings` | participant_id (참조) | RLS |
 | **Google Calendar event description** | ⚠ **이름 + 이메일 + 전화** 평문 | SLab 캘린더 공유권자 모두 |
 | Gmail 발송 이력 | 받는사람=참여자 이메일, 본문에 이름·일정 | `vnilab@gmail.com` 단일 메일박스 (앱 비밀번호) |

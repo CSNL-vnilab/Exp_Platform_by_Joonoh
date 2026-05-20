@@ -51,26 +51,13 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Role gate: non-admin researchers never receive PII (QC C1). They only
-    // see the pseudonymous public_code + aggregate stats + class.
+    // PII is open to every authenticated lab member as of the
+    // 2026-05-19 directive (see the matching note in the roster route).
+    // Admin client used so any researcher can open any participant.
     const admin = createAdminClient();
-    const { data: roleRow } = await admin
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle();
-    const isAdmin = roleRow?.role === "admin";
-
-    // Use admin client so any researcher can open any participant's
-    // pseudonymous detail page (matches the lab-wide list view from the
-    // sister route). PII protection still happens here via the column
-    // selection: non-admins only get id + created_at, so name/phone/email
-    // /gender/birthdate physically can't reach the response body.
-    const piiCols = "id, name, phone, email, gender, birthdate, created_at";
-    const safeCols = "id, created_at";
     const { data: participant, error: pErr } = await admin
       .from("participants")
-      .select(isAdmin ? piiCols : safeCols)
+      .select("id, name, phone, email, gender, birthdate, created_at")
       .eq("id", participantId)
       .maybeSingle();
 
@@ -199,19 +186,10 @@ export async function GET(
       audit = ((auditRows ?? []) as unknown) as typeof audit;
     }
 
-    // Conditionally strip PII for non-admin researchers before returning.
-    // Supabase's select() literal parser narrows to PostgrestError shapes
-    // when given a variable, so cast through unknown.
-    const participantAny = participant as unknown as Participant;
-    const participantOut = isAdmin
-      ? participantAny
-      : {
-          id: participantAny.id,
-          created_at: participantAny.created_at,
-        };
-
+    // PII unconditional — 2026-05-19 directive opened the lab roster to
+    // every authenticated member (admin + researcher).
     return NextResponse.json({
-      participant: participantOut,
+      participant: participant as Participant,
       lab_identity: labIdentity,
       class: currentClass
         ? {

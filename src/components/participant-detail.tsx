@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -123,9 +123,7 @@ export function ParticipantDetail({ data, role }: Props) {
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold text-foreground">
-            {isAdmin && data.participant.name
-              ? data.participant.name
-              : data.lab_identity.public_code}
+            {data.participant.name ?? data.lab_identity.public_code}
           </h1>
           <span className="rounded-md bg-card px-2 py-0.5 text-xs text-muted">
             {data.lab_identity.public_code}
@@ -169,67 +167,52 @@ export function ParticipantDetail({ data, role }: Props) {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* 개인정보 — admin-only. Researchers only see the public code card below. */}
-        {isAdmin ? (
-          <Card>
-            <CardContent>
-              <h2 className="mb-4 text-lg font-semibold text-foreground">
-                개인정보
-              </h2>
-              <dl className="grid gap-3 text-sm">
-                <Row label="이름" value={data.participant.name} />
-                <Row
-                  label="전화번호"
-                  value={data.participant.phone || "(미입력)"}
-                  mono
-                />
-                <Row
-                  label="이메일"
-                  value={
-                    /@-$|@no-email\.local$|@imported\.invalid$/.test(
-                      data.participant.email ?? "",
-                    )
-                      ? "(미입력)"
-                      : data.participant.email
-                  }
-                  mono
-                />
-                <Row
-                  label="성별"
-                  value={
-                    data.participant.gender
-                      ? (genderLabels[data.participant.gender] ?? "-")
-                      : "-"
-                  }
-                />
-                <Row
-                  label="생년월일"
-                  value={data.participant.birthdate || "-"}
-                  mono
-                />
-                <Row
-                  label="최초 등록일"
-                  value={formatDateKR(data.participant.created_at)}
-                />
-              </dl>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent>
-              <h2 className="mb-4 text-lg font-semibold text-foreground">
-                공개 식별자
-              </h2>
-              <p className="text-sm text-muted">
-                연구원 계정은 개인식별정보에 접근할 수 없습니다. 아래 공개 ID로
-                참여자를 식별해 주세요.
-              </p>
-              <div className="mt-3 rounded-lg border border-border bg-card px-3 py-2 font-mono text-sm text-foreground">
-                {data.lab_identity.public_code}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* 개인정보 — open to every lab member as of the 2026-05-19
+            directive. Phone is intentionally last-4 for blacklisted
+            rows (privacy guard applied at the data layer). */}
+        <Card>
+          <CardContent>
+            <h2 className="mb-4 text-lg font-semibold text-foreground">
+              개인정보
+            </h2>
+            <dl className="grid gap-3 text-sm">
+              <Row label="이름" value={data.participant.name} />
+              <Row
+                label="전화번호"
+                value={data.participant.phone || "(미입력)"}
+                mono
+              />
+              <Row
+                label="이메일"
+                value={
+                  /@-$|@no-email\.local$|@imported\.invalid$/.test(
+                    data.participant.email ?? "",
+                  )
+                    ? "(미입력)"
+                    : data.participant.email
+                }
+                mono
+              />
+              <Row
+                label="성별"
+                value={
+                  data.participant.gender
+                    ? (genderLabels[data.participant.gender] ?? "-")
+                    : "-"
+                }
+              />
+              <Row
+                label="생년월일"
+                value={data.participant.birthdate || "-"}
+                mono
+              />
+              <Row
+                label="최초 등록일"
+                value={formatDateKR(data.participant.created_at)}
+              />
+            </dl>
+          </CardContent>
+        </Card>
 
         {/* 클래스 관리 */}
         <Card>
