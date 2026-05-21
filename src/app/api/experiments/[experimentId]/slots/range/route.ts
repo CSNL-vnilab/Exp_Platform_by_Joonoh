@@ -16,6 +16,35 @@ export const dynamic = "force-dynamic";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 90;
+// Default visible window when the caller doesn't pass from/to. Anchored
+// at today in KST. Stays well inside MAX_DAYS so flexible long-running
+// experiments (e.g. 6 month spans) never trip the cap on the default
+// path; the cap remains a safety net for explicit param-driven requests.
+const DEFAULT_WINDOW_DAYS = 60;
+
+// Today in KST (Asia/Seoul), formatted as YYYY-MM-DD. The booking
+// timetable should never show past dates — they're not bookable.
+function todayKST(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function addDaysISO(dateIso: string, days: number): string {
+  const d = new Date(`${dateIso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function maxDate(a: string, b: string): string {
+  return a > b ? a : b;
+}
+function minDate(a: string, b: string): string {
+  return a < b ? a : b;
+}
 
 interface RangeSlot {
   slot_start: string;
@@ -61,18 +90,47 @@ export async function GET(
     return NextResponse.json({ error: "Experiment not found" }, { status: 404 });
   }
 
-  // Default to full experiment range if not specified
-  const from = fromParam && DATE_RE.test(fromParam) ? fromParam : experiment.start_date;
-  const to = toParam && DATE_RE.test(toParam) ? toParam : experiment.end_date;
+  // Defaults: anchor at TODAY (KST), never the experiment's start_date.
+  // - `from` default = max(today, experiment.start_date) — past slots are
+  //   useless to a participant booking *now*.
+  // - `to` default = min(experiment.end_date, from + DEFAULT_WINDOW_DAYS)
+  //   — stays well inside MAX_DAYS so long-running experiments don't
+  //   trip the cap on the public booking page.
+  const today = todayKST();
+  const defaultFrom = maxDate(today, experiment.start_date);
+  const defaultTo = minDate(
+    experiment.end_date,
+    addDaysISO(defaultFrom, DEFAULT_WINDOW_DAYS - 1),
+  );
+  const from = fromParam && DATE_RE.test(fromParam) ? fromParam : defaultFrom;
+  const to = toParam && DATE_RE.test(toParam) ? toParam : defaultTo;
 
-  if (from > to) {
-    return NextResponse.json({ error: "from은 to보다 이전이어야 합니다" }, { status: 400 });
+  // Clamp explicit params to the experiment window (was already done) AND
+  // to today — never serve past slots even if a client asks for them.
+  let clampedFrom = maxDate(from, experiment.start_date);
+  clampedFrom = maxDate(clampedFrom, today);
+  const clampedTo = minDate(to, experiment.end_date);
+
+  // Experiment is fully in the past, OR the requested window collapses
+  // to nothing once clamped — return an empty slot list gracefully (not
+  // an error) so the booking UI can render "예약 가능한 시간이 없습니다".
+  if (clampedFrom > clampedTo) {
+    return NextResponse.json({
+      from: clampedFrom,
+      to: clampedTo,
+      sessionDurationMinutes: experiment.session_duration_minutes,
+      breakMinutes: experiment.break_between_slots_minutes,
+      dailyStartTime: experiment.daily_start_time,
+      dailyEndTime: experiment.daily_end_time,
+      calendarId: null,
+      calendarWarning: null,
+      slots: [],
+    });
   }
 
-  const clampedFrom = from < experiment.start_date ? experiment.start_date : from;
-  const clampedTo = to > experiment.end_date ? experiment.end_date : to;
-
-  // Guard against huge ranges (90 days max)
+  // Guard against huge ranges (90 days max) — only fires when the caller
+  // passes explicit from/to that span > MAX_DAYS even after clamping.
+  // The default path is already bounded to DEFAULT_WINDOW_DAYS << MAX_DAYS.
   const dayDiff =
     (new Date(`${clampedTo}T00:00:00Z`).getTime() -
       new Date(`${clampedFrom}T00:00:00Z`).getTime()) /

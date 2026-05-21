@@ -133,9 +133,15 @@ export function WeekTimetable({
     setLoading(true);
     setError(null);
     try {
-      const qs = opts.force ? "&fresh=1" : "";
+      // Anchor the visible window at TODAY (KST), not at the experiment's
+      // start_date. Past slots are useless to a participant looking at the
+      // booking page and showing them risks tripping the 90-day cap on
+      // long-running experiments. The server applies its own clamp +
+      // default, so we omit from/to and let it pick max(today, start) ⇢
+      // min(end, today+window).
+      const qs = opts.force ? "?fresh=1" : "";
       const res = await fetch(
-        `/api/experiments/${experimentId}/slots/range?from=${experiment.start_date}&to=${experiment.end_date}${qs}`,
+        `/api/experiments/${experimentId}/slots/range${qs}`,
       );
       const data = await res.json();
       if (!res.ok) {
@@ -152,7 +158,7 @@ export function WeekTimetable({
     } finally {
       setLoading(false);
     }
-  }, [experimentId, experiment.start_date, experiment.end_date]);
+  }, [experimentId]);
 
   useEffect(() => {
     fetchRange();
