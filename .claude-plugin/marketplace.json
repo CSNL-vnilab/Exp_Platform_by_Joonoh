@@ -1,0 +1,17 @@
+{
+  "$schema": "https://claude.ai/schemas/marketplace.json",
+  "name": "csnl-lab",
+  "owner": {
+    "name": "CSNL vnilab",
+    "url": "https://github.com/CSNL-vnilab/Exp_Platform_by_Joonoh"
+  },
+  "description": "Private Claude Code marketplace for the CSNL lab-reservation platform. Ships a single bootstrap plugin so any fresh Claude session can immediately work on this repo (PATH restore, deploy/migrate/verify slash commands, runbook skills).",
+  "version": "0.1.0",
+  "plugins": [
+    {
+      "name": "lab-reservation",
+      "source": "./plugins/lab-reservation",
+      "description": "Bootstrap + ops plugin for the CSNL lab-reservation platform — SessionStart PATH restore, /lab-ship + /lab-verify + /lab-migrate commands, and runbook skills for the multi-session push pattern, Supabase migration apply, blacklist request flow, and BCC promo email."
+    }
+  ]
+}

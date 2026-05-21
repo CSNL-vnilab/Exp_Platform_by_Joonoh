@@ -458,6 +458,86 @@ flowchart TB
 
 ---
 
+## 13. Claude Code 부트스트랩 (private marketplace)
+
+이 저장소 루트(`.claude-plugin/marketplace.json`)에 **`csnl-lab`** 이라는 사설
+Claude Code 마켓플레이스가 들어 있습니다. 새로운 Claude 세션이 이 저장소
+유지/보수를 시작할 때 한 번의 명령으로 환경(PATH)과 운영 워크플로우(슬래시
+명령 + 스킬)를 모두 끌어옵니다.
+
+### 한 번의 설치
+
+```bash
+claude plugin marketplace add /Users/csnl/Documents/claude/lab-reservation-main
+claude plugin install lab-reservation@csnl-lab
+```
+
+설치 후 새 세션을 열면:
+
+- **SessionStart 훅**이 `restore-env.sh` 를 실행해 `node`, `gh`, `supabase`,
+  `vercel` 을 PATH 위로 끌어올립니다. brew 가 사라져도 동작 — Codex.app 의 번들
+  `node` 와 `/opt/homebrew/Cellar/*/bin` 안에 남아있는 바이너리를 자동으로
+  reseat 합니다.
+- 슬래시 명령이 노출됩니다:
+  - **`/lab-restore-env`** — 위 PATH 패치를 수동으로 한 번 더 실행 + 누락된
+    바이너리(특히 `gh`) 복구 가이드.
+  - **`/lab-ship`** — `feat/blacklist-cleanup-docs` 같은 임시 브랜치 만들고
+    `ALLOW_FEATURE_BRANCH=1 git push origin <branch>:main` 으로 fast-forward,
+    Vercel 배포까지 확인하는 전체 절차.
+  - **`/lab-verify`** — 최신 Vercel 배포가 Ready 이고 `lab-reservation-seven`
+    alias 가 붙어있는지 확인.
+  - **`/lab-migrate`** — 새 `supabase/migrations/000NN_*.sql` 파일을
+    `supabase db query --linked --file` 로 적용하고 `migration repair --status
+    applied 000NN` 로 트래커를 맞추는 패턴. 이 저장소의 마이그레이션 트래킹
+    drift 를 피해갑니다.
+- 4개의 운영 런북 스킬이 자동 색인됩니다:
+  - **`lab-deploy-runbook`** — 멀티세션 작업트리에서 안전하게 main 으로
+    푸시하는 방법(다른 세션의 WIP 보존, `git branch -D` 실수로 commit
+    날린 사례 포함).
+  - **`lab-supabase-migration`** — `db push` 가 막힐 때 `db query` 로 우회 +
+    `repair --status applied` 로 트래커 동기화하는 절차.
+  - **`lab-blacklist-workflow`** — 연구원 신청 → 관리자 승인 → 클래스 전환 +
+    연락처 끝 4자리 마스킹 + cascade-cancel 흐름과 promo email hard gate.
+  - **`lab-promo-email`** — BCC-from-self 템플릿 흐름과 3종 hard-gate
+    (undeliverable / already-sent / blacklisted).
+
+### 환경이 또 망가졌다면
+
+`gh`, `node`, `supabase`, `vercel` 이 갑자기 안 보일 때는 새 Claude 세션을
+열거나, 현재 세션에서:
+
+```
+/lab-restore-env
+```
+
+`restore-env.sh` 가 idempotent 하게 패치합니다. 그래도 실패하면 README 의
+"수동 복구" 절차를 따르세요:
+
+- **gh** — 표준 macOS arm64 zip 을 `https://github.com/cli/cli/releases/latest`
+  에서 받아 `/opt/homebrew/bin/gh` 에 복사. 키체인에 저장된 토큰은 그대로라
+  `gh auth status` 가 자동으로 인증 상태를 회복합니다.
+- **node** — Codex.app 에 번들된 node 가 자동 fallback. 원본 설치를 원하면
+  Node 24 LTS 를 따로 설치.
+- **supabase** — `/opt/homebrew/Cellar/supabase/*/bin/supabase` 가 남아있으면
+  `restore-env.sh` 가 자동 복사. 아니면 GitHub releases 에서 standalone
+  바이너리 다운로드.
+- **vercel** — `npm i -g vercel`. brew 의존성 없음.
+
+### 다른 사람이 이 저장소를 fork 했을 때
+
+마켓플레이스 정의가 저장소에 들어있으므로, fork 한 사용자는 같은 두 줄로
+부트스트랩 가능합니다:
+
+```bash
+claude plugin marketplace add ~/path/to/cloned/repo
+claude plugin install lab-reservation@csnl-lab
+```
+
+또는 GitHub 직접 참조 (`claude plugin marketplace add https://github.com/<fork>`)
+도 동일하게 동작합니다.
+
+---
+
 ## 운영 정보
 
 ### 자동 처리 시각 (한국 시간 기준)

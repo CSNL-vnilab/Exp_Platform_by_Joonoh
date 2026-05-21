@@ -1,0 +1,6 @@
+{
+  "name": "lab-reservation",
+  "version": "0.1.0",
+  "description": "CSNL lab-reservation platform bootstrap + ops kit. SessionStart PATH restore (Codex node, gh, supabase, vercel), /lab-ship + /lab-verify + /lab-migrate + /lab-restore-env slash commands, runbook skills covering the isolated-worktree push pattern, Supabase migration apply via db query, blacklist request/approval flow, and the BCC-from-self promo email template.",
+  "homepage": "https://github.com/CSNL-vnilab/Exp_Platform_by_Joonoh"
+}
