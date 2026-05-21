@@ -51,12 +51,18 @@ interface ExperimentDetailProps {
   experiment: Experiment;
   bookingCount: number;
   bookingBreakdown?: { confirmed: number; completed: number; cancelled: number; total: number };
+  // Distinct-participant headcount for the recruitment_target progress
+  // line. Counts the same engaged statuses book_slot's quota gate does
+  // (confirmed / running / completed / no_show) — participants whose
+  // bookings are all cancelled are excluded.
+  recruitedCount?: number;
 }
 
 export function ExperimentDetail({
   experiment,
   bookingCount,
   bookingBreakdown,
+  recruitedCount,
 }: ExperimentDetailProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -352,6 +358,7 @@ export function ExperimentDetail({
       <EditView
         experiment={experiment}
         onCancel={() => setEditing(false)}
+        recruitedCount={recruitedCount}
       />
     );
   }
@@ -564,6 +571,34 @@ export function ExperimentDetail({
                   <dt className="text-muted">슬롯당 최대 인원</dt>
                   <dd className="mt-0.5 text-foreground">{experiment.max_participants_per_slot}명</dd>
                 </div>
+              </div>
+              <div>
+                <dt className="text-muted">참여자 수 (현재 / 최대)</dt>
+                <dd className="mt-0.5 font-medium">
+                  <span
+                    className={
+                      experiment.recruitment_target != null &&
+                      (recruitedCount ?? 0) >= experiment.recruitment_target
+                        ? "text-rose-700"
+                        : "text-foreground"
+                    }
+                  >
+                    {recruitedCount ?? 0}명
+                    {" / "}
+                    {experiment.recruitment_target != null
+                      ? `${experiment.recruitment_target}명`
+                      : "무제한"}
+                  </span>
+                  {experiment.recruitment_target != null &&
+                    (recruitedCount ?? 0) >= experiment.recruitment_target && (
+                      <span className="ml-2 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">
+                        마감
+                      </span>
+                    )}
+                  <span className="ml-2 text-xs text-muted">
+                    (모든 예약을 취소한 참여자 제외)
+                  </span>
+                </dd>
               </div>
               <div>
                 <dt className="text-muted">참여비</dt>
@@ -893,9 +928,11 @@ export function ExperimentDetail({
 function EditView({
   experiment,
   onCancel,
+  recruitedCount,
 }: {
   experiment: Experiment;
   onCancel: () => void;
+  recruitedCount?: number;
 }) {
   const [draft, setDraft] = useState<Partial<Experiment>>(experiment);
   return (
@@ -912,6 +949,7 @@ function EditView({
             experiment={experiment}
             onCancel={onCancel}
             onDraftChange={setDraft}
+            recruitedCount={recruitedCount}
           />
         </div>
         <div className="order-first lg:order-last">

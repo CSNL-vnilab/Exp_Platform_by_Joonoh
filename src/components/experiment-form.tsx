@@ -42,12 +42,19 @@ interface ExperimentFormProps {
   // Kept intentionally minimal so downstream stream edits to the form
   // can ignore it.
   onDraftChange?: (draft: Partial<Experiment>) => void;
+  // Distinct-participant headcount for the recruitment_target progress
+  // line. Counts the same engaged statuses book_slot's quota gate does
+  // (confirmed / running / completed / no_show) — pure-cancelled
+  // participants are excluded. Server-computed; only meaningful when
+  // editing an existing experiment.
+  recruitedCount?: number;
 }
 
 export function ExperimentForm({
   experiment,
   onCancel,
   onDraftChange,
+  recruitedCount,
 }: ExperimentFormProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -826,9 +833,29 @@ export function ExperimentForm({
                   onChange={(e) => setRecruitmentTarget(e.target.value)}
                   error={errors.recruitment_target}
                 />
+                {isEditing && (
+                  <p className="mt-1 text-sm font-medium">
+                    <span className="text-muted">참여자 수 </span>
+                    <span
+                      className={
+                        recruitmentTarget !== "" &&
+                        (recruitedCount ?? 0) >= Number(recruitmentTarget)
+                          ? "text-rose-700"
+                          : "text-foreground"
+                      }
+                    >
+                      {recruitedCount ?? 0}
+                      <span className="text-muted">(현재)</span>
+                      {" / "}
+                      {recruitmentTarget === "" ? "∞" : recruitmentTarget}
+                      <span className="text-muted">(최대)</span>
+                    </span>
+                  </p>
+                )}
                 <p className="mt-1 text-xs text-muted">
-                  이 인원이 차면 실험이 자동으로 마감(`completed`)되어
-                  새로운 예약을 받지 않습니다.
+                  이 인원이 차면 실험이 자동으로 마감(`completed`)되어 새로운
+                  예약을 받지 않습니다. 모든 예약을 취소한 참여자는 현재
+                  카운트에서 자동으로 제외됩니다.
                 </p>
               </div>
 
