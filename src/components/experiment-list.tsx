@@ -21,6 +21,10 @@ export interface ExperimentListRow {
   notion_project_page_id?: string | null;
   description?: string | null;
   protocol_version?: string | null;
+  recruitment_target?: number | null;
+  // Distinct-participant headcount on this experiment (server-aggregated).
+  // Surfaced as a "모집 N/M명" progress badge when recruitment_target set.
+  recruited_count?: number;
 }
 
 interface BookingBreakdown {
@@ -221,6 +225,28 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                         )}
                       </span>
                     </div>
+                    {experiment.recruitment_target != null && (
+                      <p className="mt-2 text-sm font-medium">
+                        <span className="text-muted">모집 </span>
+                        <span
+                          className={
+                            (experiment.recruited_count ?? 0) >=
+                            experiment.recruitment_target
+                              ? "text-rose-700"
+                              : "text-foreground"
+                          }
+                        >
+                          {experiment.recruited_count ?? 0}/
+                          {experiment.recruitment_target}명
+                        </span>
+                        {(experiment.recruited_count ?? 0) >=
+                          experiment.recruitment_target && (
+                          <span className="ml-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">
+                            마감
+                          </span>
+                        )}
+                      </p>
+                    )}
                     {experiment.participation_fee > 0 && (
                       <p className="mt-2 text-sm font-medium text-emerald-700">
                         참여비 {experiment.participation_fee.toLocaleString()}원

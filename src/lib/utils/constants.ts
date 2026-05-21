@@ -16,6 +16,10 @@ export const BOOKING_ERRORS = {
   // experiments (cross-study exclusion). D9, migration 00045.
   EXPERIMENT_EXCLUDED:
     "이 실험은 연구자가 지정한 다른 연구에 이미 참여하신 분께는 열려 있지 않습니다.",
+  // Researcher-set recruitment_target reached. book_slot auto-flips
+  // experiments.status to 'completed' on this branch (migration 00062).
+  RECRUITMENT_FULL:
+    "모집이 마감되었습니다. 다음 모집 공지를 기다려 주세요.",
 } as const;
 
 export const BOOKING_RETRY = {

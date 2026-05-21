@@ -20,7 +20,7 @@ export default async function ExperimentsPage() {
   const { data: experiments } = await supabase
     .from("experiments")
     .select(
-      "id, title, project_name, status, session_duration_minutes, session_type, required_sessions, participation_fee, start_date, end_date, created_at, notion_project_page_id, description, protocol_version",
+      "id, title, project_name, status, session_duration_minutes, session_type, required_sessions, participation_fee, start_date, end_date, created_at, notion_project_page_id, description, protocol_version, recruitment_target",
     )
     .eq("created_by", user.id)
     .order("created_at", { ascending: false });
@@ -34,11 +34,15 @@ export default async function ExperimentsPage() {
     string,
     { confirmed: number; completed: number; cancelled: number; total: number }
   > = {};
+  // Distinct-participant headcount per experiment (recruitment quota
+  // numerator). Counts the same engaged statuses book_slot's gate does.
+  const recruitedCounts: Record<string, number> = {};
   if (experimentIds.length > 0) {
     const { data: bookings } = await supabase
       .from("bookings")
-      .select("experiment_id, status")
+      .select("experiment_id, status, participant_id")
       .in("experiment_id", experimentIds);
+    const seenPerExp: Record<string, Set<string>> = {};
     for (const b of bookings ?? []) {
       const c =
         bookingCounts[b.experiment_id] ??
@@ -49,8 +53,30 @@ export default async function ExperimentsPage() {
       if (b.status === "confirmed") c.confirmed += 1;
       else if (b.status === "completed") c.completed += 1;
       else if (b.status === "cancelled") c.cancelled += 1;
+      if (
+        b.participant_id &&
+        (b.status === "confirmed" ||
+          b.status === "running" ||
+          b.status === "completed" ||
+          b.status === "no_show")
+      ) {
+        const set =
+          seenPerExp[b.experiment_id] ??
+          (seenPerExp[b.experiment_id] = new Set());
+        set.add(b.participant_id);
+      }
+    }
+    for (const [expId, set] of Object.entries(seenPerExp)) {
+      recruitedCounts[expId] = set.size;
     }
   }
+
+  // Attach recruited_count onto each row so the card can render
+  // "모집 N/M명" badges.
+  const itemsWithRecruit = (experiments ?? []).map((e) => ({
+    ...e,
+    recruited_count: recruitedCounts[e.id] ?? 0,
+  }));
 
   return (
     <div>
@@ -77,7 +103,7 @@ export default async function ExperimentsPage() {
         </Card>
       ) : (
         <ExperimentList
-          items={(experiments as unknown as ExperimentListRow[]) ?? []}
+          items={(itemsWithRecruit as unknown as ExperimentListRow[]) ?? []}
           bookingCounts={bookingCounts}
         />
       )}

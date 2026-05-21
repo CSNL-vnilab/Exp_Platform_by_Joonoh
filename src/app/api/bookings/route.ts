@@ -137,7 +137,8 @@ export async function POST(request: NextRequest) {
           ? 404
           : result.error === "PARTICIPANT_BLACKLISTED"
           ? 403
-          : result.error === "EXPERIMENT_EXCLUDED"
+          : result.error === "EXPERIMENT_EXCLUDED" ||
+            result.error === "RECRUITMENT_FULL"
           ? 409
           : result.error === "DUPLICATE_PARTICIPATION" ||
             result.error === "SLOT_ALREADY_TAKEN" ||
@@ -153,7 +154,7 @@ export async function POST(request: NextRequest) {
       { error: lastError ?? "Booking failed" },
       { status: 500 }
     );
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

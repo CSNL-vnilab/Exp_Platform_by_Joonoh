@@ -62,6 +62,11 @@ export function ExperimentForm({
   const [sessionDuration, setSessionDuration] = useState(experiment?.session_duration_minutes ?? 60);
   const [breakMinutes, setBreakMinutes] = useState(experiment?.break_between_slots_minutes ?? 0);
   const [maxParticipants, setMaxParticipants] = useState(experiment?.max_participants_per_slot ?? 1);
+  // 모집 인원 — researcher-set total recruitment quota (distinct participants).
+  // Empty string means "unlimited"; submit-time it's coerced to null.
+  const [recruitmentTarget, setRecruitmentTarget] = useState<string>(
+    experiment?.recruitment_target != null ? String(experiment.recruitment_target) : "",
+  );
   const [participationFee, setParticipationFee] = useState(experiment?.participation_fee ?? 0);
   const [sessionType, setSessionType] = useState<"single" | "multi">(experiment?.session_type ?? "single");
   const [requiredSessions, setRequiredSessions] = useState(experiment?.required_sessions ?? 1);
@@ -444,6 +449,8 @@ export function ExperimentForm({
       session_duration_minutes: sessionDuration,
       break_between_slots_minutes: breakMinutes,
       max_participants_per_slot: maxParticipants,
+      recruitment_target:
+        recruitmentTarget.trim() === "" ? null : Number(recruitmentTarget),
       participation_fee: participationFee,
       session_type: sessionType,
       required_sessions: sessionType === "multi" ? requiredSessions : 1,
@@ -641,6 +648,8 @@ export function ExperimentForm({
       session_duration_minutes: sessionDuration,
       break_between_slots_minutes: breakMinutes,
       max_participants_per_slot: maxParticipants,
+      recruitment_target:
+        recruitmentTarget.trim() === "" ? null : Number(recruitmentTarget),
       participation_fee: participationFee,
       session_type: sessionType,
       required_sessions: sessionType === "multi" ? requiredSessions : 1,
@@ -805,6 +814,23 @@ export function ExperimentForm({
                 onChange={(e) => setMaxParticipants(Number(e.target.value))}
                 error={errors.max_participants_per_slot}
               />
+
+              <div>
+                <Input
+                  id="recruitment_target"
+                  label="모집 인원 (총 참여자 수, 선택)"
+                  type="number"
+                  min={1}
+                  placeholder="비워두면 무제한"
+                  value={recruitmentTarget}
+                  onChange={(e) => setRecruitmentTarget(e.target.value)}
+                  error={errors.recruitment_target}
+                />
+                <p className="mt-1 text-xs text-muted">
+                  이 인원이 차면 실험이 자동으로 마감(`completed`)되어
+                  새로운 예약을 받지 않습니다.
+                </p>
+              </div>
 
               <Input
                 id="participation_fee"
@@ -1539,7 +1565,7 @@ export function ExperimentForm({
                     <>
                       <p className="text-xs text-danger">
                         서비스 계정이 접근 가능한 캘린더가 없습니다. 아래 이메일을 대상 캘린더에
-                        "이벤트 변경 권한"으로 공유하세요.
+                        &quot;이벤트 변경 권한&quot;으로 공유하세요.
                       </p>
                       {serviceAccountEmail && (
                         <div className="mt-1 rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">

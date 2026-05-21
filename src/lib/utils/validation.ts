@@ -31,6 +31,15 @@ const experimentObjectSchema = z.object({
   end_date: z.string().min(1, "종료 날짜를 선택해주세요"),
   session_duration_minutes: z.number().min(10, "최소 10분 이상이어야 합니다"),
   max_participants_per_slot: z.number().min(1).default(1),
+  // Researcher-set recruitment quota. NULL/undefined = unlimited.
+  // When set, book_slot auto-closes the experiment on reaching the
+  // count (migration 00062).
+  recruitment_target: z
+    .number()
+    .int()
+    .min(1, "1 이상이어야 합니다")
+    .nullable()
+    .optional(),
   participation_fee: z.number().min(0).default(0),
   session_type: z.enum(["single", "multi"]).default("single"),
   required_sessions: z.number().min(1).default(1),
