@@ -1,0 +1,79 @@
+import { requireUser } from "@/lib/auth/role";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { MetadataFillList } from "./metadata-fill-list";
+
+export const dynamic = "force-dynamic";
+
+// One-shot metadata fill page — pulls every experiment the current
+// researcher owns that has at least one of the "gap" fields empty,
+// pre-fills the form with current values, and lets them save each row
+// individually. Used by the interview email so backfilled experiments
+// can be brought up to spec without touching N detail pages.
+//
+// Gap fields tracked here mirror the metadata-reminder cron + a few
+// fields the cron didn't cover (location_id, description, fee, IRB,
+// recruitment_target). The cron's required set (code_repo_url +
+// data_path) stays first-class — those two also gate experiment
+// activation per /api/experiments/[id]/status.
+
+const GAP_FIELDS = [
+  "code_repo_url",
+  "data_path",
+  "pre_experiment_checklist",
+  "protocol_version",
+  "location_id",
+  "description",
+  "participation_fee",
+  "irb_document_url",
+  "recruitment_target",
+] as const;
+
+export default async function MetadataFillPage() {
+  const profile = await requireUser();
+  const admin = createAdminClient();
+
+  const { data: rows } = await admin
+    .from("experiments")
+    .select(
+      "id, title, project_name, status, start_date, end_date, code_repo_url, data_path, pre_experiment_checklist, protocol_version, location_id, description, participation_fee, irb_document_url, recruitment_target",
+    )
+    .eq("created_by", profile.id)
+    .order("created_at", { ascending: false });
+
+  type Row = NonNullable<typeof rows>[number];
+  const items = (rows ?? []).filter((e: Row) => {
+    return GAP_FIELDS.some((f) => {
+      const v = e[f as keyof Row];
+      if (v == null || v === "") return true;
+      if (Array.isArray(v) && v.length === 0) return true;
+      if (typeof v === "string" && v.trim() === "") return true;
+      // participation_fee=0 is ambiguous (could be intentional) — don't
+      // treat as a gap here.
+      return false;
+    });
+  });
+
+  const { data: locations } = await admin
+    .from("experiment_locations")
+    .select("id, name, address_lines")
+    .order("name", { ascending: true });
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-foreground">
+          실험 메타데이터 입력
+        </h1>
+        <p className="mt-1 text-sm text-muted">
+          내가 만든 실험 중 비어 있는 필드가 있는 항목을 한 번에 채워
+          저장합니다. 각 카드의 <b>저장</b> 버튼은 그 실험만 갱신합니다 —
+          한 번에 다 채우지 않아도 됩니다.
+        </p>
+      </div>
+      <MetadataFillList
+        experiments={items}
+        locations={locations ?? []}
+      />
+    </div>
+  );
+}
