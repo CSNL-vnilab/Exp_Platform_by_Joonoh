@@ -1,0 +1,34 @@
+name: DB quality check (daily 09:00 KST)
+# Daily — 00:00 UTC = 09:00 KST — sweeps every researcher's experiment
+# rows, sends the calendar-grounded /metadata-fill interview email
+# whenever there's at least one empty required/recommended field.
+# Internally rate-limited (20h dedup window) so back-to-back runs and
+# overlap with the Monday weekly cron don't double-send.
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-db-quality-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger db-quality-check endpoint
+        env:
+          URL: https://lab-reservation-seven.vercel.app/api/cron/db-quality-check
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is missing"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $status"
+          cat /tmp/resp || true
+          echo
+          if [ "$status" != "200" ]; then
+            echo "::error::db-quality-check returned HTTP $status"
+            exit 1
+          fi
