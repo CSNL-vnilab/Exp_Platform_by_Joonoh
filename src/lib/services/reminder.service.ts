@@ -5,6 +5,7 @@ import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { wrapEmailHtml } from "@/lib/services/email-shell";
+import { issueBookingEditToken } from "@/lib/booking-edit/token";
 
 interface ReminderRow {
   id: string;
@@ -16,6 +17,7 @@ interface ReminderRow {
     slot_end: string;
     status: string;
     session_number: number;
+    booking_group_id: string | null;
     participants: { name: string; phone: string; email: string };
     experiments: {
       title: string;
@@ -24,6 +26,29 @@ interface ReminderRow {
       location_id: string | null;
     };
   };
+}
+
+// Build a fresh participant self-edit URL for a reminder email.
+// Stateless — no DB row. Returns null when neither NEXT_PUBLIC_APP_URL
+// nor VERCEL_URL is set (so we skip the box rather than render a broken
+// link in dev / preview without origin).
+function buildReminderEditLink(bookingGroupId: string): { url: string } | null {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  const vercelUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "")
+    : "";
+  const origin = appUrl || vercelUrl;
+  if (!origin) return null;
+  try {
+    const issued = issueBookingEditToken(bookingGroupId);
+    return { url: `${origin}/booking-edit/${issued.token}` };
+  } catch (err) {
+    console.error(
+      "[Reminders] booking-edit token issue failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
 }
 
 interface CreatorInfo {
@@ -45,7 +70,7 @@ export async function processReminders(): Promise<number> {
   const { data: reminders } = await supabase
     .from("reminders")
     .select(
-      "id, reminder_type, channel, bookings(id, slot_start, slot_end, status, session_number, participants(name, phone, email), experiments(title, created_by, precautions, location_id))",
+      "id, reminder_type, channel, bookings(id, slot_start, slot_end, status, session_number, booking_group_id, participants(name, phone, email), experiments(title, created_by, precautions, location_id))",
     )
     .eq("status", "pending")
     .lte("scheduled_at", new Date().toISOString())
@@ -206,6 +231,28 @@ export async function processReminders(): Promise<number> {
 
             ${locationBlock}
             ${precautionsBlock}
+            ${
+              // Only the day-before-evening reminder gets the edit link.
+              // Day-of-morning is past the 24h cutoff — self-edit would
+              // be rejected, so showing it would be confusing.
+              isEvening && booking.booking_group_id
+                ? (() => {
+                    const editLink = buildReminderEditLink(booking.booking_group_id!);
+                    return editLink
+                      ? `
+            <div style="margin:18px 0;padding:12px 14px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;">
+              <p style="margin:0 0 6px 0;font-size:13px;color:#9a3412;font-weight:600;">✏️ 일정 변경 / 참여 취소</p>
+              <p style="margin:0 0 8px 0;font-size:13px;color:#7c2d12;">
+                지금이라도 일정을 바꾸시거나 참여를 취소하실 수 있습니다. 본 회차 시작 24시간 전까지 가능합니다.
+              </p>
+              <p style="margin:0;">
+                <a href="${editLink.url}" style="display:inline-block;padding:6px 12px;background:#c2410c;color:#ffffff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">실험 일정 수정하기 →</a>
+              </p>
+            </div>`
+                      : "";
+                  })()
+                : ""
+            }
             ${contactBlock}
 
             <p style="margin:22px 0 6px 0;font-size:13px;color:#6b7280;">

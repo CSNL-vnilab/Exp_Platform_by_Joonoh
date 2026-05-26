@@ -873,6 +873,14 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
       );
   }
 
+  // Re-issue a booking-edit link so the participant who got the
+  // change while away from inbox can keep editing without hunting
+  // the original confirmation email. Stateless HMAC — safe to
+  // re-issue indefinitely.
+  const bookingGroupId = (row as unknown as { booking_group_id: string | null })
+    .booking_group_id;
+  const editLink = bookingGroupId ? buildEditLink(bookingGroupId) : null;
+
   const built = buildRescheduleEmail({
     participant: { name: participant.name, email: participant.email },
     experiment: {
@@ -895,6 +903,7 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
       phone: creator?.phone ?? null,
     },
     otherActiveSessions,
+    editLink,
   });
 
   const ccList =

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod/v4";
 import { isValidUUID, normalizeToISO } from "@/lib/utils/validation";
-import { getFreeBusy } from "@/lib/google/calendar";
+import { deleteEvent, getFreeBusy } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { intervalsOverlap } from "@/lib/utils/date";
 import {
@@ -15,6 +16,10 @@ import {
   verifyBookingEditToken,
   BookingEditTokenError,
 } from "@/lib/booking-edit/token";
+import {
+  readVerifySession,
+  BOOKING_EDIT_SESSION_COOKIE,
+} from "@/lib/booking-edit/session";
 
 // Participant-facing reschedule. Same validation logic as admin PATCH
 // /api/bookings/[bookingId] but the authorization gate is the
@@ -49,6 +54,19 @@ export async function PATCH(
       return NextResponse.json({ error: "링크가 만료되었습니다" }, { status: 401 });
     }
     return NextResponse.json({ error: "링크가 유효하지 않습니다" }, { status: 401 });
+  }
+
+  // Identity gate: require a fresh name+phone verification cookie scoped
+  // to this booking_group. Token alone is bearer-credential; this catches
+  // the forwarded-email / screenshot threat model.
+  const cookieJar = await cookies();
+  const sessionRaw = cookieJar.get(BOOKING_EDIT_SESSION_COOKIE)?.value;
+  const session = readVerifySession(sessionRaw, verified.bookingGroupId);
+  if (!session) {
+    return NextResponse.json(
+      { error: "본인 확인이 필요합니다. 페이지를 새로고침해 주세요." },
+      { status: 401 },
+    );
   }
 
   const admin = createAdminClient();
@@ -255,6 +273,20 @@ export async function PATCH(
       "[ParticipantReschedule] DB update failed after GCal create, orphan event:",
       newEventId,
     );
+    // Best-effort rollback so the calendar doesn't carry a phantom
+    // event that the DB never references. Failure to roll back logs
+    // the orphan id so it can be cleaned up manually.
+    if (newEventId && calendarId) {
+      try {
+        await deleteEvent(calendarId, newEventId);
+      } catch (cleanupErr) {
+        console.error(
+          "[ParticipantReschedule] orphan GCal rollback failed; manual cleanup needed for event",
+          newEventId,
+          cleanupErr instanceof Error ? cleanupErr.message : cleanupErr,
+        );
+      }
+    }
     return NextResponse.json(
       { error: "예약 변경에 실패했습니다" },
       { status: 500 },

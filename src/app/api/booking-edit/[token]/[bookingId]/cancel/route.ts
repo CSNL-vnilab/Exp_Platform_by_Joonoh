@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
 import { deleteEvent } from "@/lib/google/calendar";
@@ -9,6 +10,10 @@ import {
   verifyBookingEditToken,
   BookingEditTokenError,
 } from "@/lib/booking-edit/token";
+import {
+  readVerifySession,
+  BOOKING_EDIT_SESSION_COOKIE,
+} from "@/lib/booking-edit/session";
 
 // Participant-facing cancellation. Mirrors admin PUT
 // /api/bookings/[bookingId] {status:'cancelled'} but the auth gate is
@@ -36,6 +41,18 @@ export async function POST(
       return NextResponse.json({ error: "링크가 만료되었습니다" }, { status: 401 });
     }
     return NextResponse.json({ error: "링크가 유효하지 않습니다" }, { status: 401 });
+  }
+
+  // Identity gate: require a fresh name+phone verification cookie scoped
+  // to this booking_group. Mirrors the reschedule route.
+  const cookieJar = await cookies();
+  const sessionRaw = cookieJar.get(BOOKING_EDIT_SESSION_COOKIE)?.value;
+  const session = readVerifySession(sessionRaw, verified.bookingGroupId);
+  if (!session) {
+    return NextResponse.json(
+      { error: "본인 확인이 필요합니다. 페이지를 새로고침해 주세요." },
+      { status: 401 },
+    );
   }
 
   const admin = createAdminClient();

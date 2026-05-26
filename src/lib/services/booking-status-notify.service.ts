@@ -22,6 +22,7 @@ type Supabase = ReturnType<typeof createAdminClient>;
 // Injectable mailer/sms for tests (same pattern as payment-info-notify).
 type Mailer = (opts: {
   to: string;
+  cc?: string[];
   subject: string;
   html: string;
   replyTo?: string;
@@ -165,8 +166,19 @@ export async function notifyBookingStatusChange(
     (researcher?.contact_email ?? "").trim() ||
     (researcher?.email ?? "").trim() ||
     undefined;
+  // CC the researcher so they see the cancel/no-show flip in their
+  // inbox without having to refresh the admin UI — especially important
+  // for self-service cancels triggered via /booking-edit, which
+  // otherwise stay invisible to the lab until calendar sync.
+  // Case-insensitive compare: avoid duplicate when participant.email ==
+  // researcher.email (researchers occasionally self-test).
+  const cc =
+    replyTo && replyTo.toLowerCase() !== built.to.toLowerCase()
+      ? [replyTo]
+      : undefined;
   const emailResult = await mailer({
     to: built.to,
+    cc,
     subject: built.subject,
     html: built.html,
     replyTo,

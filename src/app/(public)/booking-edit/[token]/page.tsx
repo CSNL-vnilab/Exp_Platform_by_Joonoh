@@ -1,20 +1,23 @@
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   verifyBookingEditToken,
   BookingEditTokenError,
 } from "@/lib/booking-edit/token";
+import {
+  readVerifySession,
+  BOOKING_EDIT_SESSION_COOKIE,
+} from "@/lib/booking-edit/session";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { BRAND_NAME } from "@/lib/branding";
 import { BookingEditForm } from "./edit-form";
+import { VerifyForm } from "./verify-form";
 
 interface PageProps {
   params: Promise<{ token: string }>;
 }
 
-// Two surfaces only: "expired" (user-friendly; user benefits from knowing
-// to request a new link) and a generic "invalid" for every other failure
-// mode. Conflating SHAPE/SIGNATURE prevents token enumeration.
 type TokenFailure = "EXPIRED" | "INVALID";
 
 function Failure({ code }: { code: TokenFailure }) {
@@ -55,15 +58,65 @@ export default async function BookingEditPage({ params }: PageProps) {
     return <Failure code="INVALID" />;
   }
 
+  // Identity gate: until the participant proves name + phone we don't
+  // expose any personal info (own name, email, slot list). The verify
+  // screen shows only the experiment title — already implied by anyone
+  // who has the email link, so no incremental leak.
+  const cookieJar = await cookies();
+  const sessionRaw = cookieJar.get(BOOKING_EDIT_SESSION_COOKIE)?.value;
+  const session = readVerifySession(sessionRaw, verified.bookingGroupId);
+
   const supabase = createAdminClient();
 
-  // Load every booking in the participant's group, including the ones that
-  // are already cancelled/completed — the page shows them all so the
-  // participant can see what's actionable vs already locked in.
+  if (!session) {
+    const { data: titleRow } = await supabase
+      .from("bookings")
+      .select("experiments(title)")
+      .eq("booking_group_id", verified.bookingGroupId)
+      .limit(1)
+      .maybeSingle();
+    const titleData = titleRow as
+      | { experiments: { title: string } | null }
+      | null;
+    if (!titleData || !titleData.experiments) {
+      return <Failure code="INVALID" />;
+    }
+    return (
+      <main className="mx-auto max-w-md px-4 py-10">
+        <header className="mb-6">
+          <p className="text-sm text-gray-500">{BRAND_NAME}</p>
+          <h1 className="mt-1 text-xl font-semibold text-gray-900">
+            본인 확인
+          </h1>
+          <p className="mt-2 text-sm leading-relaxed text-gray-700">
+            <b>{titleData.experiments.title}</b> 실험 예약에 등록하신 이름과
+            전화번호를 입력해 주세요. 입력하신 정보가 일치할 때만 일정 변경 ·
+            취소 페이지로 진입할 수 있습니다.
+          </p>
+        </header>
+        <VerifyForm token={token} />
+        <aside className="mt-8 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed text-gray-700">
+          <p className="font-semibold text-gray-900">참고 사항</p>
+          <ul className="mt-2 list-disc pl-5 text-[13px]">
+            <li>예약 시 입력하신 그대로의 이름·전화번호를 사용해 주세요.</li>
+            <li>
+              전화번호는 하이픈 (-) 유무 모두 가능합니다. (예: 010-1234-5678
+              또는 01012345678)
+            </li>
+            <li>본인 확인 후 24시간 동안 같은 기기에서는 다시 묻지 않습니다.</li>
+          </ul>
+        </aside>
+      </main>
+    );
+  }
+
+  // Authenticated branch — load every booking in the group, ordered
+  // chronologically by session_number (which renumberSessionsInGroup
+  // keeps in sync with slot_start whenever a reschedule lands).
   const { data: bookings } = await supabase
     .from("bookings")
     .select(
-      "id, slot_start, slot_end, session_number, status, experiment_id, participants(name, email), experiments(title, session_duration_minutes, max_participants_per_slot, weekdays, experiment_mode)",
+      "id, slot_start, slot_end, session_number, status, experiment_id, participant_id, participants(name, email), experiments(title, session_duration_minutes, max_participants_per_slot, weekdays, experiment_mode)",
     )
     .eq("booking_group_id", verified.bookingGroupId)
     .order("session_number", { ascending: true });
@@ -79,6 +132,7 @@ export default async function BookingEditPage({ params }: PageProps) {
     session_number: number;
     status: "confirmed" | "cancelled" | "completed" | "no_show" | "running";
     experiment_id: string;
+    participant_id: string;
     participants: { name: string; email: string } | null;
     experiments: {
       title: string;
@@ -95,13 +149,20 @@ export default async function BookingEditPage({ params }: PageProps) {
     return <Failure code="INVALID" />;
   }
 
+  // Defense in depth: re-validate that the session cookie's participant_id
+  // matches the group's participant. Cookies are group-scoped already by
+  // the signed payload, but pinning to participant_id catches a stale
+  // cookie surviving a group reassignment edge case.
+  if (first.participant_id && session.participantId !== first.participant_id) {
+    return <Failure code="INVALID" />;
+  }
+
   const participantName = first.participants.name;
   const experimentTitle = first.experiments.title;
   const sessionDuration = first.experiments.session_duration_minutes;
   const weekdays = first.experiments.weekdays;
 
-  // Booking starts must be at least N hours in the future. 24h matches the
-  // historic "변경·취소는 24시간 전까지" guidance the old emails carried.
+  // 24h cutoff matches the historic email guidance and the API gates.
   const editCutoffHours = 24;
 
   const formRows = rows.map((r) => ({
@@ -124,6 +185,8 @@ export default async function BookingEditPage({ params }: PageProps) {
         <p className="mt-2 text-sm leading-relaxed text-gray-700">
           {participantName}님, <b>{experimentTitle}</b> 실험 예약 정보입니다.
           아래에서 회차별로 일정을 변경하거나 참여를 취소하실 수 있습니다.
+          각 회차는 시간 순서대로 표시되며, 일정을 바꾸시면 자동으로
+          재정렬됩니다.
         </p>
       </header>
 
@@ -147,7 +210,8 @@ export default async function BookingEditPage({ params }: PageProps) {
             운영일이 아닌 경우 변경이 거부됩니다.
           </li>
           <li>
-            변경 / 취소 시 담당 연구원에게도 자동으로 알림이 전송됩니다.
+            변경 / 취소 시 참여자와 담당 연구원 양쪽 모두에게 안내 메일이
+            자동으로 전송됩니다.
           </li>
         </ul>
       </aside>
