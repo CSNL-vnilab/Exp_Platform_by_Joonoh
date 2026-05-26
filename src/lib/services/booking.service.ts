@@ -12,6 +12,7 @@ import { issuePaymentToken } from "@/lib/payments/token";
 import { encryptToken } from "@/lib/crypto/payment-info";
 import { backfillIdentityForBooking } from "@/lib/services/participant-identity.service";
 import { buildConfirmationEmail } from "@/lib/services/booking-email-template";
+import { issueBookingEditToken } from "@/lib/booking-edit/token";
 import {
   buildRescheduleEmail,
   buildRescheduleSMS,
@@ -71,12 +72,18 @@ export async function runPostBookingPipeline(params: {
 }) {
   const supabase = createAdminClient();
 
+  // Sort by session_number so downstream email/calendar/SMS render 1회차 →
+  // 2회차 → … in order. `.in()` alone returns rows in PostgreSQL's chosen
+  // order, which has been observed to interleave session numbers when the
+  // ids were not inserted in session order (bug: confirmation emails
+  // showed sessions out of sequence).
   const { data: bookings } = await supabase
     .from("bookings")
     .select(
       "id, slot_start, slot_end, session_number, subject_number, google_event_id, notion_page_id, participants(name, phone, email), experiments(title, project_name, participation_fee, google_calendar_id, created_by, precautions, location_id, experiment_mode, online_runtime_config)",
     )
-    .in("id", params.bookingIds);
+    .in("id", params.bookingIds)
+    .order("session_number", { ascending: true });
 
   if (!bookings || bookings.length === 0) return;
   const rows = bookings as unknown as BookingRow[];
@@ -119,10 +126,15 @@ export async function runPostBookingPipeline(params: {
   // log in. See src/lib/payments/token.ts for the scheme.
   const paymentLink = await seedPaymentInfo(supabase, rows, params);
 
+  // Booking-edit link — stateless HMAC, no DB row, scoped to this group.
+  // Issued every confirmation send so participants always have a fresh
+  // 60-day URL.
+  const editLink = buildEditLink(params.bookingGroupId);
+
   const results = await Promise.allSettled([
     runGCal(supabase, rows, creator),
     runNotion(supabase, rows),
-    runEmail(supabase, rows, creator, runLinks, paymentLink),
+    runEmail(supabase, rows, creator, runLinks, paymentLink, editLink),
     runSMS(supabase, rows),
   ]);
 
@@ -487,12 +499,36 @@ async function runNotion(supabase: Supabase, rows: BookingRow[]) {
 // CreatorProfile already carries contact_email; kept alias for legacy call sites.
 type CreatorContact = CreatorProfile;
 
+// Builds the participant self-edit URL for a booking group. Returns null
+// when no app origin is configured (dev / preview without
+// NEXT_PUBLIC_APP_URL or VERCEL_URL) so the email omits the box rather
+// than rendering a broken link. Stateless: doesn't touch the DB.
+function buildEditLink(bookingGroupId: string): { url: string } | null {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  const vercelUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "")
+    : "";
+  const origin = appUrl || vercelUrl;
+  if (!origin) return null;
+  try {
+    const issued = issueBookingEditToken(bookingGroupId);
+    return { url: `${origin}/booking-edit/${issued.token}` };
+  } catch (err) {
+    console.error(
+      "[PostBooking] booking-edit token issue failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
 async function runEmail(
   supabase: Supabase,
   rows: BookingRow[],
   creator: CreatorProfile | null,
   runLinks: RunLink[] = [],
   paymentLink: PaymentLink | null = null,
+  editLink: { url: string } | null = null,
 ) {
   const experiment = rows[0].experiments;
 
@@ -531,6 +567,7 @@ async function runEmail(
     location,
     runLinks: runLinks.map((l) => ({ bookingId: l.bookingId, url: l.url })),
     paymentLink: paymentLink ? { url: paymentLink.url } : null,
+    editLink,
   });
 
   // C-P1-4: Reply-To = researcher's contact_email (or fall through to

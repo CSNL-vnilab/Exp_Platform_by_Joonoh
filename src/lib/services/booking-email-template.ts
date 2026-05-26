@@ -24,6 +24,13 @@ export interface EmailPaymentLink {
   url: string;
 }
 
+export interface EmailEditLink {
+  // Participant-facing booking-edit page URL (token-gated). Empty/absent
+  // means the caller couldn't issue one (env not set, dev, etc.) and we
+  // silently omit the box rather than render a broken link.
+  url: string;
+}
+
 export interface EmailLocation {
   name: string;
   address_lines: string[];
@@ -64,6 +71,7 @@ export interface BuildConfirmationEmailInput {
   location: EmailLocation | null;
   runLinks?: EmailRunLink[];
   paymentLink?: EmailPaymentLink | null;
+  editLink?: EmailEditLink | null;
   // When set, prepend a one-line note explaining the context (used by the
   // retry path to soften the duplicate-delivery scenario if the original
   // email actually did arrive and this is a re-send).
@@ -83,6 +91,7 @@ export function buildConfirmationEmail(
   const { participant, experiment, rows, creator, location } = input;
   const runLinks = input.runLinks ?? [];
   const paymentLink = input.paymentLink ?? null;
+  const editLink = input.editLink ?? null;
 
   const safeName = escapeHtml(participant.name);
   const safeTitle = escapeHtml(experiment.title);
@@ -182,6 +191,19 @@ export function buildConfirmationEmail(
       </div>`
     : "";
 
+  const editBlock = editLink
+    ? `
+      <div style="margin:20px 0;padding:14px 16px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;">
+        <p style="margin:0 0 8px 0;font-weight:600;color:#9a3412;">✏️ 일정 변경 / 참여 취소</p>
+        <p style="margin:0 0 10px 0;font-size:13px;color:#7c2d12;">
+          예약하신 회차의 일정을 변경하거나 참여를 취소하시려면 아래 링크에서 직접 처리하실 수 있습니다. 각 회차 시작 24시간 전까지 변경 가능하며, 링크는 60일간 유효합니다.
+        </p>
+        <p style="margin:0;">
+          <a href="${editLink.url}" style="display:inline-block;padding:8px 14px;background:#c2410c;color:#ffffff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">실험 일정 수정하기 →</a>
+        </p>
+      </div>`
+    : "";
+
   const contactBlock = `
       <p style="margin:20px 0 6px 0;font-weight:600;">담당 연구원 · 문의</p>
       <p style="margin:0;line-height:1.6;">
@@ -204,9 +226,6 @@ export function buildConfirmationEmail(
       ${prefaceBlock}
       <div style="padding:14px 18px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;margin-bottom:18px;">
         <p style="margin:0;font-size:15px;font-weight:600;color:#065f46;">✓ 실험 예약이 확정되었습니다</p>
-        <p style="margin:6px 0 0 0;font-size:13px;color:#047857;">
-          변경·취소가 필요하시면 실험 시작 <b>24시간 전까지</b> 담당 연구원에게 알려주세요.
-        </p>
       </div>
 
       <p style="margin:0 0 6px 0;">안녕하세요, ${safeName}님.</p>
@@ -225,11 +244,12 @@ export function buildConfirmationEmail(
       ${onlineBlock}
       ${locationBlock}
       ${precautionsBlock}
+      ${editBlock}
       ${paymentBlock}
       ${contactBlock}
 
       <p style="margin:22px 0 6px 0;font-size:13px;color:#6b7280;">
-        일정 변경이 필요하시면 실험 시작 24시간 전까지 담당 연구원에게 알려주세요. 실험 전날과 당일에 리마인더 메일이 한 번 더 발송됩니다.
+        실험 전날과 당일에 리마인더 메일이 한 번 더 발송됩니다.
       </p>
       <p style="margin:4px 0 0 0;font-size:12px;color:#9ca3af;">
         ${BRAND_NAME} — 본 메일은 예약 신청 확인용입니다.

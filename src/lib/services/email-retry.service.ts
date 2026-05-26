@@ -19,6 +19,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/google/gmail";
 import { buildConfirmationEmail } from "@/lib/services/booking-email-template";
+import { issueBookingEditToken } from "@/lib/booking-edit/token";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -193,6 +194,29 @@ export async function runEmailRetry(
       (loc as unknown as { name: string; address_lines: string[]; naver_url: string | null } | null) ?? null;
   }
 
+  // booking-edit link: stateless HMAC, no DB hash to invalidate, so unlike
+  // runLinks / paymentLink it's safe to re-issue on retry. A participant
+  // who needs to reschedule should not have to wait for the researcher.
+  let editLink: { url: string } | null = null;
+  if (row.booking_group_id) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+    const vercelUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "")
+      : "";
+    const origin = appUrl || vercelUrl;
+    if (origin) {
+      try {
+        const issued = issueBookingEditToken(row.booking_group_id);
+        editLink = { url: `${origin}/booking-edit/${issued.token}` };
+      } catch (err) {
+        console.error(
+          "[EmailRetry] booking-edit token issue failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+  }
+
   const built = buildConfirmationEmail({
     participant: row.participants,
     experiment: {
@@ -205,6 +229,10 @@ export async function runEmailRetry(
     creator,
     location,
     // runLinks / paymentLink intentionally omitted — see file header.
+    // editLink IS included because it's stateless (no token-hash on
+    // disk to invalidate) and re-issuing simply hands the participant a
+    // fresh 60-day URL.
+    editLink,
     // Softened wording covers both the "didn't arrive" case and the
     // rare "arrived but our delivery sensor fired a false failure" case.
     preface: "이전에 발송한 예약 확인 메일이 전달되지 않았을 수 있어 다시 보내드립니다. 실험 참여 링크나 정산 정보 입력 링크가 필요하시면 담당 연구원에게 문의해 주세요.",
