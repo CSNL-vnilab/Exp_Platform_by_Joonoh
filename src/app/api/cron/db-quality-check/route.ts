@@ -32,8 +32,9 @@ export const dynamic = "force-dynamic";
 const DEDUP_WINDOW_HOURS = 20;
 
 export async function POST(request: NextRequest) {
-  const authError = authorizeCronRequest(request);
-  if (authError) return authError;
+  if (!authorizeCronRequest(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const admin = createAdminClient();
 
@@ -145,8 +146,9 @@ export async function POST(request: NextRequest) {
 // emails, no log writes. Useful for verifying production state from
 // the browser / curl before flipping the cron on.
 export async function GET(request: NextRequest) {
-  const authError = authorizeCronRequest(request);
-  if (authError) return authError;
+  if (!authorizeCronRequest(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const admin = createAdminClient();
   const inventory = await buildResearcherGapInventory(admin);
