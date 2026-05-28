@@ -87,6 +87,11 @@ export interface NotifyResult {
     | "not_all_completed"
     | "no_recipient"
     | "send_failed"
+    // experiments.payment_link_auto_send=false — researcher opted out
+    // of auto-dispatch so the amount can be reviewed before going out.
+    // The send only happens when they click "안내 메일 발송" in the
+    // payment-panel (which calls this same function with force=true).
+    | "auto_send_disabled"
     // Another trigger is currently mid-send; we backed off cleanly.
     // Caller (cron) sees this and knows the next tick will retry.
     | "lock_held";
@@ -94,10 +99,23 @@ export interface NotifyResult {
   detail?: string;
 }
 
+export interface NotifyOptions {
+  /**
+   * Bypass the experiments.payment_link_auto_send=false opt-out.
+   * Used by the explicit "안내 메일 발송" admin button — at that point
+   * the researcher has already reviewed the amount and is asking for
+   * the dispatch to happen *now*.
+   *
+   * Default false → respect the experiment-level toggle.
+   */
+  force?: boolean;
+}
+
 export async function notifyPaymentInfoIfReady(
   supabase: Supabase,
   bookingGroupId: string,
   mailer: Mailer = defaultSendEmail,
+  options: NotifyOptions = {},
 ): Promise<NotifyResult> {
   // 1) Load the payment_info row.
   const { data: rowRaw } = await supabase
@@ -155,10 +173,39 @@ export async function notifyPaymentInfoIfReady(
       .maybeSingle(),
     supabase
       .from("experiments")
-      .select("id, title, created_by")
+      .select("id, title, created_by, payment_link_auto_send")
       .eq("id", row.experiment_id)
       .maybeSingle(),
   ]);
+
+  // 3a) Auto-send opt-out (migration 00063). When the experiment is
+  // configured to require an explicit researcher trigger, every
+  // automatic call (PUT booking → completed, observation auto-complete,
+  // /run verify, cron sweep) bails out here. The send only proceeds
+  // when the researcher clicks "안내 메일 발송" in payment-panel,
+  // which calls this function with { force: true }.
+  //
+  // Rationale: multi-session experiments where the actual session count
+  // diverges from the planned count (5 → 6 with extension, 5 → 2 with
+  // early stop) need the researcher to confirm the amount before the
+  // participant sees it. Without this guard the auto-send fires
+  // milliseconds after the last booking flips to completed, before the
+  // researcher has any chance to adjust amount_krw.
+  const experimentForGate = experimentRaw as
+    | { payment_link_auto_send?: boolean | null }
+    | null;
+  if (
+    !options.force &&
+    experimentForGate &&
+    experimentForGate.payment_link_auto_send === false
+  ) {
+    return {
+      outcome: "auto_send_disabled",
+      bookingGroupId,
+      detail:
+        "experiment.payment_link_auto_send=false — researcher must trigger explicitly",
+    };
+  }
 
   const recipientEmail =
     (row.email_override?.trim() || participant?.email || "").trim();

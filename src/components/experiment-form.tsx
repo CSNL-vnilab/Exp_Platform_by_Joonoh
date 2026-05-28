@@ -75,6 +75,15 @@ export function ExperimentForm({
     experiment?.recruitment_target != null ? String(experiment.recruitment_target) : "",
   );
   const [participationFee, setParticipationFee] = useState(experiment?.participation_fee ?? 0);
+  // Auto-send toggle for the participant payment-info request email
+  // (migration 00063). Default true keeps the historical behavior;
+  // a researcher who expects session-count drift (extension / early
+  // stop) can flip this off and trigger sending manually from the
+  // payment-panel after reviewing the amount.
+  const [paymentLinkAutoSend, setPaymentLinkAutoSend] = useState<boolean>(
+    (experiment as { payment_link_auto_send?: boolean } | undefined)
+      ?.payment_link_auto_send ?? true,
+  );
   const [sessionType, setSessionType] = useState<"single" | "multi">(experiment?.session_type ?? "single");
   const [requiredSessions, setRequiredSessions] = useState(experiment?.required_sessions ?? 1);
   const [googleCalendarId, setGoogleCalendarId] = useState(experiment?.google_calendar_id ?? "");
@@ -459,6 +468,7 @@ export function ExperimentForm({
       recruitment_target:
         recruitmentTarget.trim() === "" ? null : Number(recruitmentTarget),
       participation_fee: participationFee,
+      payment_link_auto_send: paymentLinkAutoSend,
       session_type: sessionType,
       required_sessions: sessionType === "multi" ? requiredSessions : 1,
       google_calendar_id: googleCalendarId || undefined,
@@ -658,6 +668,7 @@ export function ExperimentForm({
       recruitment_target:
         recruitmentTarget.trim() === "" ? null : Number(recruitmentTarget),
       participation_fee: participationFee,
+      payment_link_auto_send: paymentLinkAutoSend,
       session_type: sessionType,
       required_sessions: sessionType === "multi" ? requiredSessions : 1,
       google_calendar_id: googleCalendarId || undefined,
@@ -869,6 +880,34 @@ export function ExperimentForm({
                 onChange={(e) => setParticipationFee(Number(e.target.value))}
                 error={errors.participation_fee}
               />
+
+              <div className="rounded-lg border border-border bg-card p-3">
+                <label
+                  htmlFor="payment_link_auto_send"
+                  className="flex cursor-pointer items-start gap-3"
+                >
+                  <input
+                    id="payment_link_auto_send"
+                    type="checkbox"
+                    checked={paymentLinkAutoSend}
+                    onChange={(e) => setPaymentLinkAutoSend(e.target.checked)}
+                    className="mt-0.5 size-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-foreground">
+                      정산 안내 메일 자동 발송
+                    </div>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                      체크 시 마지막 회차가 완료되는 즉시 참여자에게 정산
+                      정보 입력 안내 메일이 자동 발송됩니다. <b>해제</b>하면
+                      자동 발송이 보류되며, 참여자 관리 페이지에서 <b>금액을
+                      확인/조정한 뒤 직접 발송</b>해야 합니다. 회차 수가 자주
+                      변경되는 실험 (실험 지연 / 조기 중단) 에서는 해제 후
+                      수동 발송 흐름을 권장합니다.
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -41,6 +41,10 @@ const experimentObjectSchema = z.object({
     .nullable()
     .optional(),
   participation_fee: z.number().min(0).default(0),
+  // Migration 00063: when false, the payment-info request email is
+  // not auto-dispatched on completion; the researcher triggers it
+  // manually from payment-panel after reviewing/adjusting amount_krw.
+  payment_link_auto_send: z.boolean().default(true),
   session_type: z.enum(["single", "multi"]).default("single"),
   required_sessions: z.number().min(1).default(1),
   daily_start_time: z.string().min(1, "시작 시간을 선택해주세요"),

@@ -4,14 +4,22 @@ import { z } from "zod/v4";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
+import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 
 // PATCH /api/experiments/:experimentId/payment-info/:bookingGroupId/amount
 // Researcher-only manual override of the amount_krw field. Sets
-// amount_overridden=true so the UI can flag "this no longer matches
-// fee × sessions".
+// amount_overridden=true plus amount_overridden_by/at (migration 00063)
+// so the UI can show "수정됨 — {user} at {time}" and 행정 can audit-
+// trail any divergence from experiments.participation_fee.
 //
 // Forbidden once the row is already claimed (status='claimed'|'paid') —
 // you can't retroactively change what was handed to 행정.
+//
+// Optional `resend: true` in the body — after saving the new amount,
+// immediately dispatch (or re-dispatch) the participant info-request
+// email with the new amount baked in. Used by the payment-panel
+// "수정 후 즉시 발송" path so the researcher doesn't have to PATCH +
+// click resend in two steps.
 
 const bodySchema = z.object({
   amountKrw: z
@@ -19,6 +27,7 @@ const bodySchema = z.object({
     .int({ message: "정수로 입력하세요." })
     .min(0, { message: "0 이상이어야 합니다." })
     .max(100_000_000, { message: "금액이 너무 큽니다." }),
+  resend: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -66,12 +75,17 @@ export async function PATCH(
   }
 
   // Only allow override while the row is editable (pre-claim).
+  // We also stamp amount_overridden_by/at (migration 00063) so the UI
+  // and 행정 can see who/when last changed the amount.
+  const nowIso = new Date().toISOString();
   const { error, count } = await admin
     .from("participant_payment_info")
     .update(
       {
         amount_krw: parsed.data.amountKrw,
         amount_overridden: true,
+        amount_overridden_by: user.id,
+        amount_overridden_at: nowIso,
       },
       { count: "exact" },
     )
@@ -89,5 +103,44 @@ export async function PATCH(
     );
   }
 
-  return NextResponse.json({ ok: true });
+  // Optional: dispatch (or re-dispatch) the info-request email right
+  // away with the new amount. Two cases:
+  //   - payment_link_sent_at is NULL → first send. Force=true bypasses
+  //     the experiment-level auto-send opt-out because the researcher
+  //     just confirmed the amount and is asking for it explicitly.
+  //   - payment_link_sent_at is set → already sent once at the old
+  //     amount. We reset payment_link_sent_at to NULL so notify will
+  //     re-send. This mirrors the existing resend path.
+  let resendOutcome: string | null = null;
+  if (parsed.data.resend) {
+    // Reset sent_at so notify will pick the row up again.
+    await admin
+      .from("participant_payment_info")
+      .update({ payment_link_sent_at: null })
+      .eq("experiment_id", experimentId)
+      .eq("booking_group_id", bookingGroupId);
+
+    try {
+      const result = await notifyPaymentInfoIfReady(
+        admin,
+        bookingGroupId,
+        undefined,
+        { force: true },
+      );
+      resendOutcome = result.outcome;
+    } catch (err) {
+      console.error(
+        "[AmountPATCH] resend after override failed:",
+        err instanceof Error ? err.message : err,
+      );
+      resendOutcome = "send_crashed";
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    amountKrw: parsed.data.amountKrw,
+    overriddenAt: nowIso,
+    resendOutcome,
+  });
 }

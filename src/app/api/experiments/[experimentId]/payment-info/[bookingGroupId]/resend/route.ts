@@ -99,7 +99,16 @@ export async function POST(
     );
   }
 
-  const result = await notifyPaymentInfoIfReady(admin, bookingGroupId);
+  // force=true: when the researcher explicitly clicks "안내 메일 발송"
+  // we always send, regardless of the experiment-level
+  // payment_link_auto_send opt-out (migration 00063). The opt-out
+  // gates the *automatic* trigger; an explicit user action bypasses it.
+  const result = await notifyPaymentInfoIfReady(
+    admin,
+    bookingGroupId,
+    undefined,
+    { force: true },
+  );
   if (result.outcome === "sent") {
     return NextResponse.json({ ok: true, outcome: result.outcome });
   }

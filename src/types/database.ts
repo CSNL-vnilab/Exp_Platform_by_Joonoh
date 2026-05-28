@@ -327,6 +327,7 @@ export interface Database {
           recruitment_target: number | null;
           is_project: boolean;
           participation_fee: number;
+          payment_link_auto_send: boolean;
           session_type: "single" | "multi";
           required_sessions: number;
           daily_start_time: string;
@@ -380,6 +381,7 @@ export interface Database {
           recruitment_target?: number | null;
           is_project?: boolean;
           participation_fee?: number;
+          payment_link_auto_send?: boolean;
           session_type?: "single" | "multi";
           required_sessions?: number;
           daily_start_time: string;
@@ -430,6 +432,7 @@ export interface Database {
           recruitment_target?: number | null;
           is_project?: boolean;
           participation_fee?: number;
+          payment_link_auto_send?: boolean;
           session_type?: "single" | "multi";
           required_sessions?: number;
           daily_start_time?: string;
@@ -877,6 +880,8 @@ export interface Database {
           period_end: string | null;
           amount_krw: number;
           amount_overridden: boolean;
+          amount_overridden_by: string | null;
+          amount_overridden_at: string | null;
           token_hash: string;
           token_issued_at: string;
           token_expires_at: string;
@@ -925,6 +930,8 @@ export interface Database {
           period_end?: string | null;
           amount_krw?: number;
           amount_overridden?: boolean;
+          amount_overridden_by?: string | null;
+          amount_overridden_at?: string | null;
           token_hash: string;
           token_issued_at?: string;
           token_expires_at: string;
@@ -967,6 +974,8 @@ export interface Database {
           period_end?: string | null;
           amount_krw?: number;
           amount_overridden?: boolean;
+          amount_overridden_by?: string | null;
+          amount_overridden_at?: string | null;
           token_hash?: string;
           token_issued_at?: string;
           token_expires_at?: string;

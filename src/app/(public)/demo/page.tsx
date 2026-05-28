@@ -38,6 +38,7 @@ const DEMO_EXPERIMENT: Experiment = {
   recruitment_target: null,
   is_project: true,
   participation_fee: 60000,
+  payment_link_auto_send: true,
   session_type: "multi",
   required_sessions: 2,
   status: "active",
