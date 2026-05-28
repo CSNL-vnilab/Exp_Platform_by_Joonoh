@@ -149,6 +149,15 @@ export async function PUT(
 
     // When a booking is cancelled, delete the Google Calendar event (if any)
     // so participants don't see a stale invite; also invalidate freebusy cache.
+    //
+    // Failure mode handled explicitly: a SLAB calendar can refuse the
+    // delete (permissions / transient 5xx). Previously we swallowed the
+    // error silently and left google_event_id set, which produced
+    // "phantom" calendar events the researcher kept seeing after a
+    // successful cancel. Now we surface the failure to the caller via
+    // calendar_sync_warning and write it to booking_integrations so a
+    // reconcile job (or operator) can find it.
+    let calendarSyncWarning: string | null = null;
     if (status === "cancelled" && booking.google_event_id) {
       const calId = (
         experiment.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
@@ -162,11 +171,37 @@ export async function PUT(
             .eq("id", bookingId);
           await invalidateCalendarCache(calId).catch(() => {});
         } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
           console.error(
-            "[CancelBooking] deleteEvent failed:",
-            err instanceof Error ? err.message : err,
+            `[CancelBooking] deleteEvent failed for ${booking.google_event_id} on ${calId}:`,
+            msg,
           );
+          calendarSyncWarning = `Google 캘린더에서 일정 삭제에 실패했습니다 (${msg.slice(0, 200)}). 캘린더에서 직접 확인해 주세요.`;
+          // Record on the booking_integrations audit row so the failure
+          // is searchable later. We DON'T clear google_event_id here —
+          // keeping it lets a future retry know which event to target.
+          const admin = createAdminClient();
+          await admin
+            .from("booking_integrations")
+            .update({
+              status: "failed",
+              last_error: `cancel deleteEvent failed for ${booking.google_event_id}: ${msg.slice(0, 500)}`,
+              processed_at: new Date().toISOString(),
+            })
+            .eq("booking_id", bookingId)
+            .eq("integration_type", "gcal");
+          // Invalidate the cache anyway so stale busy intervals don't
+          // mislead the next booking attempt.
+          await invalidateCalendarCache(calId).catch(() => {});
         }
+      } else if (booking.google_event_id) {
+        // No calendar configured but a booking holds an event id — likely
+        // mis-configured experiment. Surface as a warning so the operator
+        // notices.
+        calendarSyncWarning = `이 실험에 연결된 Google 캘린더가 없어 일정 삭제가 건너뛰어졌습니다. 캘린더 설정을 확인해 주세요.`;
+        console.warn(
+          `[CancelBooking] no calendar configured but booking ${bookingId} has google_event_id ${booking.google_event_id}`,
+        );
       }
     }
 
@@ -223,7 +258,10 @@ export async function PUT(
       }
     }
 
-    return NextResponse.json({ booking: updated });
+    return NextResponse.json({
+      booking: updated,
+      calendar_sync_warning: calendarSyncWarning,
+    });
   } catch {
     return NextResponse.json(
       { error: "Internal server error" },
@@ -456,5 +494,25 @@ export async function PATCH(
     console.error("[Reschedule] pipeline failed:", err);
   });
 
-  return NextResponse.json({ ok: true, renumber: renumberInfo });
+  // Surface GCal sync warnings from runReschedulePipeline back to the
+  // researcher. The pipeline records old-event-delete failures in
+  // booking_integrations.last_error (see booking.service.ts) — we read
+  // it here and forward so the admin UI can warn that the old SLAB
+  // event may still be visible.
+  let calendarSyncWarning: string | null = null;
+  const { data: gcalRow } = await admin
+    .from("booking_integrations")
+    .select("last_error")
+    .eq("booking_id", bookingId)
+    .eq("integration_type", "gcal")
+    .maybeSingle();
+  if (gcalRow?.last_error) {
+    calendarSyncWarning = `Google 캘린더의 이전 일정 정리에 실패했습니다 — 캘린더에서 직접 확인해 주세요. (${gcalRow.last_error.slice(0, 200)})`;
+  }
+
+  return NextResponse.json({
+    ok: true,
+    renumber: renumberInfo,
+    calendar_sync_warning: calendarSyncWarning,
+  });
 }

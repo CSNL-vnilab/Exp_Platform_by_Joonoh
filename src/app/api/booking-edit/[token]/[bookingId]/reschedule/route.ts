@@ -309,8 +309,10 @@ export async function PATCH(
   }
 
   // Fan out the reschedule notification pipeline (email + SMS + GCal
-  // cleanup + Notion mirror). Fire-and-forget on failure — the DB row
-  // is already updated; we don't want a downstream hiccup to roll back.
+  // cleanup + Notion mirror). We await so the booking_integrations row
+  // (which now records old-event-delete failures in last_error — see
+  // runReschedulePipeline) is up to date before we read it for the
+  // calendar_sync_warning surface below.
   await runReschedulePipeline({
     bookingId,
     oldSlotStart,
@@ -320,6 +322,22 @@ export async function PATCH(
   }).catch((err) => {
     console.error("[ParticipantReschedule] pipeline failed:", err);
   });
+
+  // Surface GCal sync failures back to the participant. If the old event
+  // couldn't be removed from the SLAB calendar, the lab will still see
+  // the original slot until manual cleanup — the participant deserves
+  // to know.
+  let calendarSyncWarning: string | null = null;
+  const { data: gcalRow } = await admin
+    .from("booking_integrations")
+    .select("status, last_error")
+    .eq("booking_id", bookingId)
+    .eq("integration_type", "gcal")
+    .maybeSingle();
+  if (gcalRow?.last_error) {
+    calendarSyncWarning =
+      "일정 변경은 저장되었으나 Google 캘린더의 이전 일정 정리가 완료되지 않았습니다. 담당 연구원이 확인 후 정리합니다.";
+  }
 
   // Return the full updated group so the client can re-render with
   // renumbered session_number values.
@@ -357,5 +375,5 @@ export async function PATCH(
     };
   });
 
-  return NextResponse.json({ ok: true, rows: formRows });
+  return NextResponse.json({ ok: true, rows: formRows, calendar_sync_warning: calendarSyncWarning });
 }

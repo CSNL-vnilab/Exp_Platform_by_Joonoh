@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
@@ -92,19 +91,36 @@ export function BookingActions({
     if (!confirm("이 예약을 취소하시겠습니까?")) return;
 
     setCancelling(true);
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("bookings")
-      .update({ status: "cancelled" })
-      .eq("id", bookingId);
-
-    if (error) {
-      toast("예약 취소 중 오류가 발생했습니다.", "error");
-    } else {
-      toast("예약이 취소되었습니다.", "success");
-      router.refresh();
+    // CRITICAL: must go through the PUT route, not a direct supabase
+    // update. The PUT route owns the side-effects — Google Calendar
+    // event delete, freebusy cache invalidation, participant + researcher
+    // CC email, reminder skip — none of which run on a bare row update.
+    // A direct .from("bookings").update() previously left SLAB calendar
+    // events orphaned: the booking row flipped to "cancelled" but the
+    // calendar invite stayed visible.
+    try {
+      const res = await fetch(`/api/bookings/${bookingId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(data?.error ?? "예약 취소 중 오류가 발생했습니다.", "error");
+      } else if (data?.calendar_sync_warning) {
+        // GCal delete failed but the cancel itself succeeded — surface
+        // so the researcher knows to clean up SLAB manually.
+        toast(`예약이 취소되었습니다. ⚠️ ${data.calendar_sync_warning}`, "info");
+        router.refresh();
+      } else {
+        toast("예약이 취소되었습니다.", "success");
+        router.refresh();
+      }
+    } catch {
+      toast("네트워크 오류로 예약 취소에 실패했습니다.", "error");
+    } finally {
+      setCancelling(false);
     }
-    setCancelling(false);
   }
 
   return (
@@ -284,12 +300,20 @@ function RescheduleModal({
     }
     const j = (await res.json().catch(() => ({}))) as {
       renumber?: { changed: number; total: number } | null;
+      calendar_sync_warning?: string | null;
     };
     const renumberedMsg =
       j.renumber && j.renumber.changed > 0
         ? ` · 회차 ${j.renumber.changed}건 자동 재번호`
         : "";
-    toast(`예약이 변경되었습니다${renumberedMsg}. 참여자에게 안내가 발송됩니다.`, "success");
+    if (j.calendar_sync_warning) {
+      toast(
+        `예약이 변경되었습니다${renumberedMsg}. ⚠️ ${j.calendar_sync_warning}`,
+        "info",
+      );
+    } else {
+      toast(`예약이 변경되었습니다${renumberedMsg}. 참여자에게 안내가 발송됩니다.`, "success");
+    }
     onDone();
   }
 
@@ -438,8 +462,12 @@ function RescheduleModal({
                     } else if (clickable) {
                       cls = "bg-green-50 text-green-800 hover:bg-green-100 cursor-pointer";
                     } else if (s.status === "busy") {
-                      cls = "bg-amber-50 text-amber-700 cursor-not-allowed";
-                      label = "캘";
+                      // Calendar conflict (busy interval). Red fill + ✕ mark
+                      // is the most direct "this slot is taken" signal —
+                      // the previous "캘" abbreviation made participants
+                      // wonder what it meant.
+                      cls = "bg-red-100 text-red-700 cursor-not-allowed";
+                      label = "✕";
                     } else {
                       cls = "bg-gray-100 text-muted cursor-not-allowed";
                     }
@@ -450,9 +478,7 @@ function RescheduleModal({
                         ? `클릭해서 이 시간으로 변경 (${s.booked_count}/${s.capacity})`
                         : s.status === "full"
                           ? `정원 마감 (${s.booked_count}/${s.capacity})`
-                          : s.busy_summary
-                            ? `Google Calendar 충돌: ${s.busy_summary}`
-                            : "Google Calendar 일정과 겹침";
+                          : "예약 불가";
 
                     return (
                       <button
@@ -477,7 +503,7 @@ function RescheduleModal({
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
             <span><span className="inline-block size-2 rounded-sm bg-green-100 ring-1 ring-green-300 align-middle" /> 이동 가능</span>
             <span><span className="inline-block size-2 rounded-sm bg-blue-100 ring-1 ring-blue-400 align-middle" /> 현재 예약</span>
-            <span><span className="inline-block size-2 rounded-sm bg-amber-50 ring-1 ring-amber-300 align-middle" /> 캘린더 충돌</span>
+            <span><span className="inline-block size-2 rounded-sm bg-red-100 ring-1 ring-red-300 align-middle" /> 불가</span>
             <span><span className="inline-block size-2 rounded-sm bg-gray-100 ring-1 ring-gray-300 align-middle" /> 마감/지난시간</span>
           </p>
           <div className="flex gap-2">

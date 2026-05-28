@@ -105,12 +105,15 @@ export async function POST(
 
   // Clean up GCal event (best-effort — never roll back the cancel for a
   // calendar hiccup; researcher cleans up via admin UI if needed).
+  // Failure surfaces in the response so the participant knows the lab
+  // calendar may still show their slot until manually reconciled.
   const experiment = booking.experiments as
     | { google_calendar_id: string | null }
     | null;
   const calendarId = (
     experiment?.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
   ).trim();
+  let calendarSyncWarning: string | null = null;
   if (booking.google_event_id && calendarId) {
     try {
       await deleteEvent(calendarId, booking.google_event_id);
@@ -120,11 +123,30 @@ export async function POST(
         .eq("id", bookingId);
       await invalidateCalendarCache(calendarId).catch(() => {});
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error(
-        "[ParticipantCancel] deleteEvent failed:",
-        err instanceof Error ? err.message : err,
+        `[ParticipantCancel] deleteEvent failed for ${booking.google_event_id} on ${calendarId}:`,
+        msg,
       );
+      calendarSyncWarning =
+        "취소가 접수되었으나 Google 캘린더에서 일정을 삭제하지 못했습니다. 담당 연구원에게 알려주시면 직접 정리해 드립니다.";
+      await admin
+        .from("booking_integrations")
+        .update({
+          status: "failed",
+          last_error: `participant cancel deleteEvent failed for ${booking.google_event_id}: ${msg.slice(0, 500)}`,
+          processed_at: new Date().toISOString(),
+        })
+        .eq("booking_id", bookingId)
+        .eq("integration_type", "gcal");
+      await invalidateCalendarCache(calendarId).catch(() => {});
     }
+  } else if (booking.google_event_id && !calendarId) {
+    calendarSyncWarning =
+      "취소가 접수되었으나 이 실험에 연결된 Google 캘린더 설정이 없어 일정 삭제가 건너뛰어졌습니다.";
+    console.warn(
+      `[ParticipantCancel] no calendar configured but booking ${bookingId} has google_event_id ${booking.google_event_id}`,
+    );
   }
 
   // Notify researcher (and re-send participant a cancellation confirmation).
@@ -143,5 +165,5 @@ export async function POST(
     );
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, calendar_sync_warning: calendarSyncWarning });
 }

@@ -324,7 +324,8 @@ export function WeekTimetable({
         <div className="flex flex-wrap items-center gap-3">
           <LegendSwatch className="bg-green-100 border-green-300" label="예약 가능" />
           <LegendSwatch className="bg-primary border-primary text-white" label="내가 선택" />
-          <LegendSwatch className="bg-gray-100 border-gray-300 text-muted" label="마감/불가" />
+          <LegendSwatch className="bg-red-100 border-red-300 text-red-700" label="불가" />
+          <LegendSwatch className="bg-gray-100 border-gray-300 text-muted" label="마감" />
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -437,12 +438,20 @@ export function WeekTimetable({
                       "h-10 border-r border-border last:border-r-0 px-1 text-[11px] font-medium transition-colors cursor-pointer disabled:cursor-not-allowed";
 
                     let cls = "";
+                    let cellLabel: string | null = null;
                     if (isSelected) {
                       cls = "bg-primary text-white";
                     } else if (slot.status === "available" && !otherDateSelected) {
                       cls = "bg-green-100 text-green-800 hover:bg-green-200";
                     } else if (otherDateSelected) {
                       cls = "bg-amber-50 text-amber-800 cursor-not-allowed";
+                    } else if (slot.status === "busy") {
+                      // Calendar conflict — red ✕ matches the admin
+                      // reschedule timetable. Distinct from gray "마감"
+                      // (capacity-full) so participants can tell at a
+                      // glance which kind of unavailable they're seeing.
+                      cls = "bg-red-100 text-red-700 cursor-not-allowed";
+                      cellLabel = "✕";
                     } else {
                       cls = "bg-gray-200 text-gray-600 cursor-not-allowed";
                     }
@@ -468,7 +477,7 @@ export function WeekTimetable({
                         onClick={() => handleCellClick(slot)}
                         className={`${base} ${cls}`}
                       >
-                        {isSelected ? `${sessionNum}회차` : ""}
+                        {isSelected ? `${sessionNum}회차` : cellLabel ?? ""}
                       </button>
                     );
                   })}

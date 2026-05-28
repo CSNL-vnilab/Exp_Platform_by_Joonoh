@@ -135,7 +135,12 @@ export function BookingEditForm(props: Props) {
           ),
         );
       }
-      setInfo(`${row.session_number}회차 일정이 변경되었습니다. 변경 안내 메일이 발송되었어요.`);
+      const warn: string | null = data?.calendar_sync_warning ?? null;
+      setInfo(
+        warn
+          ? `${row.session_number}회차 일정이 변경되었습니다. 변경 안내 메일이 발송되었어요.\n⚠️ ${warn}`
+          : `${row.session_number}회차 일정이 변경되었습니다. 변경 안내 메일이 발송되었어요.`,
+      );
       setEditingId(null);
       setDraftStart("");
     } catch {
@@ -167,7 +172,12 @@ export function BookingEditForm(props: Props) {
           r.id === row.id ? { ...r, status: "cancelled" as const } : r,
         ),
       );
-      setInfo(`${row.session_number}회차 참여가 취소되었습니다.`);
+      const warn: string | null = data?.calendar_sync_warning ?? null;
+      setInfo(
+        warn
+          ? `${row.session_number}회차 참여가 취소되었습니다.\n⚠️ ${warn}`
+          : `${row.session_number}회차 참여가 취소되었습니다.`,
+      );
     } catch {
       setError("네트워크 오류로 취소에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
@@ -178,7 +188,7 @@ export function BookingEditForm(props: Props) {
   return (
     <section className="space-y-3">
       {info && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="whitespace-pre-line rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {info}
         </div>
       )}

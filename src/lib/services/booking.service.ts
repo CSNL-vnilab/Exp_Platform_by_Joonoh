@@ -786,20 +786,34 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   // Delete old GCal event (if any). Best-effort: if the PATCH handler
   // pre-created the new event, the old one is an orphan we want gone,
   // but the reschedule is already "correct" from the participant's POV.
+  // We capture failures so the integration row reflects reality —
+  // previously we swallowed silently and stamped "completed", which
+  // hid SLAB calendars drifting out of sync.
+  let oldEventDeleteError: string | null = null;
   if (calendarId && params.oldEventId) {
     try {
       await deleteEvent(calendarId, params.oldEventId);
     } catch (err) {
-      console.error("[Reschedule] deleteEvent failed:", err instanceof Error ? err.message : err);
+      oldEventDeleteError = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[Reschedule] deleteEvent failed for ${params.oldEventId} on ${calendarId}:`,
+        oldEventDeleteError,
+      );
     }
   }
 
   // If caller pre-created the new event (atomic path), just stamp the
-  // integration row and move on.
+  // integration row and move on. We still mark "completed" because the
+  // *new* event exists and the booking is correct; the old-event delete
+  // failure is recorded in last_error so a reconcile job (or operator)
+  // can clean up later.
   if (params.newEventId) {
     await markIntegration(supabase, row.id, "gcal", {
       status: "completed",
       external_id: params.newEventId,
+      last_error: oldEventDeleteError
+        ? `new event created (${params.newEventId}); orphan old event ${params.oldEventId} on ${calendarId} not deleted: ${oldEventDeleteError.slice(0, 350)}`
+        : undefined,
     });
     if (calendarId) await invalidateCalendarCache(calendarId).catch(() => {});
   } else if (calendarId) {
