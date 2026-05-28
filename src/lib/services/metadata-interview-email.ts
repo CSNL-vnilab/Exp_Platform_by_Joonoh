@@ -97,7 +97,12 @@ export async function buildResearcherGapInventory(
   const { data: profs } = await admin
     .from("profiles")
     .select("id, display_name, email, contact_email, role, disabled")
-    .in("role", ["admin", "researcher"])
+    // 2026-05-28 directive: admins (e.g. csnl) get used for fixtures /
+    // smoke tests / ops bookings — never their own research projects.
+    // The trigger from migration 00064 flips is_project=false on
+    // admin-owned experiments; this filter additionally drops admins
+    // from the recipient sweep so they never receive the reminder.
+    .eq("role", "researcher")
     .eq("disabled", false);
 
   const out: ResearcherGap[] = [];

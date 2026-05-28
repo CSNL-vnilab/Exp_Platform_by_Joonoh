@@ -79,7 +79,9 @@ const escapeHtml = (s) =>
 const { data: profs } = await sb
   .from("profiles")
   .select("id, display_name, email, contact_email, role, disabled")
-  .in("role", ["admin", "researcher"])
+  // 2026-05-28: admins skipped (CSNL = ops account, not a researcher).
+  // Trigger 00064 also flips is_project=false on admin-owned rows.
+  .eq("role", "researcher")
   .eq("disabled", false);
 
 const cutoffIso = new Date(

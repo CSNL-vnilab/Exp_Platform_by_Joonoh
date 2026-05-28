@@ -105,11 +105,15 @@ async function handle(request: NextRequest) {
     const admin = createAdminClient();
 
     // 1. Load all draft/active experiments with missing-gap fields.
+    // 2026-05-28: is_project=false rows are opted out (pilot / 장비 테스트
+    // / admin-owned tests per migrations 00063 + 00064 trigger) and
+    // should never trigger reminders.
     const { data: experiments } = await admin
       .from("experiments")
       .select(
         "id, title, status, code_repo_url, data_path, pre_experiment_checklist, created_by",
       )
+      .eq("is_project", true)
       .in("status", ["draft", "active"]);
 
     const rows = ((experiments ?? []) as unknown as ExperimentRow[]).filter(
