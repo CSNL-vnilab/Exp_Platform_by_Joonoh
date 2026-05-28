@@ -22,6 +22,7 @@ const adminNavItems = [
   { label: "블랙리스트 승인", href: "/blacklist-requests", icon: BlacklistIcon },
   { label: "사용자 관리", href: "/users", icon: UsersIcon },
   { label: "장소 관리", href: "/locations", icon: LocationIcon },
+  { label: "랩 설정", href: "/lab-settings", icon: LocationIcon },
 ];
 
 import { BRAND_NAME } from "@/lib/branding";

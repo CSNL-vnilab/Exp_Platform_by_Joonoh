@@ -61,6 +61,15 @@ export default async function MetadataFillPage() {
     .select("id, name, address_lines")
     .order("name", { ascending: true });
 
+  // Lab-wide IRB URL — admin sets via /lab-settings. Surfaced as a
+  // one-click prefill button next to each card's IRB URL input.
+  const { data: lab } = await admin
+    .from("labs")
+    .select("irb_base_url")
+    .eq("code", "CSNL")
+    .maybeSingle();
+  const labIrbBaseUrl = lab?.irb_base_url ?? null;
+
   return (
     <div>
       <div className="mb-6">
@@ -78,10 +87,18 @@ export default async function MetadataFillPage() {
           면제 처리하실 수 있습니다. 면제된 실험은 다음 안내부터 자동으로
           제외됩니다.
         </p>
+        {labIrbBaseUrl && (
+          <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+            📎 관리자가 등록한 공용 IRB 문서 URL 이 있습니다. 각 카드의
+            IRB 입력 칸 옆 <b>&quot;관리자 등록 IRB 사용&quot;</b> 버튼으로
+            한 번에 채워넣을 수 있습니다.
+          </p>
+        )}
       </div>
       <MetadataFillList
         experiments={items}
         locations={locations ?? []}
+        labIrbBaseUrl={labIrbBaseUrl}
       />
     </div>
   );

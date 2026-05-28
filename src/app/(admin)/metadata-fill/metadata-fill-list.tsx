@@ -64,9 +64,14 @@ function seedForm(e: ExperimentRow): FormState {
 export function MetadataFillList({
   experiments,
   locations,
+  labIrbBaseUrl,
 }: {
   experiments: ExperimentRow[];
   locations: LocationRow[];
+  // Admin-registered lab-wide IRB URL (labs.irb_base_url). Per-card
+  // "관리자 등록 IRB 사용" button copies this into the IRB input on
+  // click; hidden when null.
+  labIrbBaseUrl: string | null;
 }) {
   const { toast } = useToast();
   const [forms, setForms] = useState<Record<string, FormState>>(() =>
@@ -284,16 +289,28 @@ export function MetadataFillList({
                     patch(e.id, "recruitment_target", ev.target.value)
                   }
                 />
-                <Input
-                  id={`irb-${e.id}`}
-                  label="IRB 문서 URL"
-                  type="url"
-                  placeholder="https://…"
-                  value={f.irb_document_url}
-                  onChange={(ev) =>
-                    patch(e.id, "irb_document_url", ev.target.value)
-                  }
-                />
+                <div>
+                  <Input
+                    id={`irb-${e.id}`}
+                    label="IRB 문서 URL"
+                    type="url"
+                    placeholder="https://…"
+                    value={f.irb_document_url}
+                    onChange={(ev) =>
+                      patch(e.id, "irb_document_url", ev.target.value)
+                    }
+                  />
+                  {labIrbBaseUrl && (
+                    <button
+                      type="button"
+                      onClick={() => patch(e.id, "irb_document_url", labIrbBaseUrl)}
+                      className="mt-1 inline-flex items-center gap-1 text-xs text-sky-700 underline-offset-2 hover:underline"
+                      title={labIrbBaseUrl}
+                    >
+                      📎 관리자 등록 IRB 사용
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div>

@@ -1076,6 +1076,9 @@ export interface Database {
           // `participant_id_salt` is bytea — surfaced as a hex / base64 string
           // by PostgREST; treat as opaque from the TS side.
           participant_id_salt: string;
+          // Lab-wide IRB document URL (migration 00065). Admin sets via
+          // /lab-settings; /metadata-fill uses it for one-click prefill.
+          irb_base_url: string | null;
           created_at: string;
         };
         Insert: {
@@ -1083,12 +1086,14 @@ export interface Database {
           code: string;
           name: string;
           participant_id_salt?: string;
+          irb_base_url?: string | null;
           created_at?: string;
         };
         Update: {
           code?: string;
           name?: string;
           participant_id_salt?: string;
+          irb_base_url?: string | null;
         };
         Relationships: [];
       };
