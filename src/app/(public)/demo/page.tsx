@@ -36,6 +36,7 @@ const DEMO_EXPERIMENT: Experiment = {
   break_between_slots_minutes: 15,
   max_participants_per_slot: 2,
   recruitment_target: null,
+  is_project: true,
   participation_fee: 60000,
   session_type: "multi",
   required_sessions: 2,

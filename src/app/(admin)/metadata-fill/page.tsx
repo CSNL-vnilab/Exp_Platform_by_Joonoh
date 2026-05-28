@@ -38,6 +38,9 @@ export default async function MetadataFillPage() {
       "id, title, project_name, status, start_date, end_date, code_repo_url, data_path, pre_experiment_checklist, protocol_version, location_id, description, participation_fee, irb_document_url, recruitment_target",
     )
     .eq("created_by", profile.id)
+    // 2026-05-28 — hide pilot / equipment-test / one-off rows the
+    // researcher already opted out from this nag flow.
+    .eq("is_project", true)
     .order("created_at", { ascending: false });
 
   type Row = NonNullable<typeof rows>[number];
@@ -68,6 +71,12 @@ export default async function MetadataFillPage() {
           내가 만든 실험 중 비어 있는 필드가 있는 항목을 한 번에 채워
           저장합니다. 각 카드의 <b>저장</b> 버튼은 그 실험만 갱신합니다 —
           한 번에 다 채우지 않아도 됩니다.
+        </p>
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          💡 pilot · 장비 테스트 · 일회성 예약처럼 정식 프로젝트가 아닌 항목은
+          카드 우측 상단의 <b>&quot;프로젝트 아님 (면제)&quot;</b> 버튼으로
+          면제 처리하실 수 있습니다. 면제된 실험은 다음 안내부터 자동으로
+          제외됩니다.
         </p>
       </div>
       <MetadataFillList

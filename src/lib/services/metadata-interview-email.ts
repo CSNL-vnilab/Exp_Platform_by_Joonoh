@@ -113,6 +113,10 @@ export async function buildResearcherGapInventory(
         "id, title, project_name, status, start_date, end_date, code_repo_url, data_path, pre_experiment_checklist, protocol_version, location_id, description, participation_fee, irb_document_url, recruitment_target",
       )
       .eq("created_by", p.id)
+      // 2026-05-28: pilots / equipment tests / one-offs can be marked
+      // is_project=false on /metadata-fill and drop out of every
+      // reminder channel here.
+      .eq("is_project", true)
       .in("status", ["draft", "active", "completed"]);
     const expRows = (exps ?? []) as unknown as ExperimentRow[];
 
@@ -213,6 +217,11 @@ export function renderInterviewEmail(g: ResearcherGap): {
         한 번에 다 채우지 않으셔도 됩니다 — 각 카드의 <b>"이 실험 저장"</b> 버튼은 그 실험만 갱신합니다.
         본 메일은 매일 09:00 KST 에 비어 있는 항목이 남아있을 때만 자동 발송됩니다.
       </p>
+      <p style="margin:6px 0 0 0;padding:10px 12px;font-size:13px;color:#374151;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;">
+        💡 <b>pilot · 장비 테스트 · 일회성 예약</b> 처럼 정식 프로젝트가 아닌 항목은
+        각 카드 우측 상단의 <b>"프로젝트 아님 (면제)"</b> 버튼으로 면제 처리할 수 있습니다.
+        면제 처리된 실험은 이 안내에서 자동으로 빠집니다.
+      </p>
       <p style="margin:18px 0 4px 0;font-size:12px;color:#9ca3af;">
         문의: <a href="mailto:vnilab@gmail.com" style="color:#2563eb;">vnilab@gmail.com</a>
       </p>
@@ -233,7 +242,7 @@ export function renderInterviewEmail(g: ResearcherGap): {
           `    권장: ${r.optionalGaps.map((x) => x.label).join(", ") || "-"}`,
       )
       .join("\n") +
-    `\n\n본 메일은 매일 09:00 KST 에 비어 있는 항목이 남아있을 때만 자동 발송됩니다.\n`;
+    `\n\n💡 pilot / 장비 테스트 / 일회성 예약은 각 카드의 "프로젝트 아님 (면제)" 버튼으로 면제 처리 가능 — 면제 처리된 실험은 다음 안내부터 자동 제외됩니다.\n\n본 메일은 매일 09:00 KST 에 비어 있는 항목이 남아있을 때만 자동 발송됩니다.\n`;
 
   return {
     subject: `[${BRAND_NAME}] 실험 메타데이터 입력 요청 — ${g.profile.display_name ?? ""}님 (${g.rows.length}건)`,

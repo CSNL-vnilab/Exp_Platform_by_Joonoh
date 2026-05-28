@@ -30,6 +30,7 @@ for (const l of env.split("\n")) {
 }
 
 const APPLY = process.argv.includes("--apply");
+const FORCE = process.argv.includes("--force"); // bypass dedup + no-progress (one-shot announcements)
 const onlyIdx = process.argv.indexOf("--only");
 const ONLY = onlyIdx !== -1
   ? new Set(
@@ -120,6 +121,7 @@ for (const p of profs ?? []) {
       "id, title, project_name, status, start_date, end_date, code_repo_url, data_path, pre_experiment_checklist, protocol_version, location_id, description, participation_fee, irb_document_url, recruitment_target",
     )
     .eq("created_by", p.id)
+    .eq("is_project", true) // 2026-05-28: pilot/장비테스트 면제 처리된 행은 제외
     .in("status", ["draft", "active", "completed"]);
   const ids = (exps ?? []).map((e) => e.id);
   const bkCount = {};
@@ -191,6 +193,11 @@ function renderHtml(g) {
   <p style="margin:20px 0 6px 0;font-size:13px;color:#374151;">
     카드별 <b>"이 실험 저장"</b> 버튼은 그 실험만 갱신합니다. 본 메일은 매일 09:00 KST 에 비어 있는 항목이 남아있을 때만 자동 발송됩니다.
   </p>
+  <p style="margin:6px 0 0 0;padding:10px 12px;font-size:13px;color:#374151;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;">
+    💡 <b>pilot · 장비 테스트 · 일회성 예약</b> 처럼 정식 프로젝트가 아닌 항목은
+    각 카드 우측 상단의 <b>"프로젝트 아님 (면제)"</b> 버튼으로 면제 처리할 수 있습니다.
+    면제 처리된 실험은 이 안내에서 자동으로 빠집니다.
+  </p>
   <p style="margin:18px 0 4px 0;font-size:12px;color:#9ca3af;">문의: <a href="mailto:vnilab@gmail.com" style="color:#2563eb;">vnilab@gmail.com</a></p>
 </div></body></html>`;
 }
@@ -207,13 +214,13 @@ const transporter = APPLY
 let sent = 0, rateLimited = 0, noProgress = 0, noContact = 0, failed = 0;
 for (const g of inventory) {
   const totalReq = g.rows.reduce((n, r) => n + r.requiredGaps.length, 0);
-  if (recentlyNotified.has(g.profile.id)) {
+  if (!FORCE && recentlyNotified.has(g.profile.id)) {
     rateLimited += 1;
     console.log(`  ⏸ ${g.init.padEnd(5)} ${g.profile.display_name}  rate-limited (last reminder <20h ago)`);
     continue;
   }
   const lastReq = lastReqCountByUser.get(g.profile.id);
-  if (lastReq != null && lastReq === totalReq) {
+  if (!FORCE && lastReq != null && lastReq === totalReq) {
     noProgress += 1;
     console.log(`  ⏸ ${g.init.padEnd(5)} ${g.profile.display_name}  no-progress (last reminder still ${lastReq} required, skipping today)`);
     continue;

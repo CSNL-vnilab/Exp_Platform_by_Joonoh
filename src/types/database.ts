@@ -325,6 +325,7 @@ export interface Database {
           session_duration_minutes: number;
           max_participants_per_slot: number;
           recruitment_target: number | null;
+          is_project: boolean;
           participation_fee: number;
           session_type: "single" | "multi";
           required_sessions: number;
@@ -377,6 +378,7 @@ export interface Database {
           session_duration_minutes: number;
           max_participants_per_slot?: number;
           recruitment_target?: number | null;
+          is_project?: boolean;
           participation_fee?: number;
           session_type?: "single" | "multi";
           required_sessions?: number;
@@ -426,6 +428,7 @@ export interface Database {
           session_duration_minutes?: number;
           max_participants_per_slot?: number;
           recruitment_target?: number | null;
+          is_project?: boolean;
           participation_fee?: number;
           session_type?: "single" | "multi";
           required_sessions?: number;

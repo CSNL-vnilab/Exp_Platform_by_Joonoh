@@ -74,13 +74,19 @@ export function MetadataFillList({
   );
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  // Locally hide cards the researcher has opted out of (is_project=false)
+  // — the server query also filters them out on the next page load.
+  const [optedOutIds, setOptedOutIds] = useState<Set<string>>(new Set());
+  const [optingOut, setOptingOut] = useState<Record<string, boolean>>({});
 
-  if (experiments.length === 0) {
+  const visible = experiments.filter((e) => !optedOutIds.has(e.id));
+
+  if (visible.length === 0) {
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-muted">
           비어 있는 메타데이터 항목이 있는 실험이 없습니다. 모두 입력 완료
-          상태입니다. ✓
+          또는 면제 처리되었습니다. ✓
         </CardContent>
       </Card>
     );
@@ -148,12 +154,42 @@ export function MetadataFillList({
     }
   }
 
+  async function optOut(e: ExperimentRow) {
+    if (
+      !confirm(
+        `"${e.title}" 을(를) 프로젝트가 아닌 항목(pilot · 장비 테스트 등)으로\n표시하고 메타데이터 입력 안내에서 면제하시겠습니까?\n\n나중에 실험 상세 화면에서 다시 켤 수 있습니다.`,
+      )
+    ) {
+      return;
+    }
+    setOptingOut((s) => ({ ...s, [e.id]: true }));
+    try {
+      const res = await fetch(`/api/experiments/${e.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_project: false }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(j?.error ?? "면제 처리 실패", "error");
+        return;
+      }
+      setOptedOutIds((prev) => new Set(prev).add(e.id));
+      toast(`면제 처리됨 — ${e.title}`, "success");
+    } catch {
+      toast("네트워크 오류가 발생했습니다", "error");
+    } finally {
+      setOptingOut((s) => ({ ...s, [e.id]: false }));
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {experiments.map((e) => {
+      {visible.map((e) => {
         const f = forms[e.id];
         const isSaving = !!saving[e.id];
         const isSaved = savedIds.has(e.id);
+        const isOptingOut = !!optingOut[e.id];
         return (
           <Card key={e.id}>
             <CardContent className="space-y-4">
@@ -167,11 +203,22 @@ export function MetadataFillList({
                     {e.status}
                   </p>
                 </div>
-                {isSaved && (
-                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-                    ✓ 저장됨
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={isOptingOut || isSaving}
+                    onClick={() => optOut(e)}
+                    title="pilot · 장비 테스트 등 정식 프로젝트가 아닌 항목으로 표시"
+                  >
+                    {isOptingOut ? "처리 중…" : "프로젝트 아님 (면제)"}
+                  </Button>
+                  {isSaved && (
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                      ✓ 저장됨
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
