@@ -143,6 +143,46 @@ export async function POST(
     );
   }
 
+  // 3.5. Refresh amount_krw from the freshly-claimed rows (Codex review
+  // A2/H21, 2026-05-28). Between the fetchClaimRows() at step 1 and the
+  // CAS at step 3, the researcher may have PATCHed amount_krw via the
+  // PATCH /amount route (which permits edits while status is still
+  // 'submitted_to_admin' — see migration 00065 + the route's status
+  // .in() filter). The CAS doesn't read amount_krw, so claimedRows[]
+  // still carries the pre-edit value. Without this refresh the ZIP +
+  // payment_claims.total_krw both embed stale amounts while the
+  // participant's email + admin UI show the new value.
+  //
+  // The refresh window is tight (status='claimed' locks amount edits
+  // via the PATCH route's .in() predicate), so we only need to read
+  // back what's now in the DB for rows claimed_in=claim.id.
+  const claimedBgIds = claimedRows.map((r) => r.bookingGroupId);
+  const { data: freshAmounts, error: freshErr } = await admin
+    .from("participant_payment_info")
+    .select("booking_group_id, amount_krw")
+    .in("booking_group_id", claimedBgIds)
+    .eq("claimed_in", claim.id);
+  if (freshErr) {
+    console.error(
+      "[PaymentClaim] amount refresh failed; proceeding with stale rows:",
+      freshErr.message,
+    );
+  } else if (freshAmounts && freshAmounts.length > 0) {
+    const amountByBgId = new Map(
+      (freshAmounts as Array<{ booking_group_id: string; amount_krw: number }>)
+        .map((r) => [r.booking_group_id, r.amount_krw]),
+    );
+    for (const r of claimedRows) {
+      const fresh = amountByBgId.get(r.bookingGroupId);
+      if (fresh != null && fresh !== r.amountKrw) {
+        console.info(
+          `[PaymentClaim] amount refreshed for ${r.bookingGroupId}: ${r.amountKrw} → ${fresh}`,
+        );
+        r.amountKrw = fresh;
+      }
+    }
+  }
+
   // 4. Build the ZIP. If this fails we roll back the CAS.
   let bundle;
   try {
