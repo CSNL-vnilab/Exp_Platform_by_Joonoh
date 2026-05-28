@@ -80,17 +80,16 @@ export async function POST(
     );
   }
 
-  // Reset the dispatch state. The RPC re-checks ownership too (defense in
-  // depth + works under user-scoped client when called from elsewhere).
-  // Here we use the admin client for simplicity; the auth check above
-  // already guards entry.
+  // Clear the last error so the operator UI doesn't carry a stale
+  // alert. We deliberately leave payment_link_sent_at and attempts
+  // alone — notify(force:true) atomically nulls them when it acquires
+  // the dispatch lock (C6 fix, Codex review 2026-05-28). Pre-resetting
+  // them here would re-introduce the double-send race two concurrent
+  // resend clicks (or PATCH-amount-with-resend racing this route)
+  // could trigger.
   const { error: resetErr } = await admin
     .from("participant_payment_info")
-    .update({
-      payment_link_sent_at: null,
-      payment_link_last_error: null,
-      payment_link_attempts: 0,
-    })
+    .update({ payment_link_last_error: null })
     .eq("id", row.id);
   if (resetErr) {
     return NextResponse.json(
@@ -101,8 +100,10 @@ export async function POST(
 
   // force=true: when the researcher explicitly clicks "안내 메일 발송"
   // we always send, regardless of the experiment-level
-  // payment_link_auto_send opt-out (migration 00063). The opt-out
+  // payment_link_auto_send opt-out (migration 00065). The opt-out
   // gates the *automatic* trigger; an explicit user action bypasses it.
+  // force=true also tells notify to atomically null sent_at + attempts
+  // under the dispatch lock — see C6 fix in the service.
   const result = await notifyPaymentInfoIfReady(
     admin,
     bookingGroupId,

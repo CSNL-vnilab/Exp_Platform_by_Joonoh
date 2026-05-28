@@ -105,21 +105,18 @@ export async function PATCH(
 
   // Optional: dispatch (or re-dispatch) the info-request email right
   // away with the new amount. Two cases:
-  //   - payment_link_sent_at is NULL → first send. Force=true bypasses
+  //   - payment_link_sent_at is NULL → first send. force=true bypasses
   //     the experiment-level auto-send opt-out because the researcher
   //     just confirmed the amount and is asking for it explicitly.
   //   - payment_link_sent_at is set → already sent once at the old
-  //     amount. We reset payment_link_sent_at to NULL so notify will
-  //     re-send. This mirrors the existing resend path.
+  //     amount. notify (with force=true) atomically nulls sent_at as
+  //     part of acquiring the dispatch lock — single source of truth
+  //     for "who is dispatching" even on resend. We deliberately do
+  //     NOT pre-reset sent_at here: that would re-introduce the
+  //     C6 double-send race (two concurrent PATCH-with-resend clicks
+  //     both reset, both acquire the lock, both send).
   let resendOutcome: string | null = null;
   if (parsed.data.resend) {
-    // Reset sent_at so notify will pick the row up again.
-    await admin
-      .from("participant_payment_info")
-      .update({ payment_link_sent_at: null })
-      .eq("experiment_id", experimentId)
-      .eq("booking_group_id", bookingGroupId);
-
     try {
       const result = await notifyPaymentInfoIfReady(
         admin,

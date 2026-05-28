@@ -101,12 +101,23 @@ export interface NotifyResult {
 
 export interface NotifyOptions {
   /**
-   * Bypass the experiments.payment_link_auto_send=false opt-out.
-   * Used by the explicit "안내 메일 발송" admin button — at that point
-   * the researcher has already reviewed the amount and is asking for
-   * the dispatch to happen *now*.
+   * Bypass the experiments.payment_link_auto_send=false opt-out AND
+   * the payment_link_sent_at-already-stamped guard. Used by the
+   * explicit "안내 메일 발송" / "수정 후 발송" admin buttons — at
+   * that point the researcher has already reviewed the amount and is
+   * asking for an immediate (re-)dispatch.
    *
-   * Default false → respect the experiment-level toggle.
+   * Default false → respect the experiment-level toggle AND
+   * idempotency (no re-send of an already-sent group).
+   *
+   * Implementation note (Codex C6 hot-fix 2026-05-28): force=true
+   * also RESETS payment_link_sent_at to NULL atomically when we
+   * acquire the dispatch lock, so two concurrent force callers race
+   * for the same lock rather than each doing a separate null-reset +
+   * lock cycle. Previously the route handlers reset sent_at *before*
+   * calling notify, which let two near-simultaneous resend clicks
+   * both stamp NULL and then both win different lock acquires,
+   * resulting in a duplicate email to the participant.
    */
   force?: boolean;
 }
@@ -131,7 +142,10 @@ export async function notifyPaymentInfoIfReady(
     return { outcome: "no_payment_row", bookingGroupId };
   }
 
-  if (row.payment_link_sent_at) {
+  // Idempotency gate — force=true (explicit admin resend) bypasses so
+  // the researcher can re-send after an amount edit. Without force we
+  // refuse to re-send a row that's already been dispatched once.
+  if (row.payment_link_sent_at && !options.force) {
     return { outcome: "already_sent", bookingGroupId };
   }
   if (row.amount_krw <= 0) {
@@ -238,17 +252,41 @@ export async function notifyPaymentInfoIfReady(
   // failure (without stamp, so retry is allowed).
   const lockUntilIso = new Date(Date.now() + DISPATCH_LOCK_TTL_MS).toISOString();
   const nowIsoForLock = new Date().toISOString();
-  const { count: lockCount } = await supabase
+  // C6 fix (Codex review 2026-05-28): when force=true (explicit
+  // researcher resend after amount edit), atomically reset
+  // payment_link_sent_at=null + payment_link_attempts=0 in the SAME
+  // UPDATE that acquires the lock. The lock then becomes the single
+  // source of truth even on resend; previously the route handlers
+  // reset sent_at *before* calling notify, so two near-simultaneous
+  // resend clicks could both reset, both acquire the lock (each
+  // succeeding because sent_at was NULL when they raced), and both
+  // send — participant got two copies. Now only one UPDATE wins.
+  //
+  // The lock predicate stays `payment_link_sent_at IS NULL` for the
+  // non-force path (idempotent first dispatch). For force, drop that
+  // check because the same UPDATE nulls it.
+  const lockUpdate: {
+    payment_link_dispatch_lock_until: string;
+    payment_link_sent_at?: string | null;
+    payment_link_attempts?: number;
+  } = {
+    payment_link_dispatch_lock_until: lockUntilIso,
+  };
+  if (options.force) {
+    lockUpdate.payment_link_sent_at = null;
+    lockUpdate.payment_link_attempts = 0;
+  }
+  let lockQuery = supabase
     .from("participant_payment_info")
-    .update(
-      { payment_link_dispatch_lock_until: lockUntilIso },
-      { count: "exact" },
-    )
+    .update(lockUpdate, { count: "exact" })
     .eq("id", row.id)
-    .is("payment_link_sent_at", null)
     .or(
       `payment_link_dispatch_lock_until.is.null,payment_link_dispatch_lock_until.lt.${nowIsoForLock}`,
     );
+  if (!options.force) {
+    lockQuery = lockQuery.is("payment_link_sent_at", null);
+  }
+  const { count: lockCount } = await lockQuery;
 
   if ((lockCount ?? 0) === 0) {
     return {
@@ -274,6 +312,67 @@ export async function notifyPaymentInfoIfReady(
   };
 
   try {
+  // C8/C9 fix (Codex review 2026-05-28): the amount and the auto-send
+  // flag were both read BEFORE the dispatch lock above. A researcher
+  // who PATCHes amount or toggles auto_send while we were waiting on
+  // the lock would have their new value ignored — the email would
+  // send the stale snapshot. Now that we hold the lock, re-fetch both
+  // so the email body and the gate decision use the freshest committed
+  // state. We re-validate auto_send + amount under-lock; row.id is
+  // already pinned so the re-read is a single-row hit.
+  const { data: freshRowRaw } = await supabase
+    .from("participant_payment_info")
+    .select(
+      "amount_krw, status, payment_link_sent_at, name_override, email_override",
+    )
+    .eq("id", row.id)
+    .maybeSingle();
+  const freshRow = freshRowRaw as
+    | {
+        amount_krw: number;
+        status: string;
+        payment_link_sent_at: string | null;
+        name_override: string | null;
+        email_override: string | null;
+      }
+    | null;
+  if (freshRow) {
+    row.amount_krw = freshRow.amount_krw;
+    row.name_override = freshRow.name_override;
+    row.email_override = freshRow.email_override;
+    // Defensive: another trigger may have stamped sent_at + released
+    // the lock between our lock CAS and this re-fetch. We backed off
+    // cleanly with already_sent in that case (the CAS only succeeds
+    // when sent_at IS NULL — so this branch is dead code in practice
+    // but cheap insurance against future lock-pattern changes).
+    if (freshRow.payment_link_sent_at) {
+      await releaseLock();
+      return { outcome: "already_sent", bookingGroupId, detail: "stamped after lock acquire" };
+    }
+  }
+  // Re-validate auto_send under lock. force=true bypasses, matching
+  // the pre-lock check at step 3a.
+  if (!options.force) {
+    const { data: gateRaw } = await supabase
+      .from("experiments")
+      .select("payment_link_auto_send")
+      .eq("id", row.experiment_id)
+      .maybeSingle();
+    const gate = gateRaw as { payment_link_auto_send?: boolean | null } | null;
+    if (gate && gate.payment_link_auto_send === false) {
+      await releaseLock();
+      return {
+        outcome: "auto_send_disabled",
+        bookingGroupId,
+        detail: "auto_send toggled off after lock acquire",
+      };
+    }
+  }
+  // Same guard for amount_krw becoming 0 after override.
+  if (row.amount_krw <= 0) {
+    await releaseLock();
+    return { outcome: "amount_zero", bookingGroupId, detail: "amount zeroed after lock acquire" };
+  }
   // 4) Token strategy (P0 #6):
   //
   //   a) If the participant has ALREADY opened the link
@@ -501,12 +600,19 @@ export async function sweepPaymentInfoNotifications(
   supabase: Supabase,
   mailer: Mailer = defaultSendEmail,
 ): Promise<{ examined: number; sent: number; errors: number; results: NotifyResult[] }> {
+  // C7 fix (Codex review 2026-05-28): exclude experiments whose
+  // researcher opted out of auto-dispatch (migration 00065). Otherwise
+  // every cron tick re-examines every held-up opt-out row, returning
+  // 'auto_send_disabled' each time and starving rows that should
+  // actually go out. Filter via a nested experiments(payment_link_auto_send)
+  // join — supabase-js !inner() forces an INNER JOIN we can constrain.
   const { data: rows } = await supabase
     .from("participant_payment_info")
-    .select("booking_group_id")
+    .select("booking_group_id, experiments!inner(payment_link_auto_send)")
     .is("payment_link_sent_at", null)
     .eq("status", "pending_participant")
     .gt("amount_krw", 0)
+    .eq("experiments.payment_link_auto_send", true)
     .limit(SWEEP_LIMIT);
 
   const results: NotifyResult[] = [];

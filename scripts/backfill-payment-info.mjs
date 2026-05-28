@@ -148,7 +148,14 @@ for (const [groupId, rows] of candidateGroups) {
   const periodStart = new Date(Math.min(...starts));
   const periodEnd = new Date(Math.max(...ends));
   const sessionCount = liveRows.length;
-  const amountKrw = exp.participation_fee * sessionCount;
+  // `experiments.participation_fee` is the TOTAL for a booking_group
+  // (not per-session). Multiplying by session count inflates 5x for
+  // a 5회차 experiment — 90,000원 study seeded as 450,000원. Match
+  // src/lib/payments/backfill.ts which uses fee directly. Researcher
+  // adjusts for partial/extended runs via PATCH amount (migration
+  // 00065) post-backfill.
+  void sessionCount; // retained for diagnostic logs below
+  const amountKrw = exp.participation_fee;
 
   const issued = tokenMod.issuePaymentToken(groupId);
   const enc = cryptoMod.encryptToken(issued.token);
