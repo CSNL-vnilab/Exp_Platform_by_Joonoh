@@ -276,13 +276,86 @@ graph TD
 
 ---
 
+## Auto-loop additions (2026-05-29 ~ 05-30, iter 1-21)
+
+위 main graph 가 도입 당시 "should exist" 청사진이었다면 아래 그래프는 자율 loop iter 1-21 에서 실제로 main 에 들어간 helper/endpoint 의 의존성. 음영 노드 = 신설.
+
+```mermaid
+graph LR
+  subgraph "HTTP edge (existing)"
+    RE[Routes — experiment]
+    RB[Routes — booking]
+    REE[Routes — booking-edit]
+  end
+
+  subgraph "B4 family auth helpers (iter 7-17)"
+    EA["experiment-access.ts<br/>(13 routes)"]:::added
+    BA["booking-access.ts<br/>(5 methods)"]:::added
+    BEA["booking-edit/access.ts<br/>(2 routes, token-credential)"]:::added
+  end
+
+  subgraph "Observability (iter 1, 4, 14)"
+    PII["observability/pii.ts<br/>(scrubPii owner)"]:::added
+    HSA["/api/health/secret-audit<br/>(iter 1)"]:::added
+    HQ["/api/health/queue<br/>(iter 5)"]:::added
+  end
+
+  subgraph "Auth/secret (iter 1, A3)"
+    SS["auth/secret-source.ts<br/>(resolveSecret + KNOWN_TOKEN_SECRETS)"]:::added
+    PT[payments/token]
+    RT[experiments/run-token]
+    BET[booking-edit/token]
+    BES[booking-edit/session]
+    SYM[crypto/symmetric]
+  end
+
+  subgraph "Utility (iter 1)"
+    ORI["http/origin.ts<br/>(getAppOrigin)"]:::added
+  end
+
+  subgraph "Cron (iter 20-21)"
+    GOR["/api/cron/gcal-orphan-reaper<br/>(grace_hours + batch_limit)"]:::added
+  end
+
+  RE --> EA
+  RB --> BA
+  REE --> BEA
+
+  EA --> SS
+  BA --> SS
+  BEA --> SS
+
+  PT --> SS
+  RT --> SS
+  BET --> SS
+  BES --> SS
+  SYM --> SS
+
+  HSA --> SS
+  HQ -->|reads| BL["booking_integrations table"]
+  GOR -->|sweeps| BL
+  GOR --> PII
+
+  Retry["retry services (sms/notion/gcal/email)"] --> PII
+  PUT_cancel["PUT /bookings/[id] cancel-path"] --> PII
+  BEC["booking-edit cancel"] --> PII
+
+  Many["13+ call sites (booking/notify/email)"] --> ORI
+
+  classDef added fill:#dff,stroke:#06c,stroke-width:2px;
+```
+
+**누적**: 6 신설 모듈 (3 auth helpers + secret-source + pii + origin) + 3 신설 endpoint (2 health + 1 cron) + 5 token 모듈 통합 (secret-source 로). `subsystems.md` 의 #2 Token kernel + #10 Auth + #5 Dispatch 영역의 cross-cutting 정리 큰 진척. 자세한 진행 표는 [`refactor-roadmap.md § B4 family helpers`](./refactor-roadmap.md) 참조.
+
+---
+
 ## Cross-cutting helpers that should be hoisted
 
-1. **PII scrubbing.** 4 개 `scrubPii` def + 1 개 `scrubEmailAndTruncate`. ONE function in dispatch (or new `src/lib/utils/pii.ts`). 모든 retry service import. 오늘 새 외부 시스템 추가 = 5 번째 copy.
-2. **Absolute origin helper.** 6 call site 가 다르게 build (`appUrl || vercelUrl || ""`; 하나는 hardcoded vercel preview URL fallback at `lab-notifications.service.ts:18`). `appOrigin()` 한 곳.
-3. **KST date formatting.** `kstDate()` def 가 `booking.service.ts:223-229` 와 `payments/backfill.ts:28-34` 별도. `Intl.DateTimeFormat({timeZone:"Asia/Seoul"})` recipe 가 ~20 번 등장. `utils/kst.ts`.
-4. **Researcher-initial → calendar title.** `creatorInitial()` in `booking.service.ts:324-331` AND `gcal-retry.service.ts:40-50` with subtle drift (slice(0,4) 한 쪽만). Calendar title formatting 도 `booking.service.ts:333-339` (runtime) 와 `gcal-retry.service.ts:146` (inline) 둘. #3 Calendar gateway 로.
-5. **Token issuance protocol.** 3 개 near-identical 120-LOC file. #2 참조.
+1. **PII scrubbing.** ✅ Resolved (Phase A6, iter 1, commit `595e933`) — `src/lib/observability/pii.ts` 가 단일 owner. 4 retry service + 2 cancel path + observation.service (iter 18) + gcal-orphan-reaper (iter 20) 가 모두 import. 5 번째 외부 시스템 추가 시 기존 함수 재사용.
+2. **Absolute origin helper.** ✅ Resolved (B7-light, iter 1, commit `acca07a`) — `src/lib/http/origin.ts` 의 `getAppOrigin()` / `getAppOriginOrNull()`. 13 call site migrated. 가장 중요한 fix: `booking-status-notify.service.ts` 의 module-level cache 제거 (warm Lambda 환경에서 env swap 반영).
+3. **KST date formatting.** `kstDate()` def 가 `booking.service.ts:223-229` 와 `payments/backfill.ts:28-34` 별도. `Intl.DateTimeFormat({timeZone:"Asia/Seoul"})` recipe 가 ~20 번 등장. `utils/kst.ts`. (B8 검토 후 partial — 19 사이트가 legitimate per-need formatting 으로 판단, mass migration skip — iter 14)
+4. **Researcher-initial → calendar title.** `creatorInitial()` in `booking.service.ts:324-331` AND `gcal-retry.service.ts:40-50` with subtle drift (slice(0,4) 한 쪽만). Calendar title formatting 도 `booking.service.ts:333-339` (runtime) 와 `gcal-retry.service.ts:146` (inline) 둘. #3 Calendar gateway 로. (미해결)
+5. **Token issuance protocol.** ✅ Partial (Phase A3, iter 1) — 5 token 모듈 (payment / run / booking-edit token / booking-edit session / symmetric crypto) 이 모두 `auth/secret-source.ts` 의 `resolveSecret({ primary, fallbacks, purpose })` 사용. SUPABASE_SERVICE_ROLE_KEY fall-through 시 warn-once + `/api/health/secret-audit` 로 audit. 3 개 120-LOC file 의 HMAC issue/verify body 자체는 여전히 각각 — Phase B B4 의 token kernel 추출에서 합치는 게 다음 단계.
 
 ---
 
