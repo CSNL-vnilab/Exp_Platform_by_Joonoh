@@ -6,6 +6,8 @@ import { isValidUUID } from "@/lib/utils/validation";
 import { deleteEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { notifyBookingStatusChange } from "@/lib/services/booking-status-notify.service";
+import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
+import { scrubPii } from "@/lib/observability/pii";
 import {
   verifyBookingEditToken,
   BookingEditTokenError,
@@ -134,7 +136,9 @@ export async function POST(
         .from("booking_integrations")
         .update({
           status: "failed",
-          last_error: `participant cancel deleteEvent failed for ${booking.google_event_id}: ${msg.slice(0, 500)}`,
+          last_error: scrubPii(
+            `participant cancel deleteEvent failed for ${booking.google_event_id}: ${msg}`,
+          ).slice(0, 500),
           processed_at: new Date().toISOString(),
         })
         .eq("booking_id", bookingId)
@@ -161,6 +165,21 @@ export async function POST(
   } catch (err) {
     console.error(
       "[ParticipantCancel] notifyBookingStatusChange crashed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // Fire payment-info dispatch as well — the helper's gate now treats
+  // cancelled bookings as terminal-non-blocking (A2 / hidden-couplings
+  // #25), so cancelling one session in a multi-session group lets the
+  // remaining completed sessions dispatch immediately. If every session
+  // ended up cancelled, the helper transitions payment_info.status to
+  // 'cancelled' so the row stops blocking the pending queue.
+  try {
+    await notifyPaymentInfoIfReady(admin, verified.bookingGroupId);
+  } catch (err) {
+    console.error(
+      "[ParticipantCancel] notifyPaymentInfoIfReady crashed:",
       err instanceof Error ? err.message : err,
     );
   }

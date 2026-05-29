@@ -15,6 +15,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createBookingPage } from "@/lib/notion/client";
 import { syncObservationToNotion } from "@/lib/services/observation.service";
+import { scrubPii } from "@/lib/observability/pii";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -247,9 +248,4 @@ async function finalize(
 
 // Notion sometimes echoes the offending property value in 400 responses
 // (e.g. "property 전화번호 has value 010-1234-5678 that does not match…").
-// Scrub patterns that could be PII before writing to booking_integrations.
-function scrubPii(msg: string): string {
-  return msg
-    .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "<email>")
-    .replace(/\b\d{2,3}-?\d{3,4}-?\d{4}\b/g, "<phone>");
-}
+// scrubPii lives in @/lib/observability/pii now — same regexes, one owner.

@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { resolveSecret } from "@/lib/auth/secret-source";
 
 // Signed token that gates /payment-info/[token] submission. Same shape as
 // Stream 2's run-token:
@@ -18,16 +19,15 @@ const MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
 export const PAYMENT_TOKEN_TTL_MS = MAX_AGE_MS;
 
 function getKey(): Buffer {
-  const source =
-    process.env.PAYMENT_TOKEN_SECRET ??
-    process.env.RUN_TOKEN_SECRET ??
-    process.env.REGISTRATION_SECRET ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!source) {
-    throw new Error(
-      "PAYMENT_TOKEN_SECRET (or fallback) must be set to issue payment-info tokens",
-    );
-  }
+  // resolveSecret centralizes the fallback chain + warns once when we
+  // fall through to SUPABASE_SERVICE_ROLE_KEY — see
+  // src/lib/auth/secret-source.ts for the rationale. Behavior preserved:
+  // deploys that only set the service role still work, just noisier.
+  const source = resolveSecret({
+    primary: "PAYMENT_TOKEN_SECRET",
+    fallbacks: ["RUN_TOKEN_SECRET", "REGISTRATION_SECRET"],
+    purpose: "payment-info token signing key",
+  });
   return createHash("sha256").update(source).digest();
 }
 

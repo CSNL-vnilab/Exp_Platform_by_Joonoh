@@ -83,12 +83,34 @@ vercel env add SOLAPI_API_KEY production
 vercel env add SOLAPI_API_SECRET production
 vercel env add SOLAPI_SENDER_PHONE production
 
-# Token 서명 (P0 stateless tokens — 누락 시 SUPABASE_SERVICE_ROLE_KEY fallback)
+# Token 서명 (P0 stateless tokens — 미설정 시 SUPABASE_SERVICE_ROLE_KEY 으로 fallback)
 vercel env add PAYMENT_TOKEN_SECRET production           # openssl rand -hex 32
 vercel env add RUN_TOKEN_SECRET production               # 같이 발급
 vercel env add BOOKING_EDIT_TOKEN_SECRET production      # 같이 발급
 vercel env add BOOKING_EDIT_SESSION_SECRET production    # 같이 발급
+vercel env add REGISTRATION_SECRET production            # 같이 발급 (AES blob 용)
 ```
+
+> **⚠️ Token-secret rotation 주의** (refactor-roadmap.md A3 / hidden-couplings.md #23)
+>
+> 위 5 개 secret 을 모두 명시 설정하지 않으면 `src/lib/auth/secret-source.ts`
+> 가 마지막 수단으로 `SUPABASE_SERVICE_ROLE_KEY` 를 derive 한다 — 즉
+> Supabase service-role 을 회전시키는 순간 그 token system 의 모든 발급분
+> (booking-edit URL 60 일 TTL 포함) 이 silently 무효화된다.
+>
+> Production 에서는 다음을 모두 별도 비밀로 설정해 둘 것:
+>
+> | 환경변수 | 용도 | TTL |
+> |---|---|---|
+> | `PAYMENT_TOKEN_SECRET` | `/payment-info/[token]` HMAC | 60 일 |
+> | `RUN_TOKEN_SECRET` | `/run/[token]` HMAC | 14 일 |
+> | `BOOKING_EDIT_TOKEN_SECRET` | `/booking-edit/[token]` HMAC | 60 일 |
+> | `BOOKING_EDIT_SESSION_SECRET` | name+phone verify cookie HMAC | 24 시간 |
+> | `REGISTRATION_SECRET` | pending password AES-GCM key | (storage 동안) |
+>
+> 첫 배포 후 production 로그에 `[secret-source]` 경고가 보이면 그 token
+> system 은 service-role fallback 으로 동작 중. 회전 footgun 이 켜진 상태.
+> 누락된 env 만 추가 설정 후 재배포 → 경고 사라지면 안전.
 
 GitHub Actions secrets 도 같은 값으로 설정 (cron 들이 직접 호출):
 

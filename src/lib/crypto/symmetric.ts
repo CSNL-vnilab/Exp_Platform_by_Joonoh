@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { resolveSecret } from "@/lib/auth/secret-source";
 
 // AES-256-GCM symmetric encryption for short-lived secrets (e.g. pending
 // researcher passwords awaiting admin approval). The key is derived from
@@ -7,12 +8,10 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 // to a server-only secret.
 
 function getKey(): Buffer {
-  const source =
-    process.env.REGISTRATION_SECRET ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!source) {
-    throw new Error("REGISTRATION_SECRET or SUPABASE_SERVICE_ROLE_KEY must be set");
-  }
+  const source = resolveSecret({
+    primary: "REGISTRATION_SECRET",
+    purpose: "AES-256-GCM key for short-lived secret blobs",
+  });
   return createHash("sha256").update(source).digest();
 }
 

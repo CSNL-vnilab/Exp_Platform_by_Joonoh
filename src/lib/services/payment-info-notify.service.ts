@@ -94,7 +94,12 @@ export interface NotifyResult {
     | "auto_send_disabled"
     // Another trigger is currently mid-send; we backed off cleanly.
     // Caller (cron) sees this and knows the next tick will retry.
-    | "lock_held";
+    | "lock_held"
+    // Every booking in the group ended up cancelled. Helper transitions
+    // payment_info.status to 'cancelled' so the row stops blocking the
+    // pending-payment dashboard / cron sweep. 2026-05-29 (A2 fix for
+    // hidden-couplings.md #25).
+    | "all_cancelled";
   bookingGroupId: string;
   detail?: string;
 }
@@ -161,7 +166,25 @@ export async function notifyPaymentInfoIfReady(
     return { outcome: "already_sent", bookingGroupId, detail: "row not pending" };
   }
 
-  // 2) All bookings in the group must be 'completed'.
+  // 2) Group readiness gate.
+  //
+  // Pre-A2 (2026-05-29) this required every booking to be 'completed'.
+  // That broke partial-cancel groups (hidden-couplings #25): if a
+  // participant self-cancelled 1 of 5 sessions, the remaining 4
+  // completing would still fail the gate forever — payment email never
+  // dispatched and the row sat as pending in the admin queue.
+  //
+  // New semantics: cancelled bookings are terminal-non-blocking. The
+  // gate passes when (a) at least one booking is non-cancelled AND
+  // (b) every non-cancelled booking is 'completed'. If EVERY booking
+  // is cancelled, transition payment_info to 'cancelled' and short-
+  // circuit — the row is dead, not pending.
+  //
+  // The researcher's amount-override workflow (migration 00065) already
+  // handles per-session billing adjustments when a session count
+  // diverges from the planned count, so passing the gate with a partial
+  // count is safe — the researcher reviews amount before clicking
+  // "안내 메일 발송".
   const { data: bookings } = await supabase
     .from("bookings")
     .select("status")
@@ -170,7 +193,33 @@ export async function notifyPaymentInfoIfReady(
   if (groupBookings.length === 0) {
     return { outcome: "not_all_completed", bookingGroupId, detail: "no bookings" };
   }
-  const allCompleted = groupBookings.every((b) => b.status === "completed");
+  const nonCancelled = groupBookings.filter((b) => b.status !== "cancelled");
+  if (nonCancelled.length === 0) {
+    // Every booking cancelled. Mark the payment row dead so it stops
+    // appearing in pending dashboards / cron retries. Idempotent — if
+    // a concurrent call already flipped status, the WHERE clause skips
+    // the UPDATE.
+    await supabase
+      .from("participant_payment_info")
+      // Cast: 'cancelled' was added to the payment_status enum in
+      // migration 00066 (2026-05-29) but the generated database types
+      // here still enumerate the pre-migration union. Once the schema
+      // codegen rerun lands the cast can drop.
+      .update({
+        status: "cancelled",
+        // Stamp sent_at so the row also exits the "send pending"
+        // candidate set. last_error left blank — this isn't a failure.
+        payment_link_sent_at: new Date().toISOString(),
+      } as never)
+      .eq("id", row.id)
+      .eq("status", "pending_participant");
+    return {
+      outcome: "all_cancelled",
+      bookingGroupId,
+      detail: "all bookings in group are cancelled",
+    };
+  }
+  const allCompleted = nonCancelled.every((b) => b.status === "completed");
   if (!allCompleted) {
     return { outcome: "not_all_completed", bookingGroupId };
   }

@@ -14,6 +14,7 @@ import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
+import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 
 export async function POST(
   _req: NextRequest,
@@ -77,5 +78,28 @@ export async function POST(
       { status: 500 },
     );
   }
+
+  // RPC flips every booking in the group to 'completed' at once. The
+  // PUT /api/bookings/[id] path fires notifyPaymentInfoIfReady on each
+  // per-booking flip; mark_group_completed bypasses that path, so the
+  // payment-info email would otherwise wait until the nightly
+  // auto-complete-bookings cron sweep (up to 24h delay). Fire it inline
+  // here so the researcher's one click reaches the participant in
+  // seconds, not a day. (notify helper is idempotent via the dispatch
+  // lock + payment_link_sent_at — safe if any other path also fires.)
+  try {
+    const result = await notifyPaymentInfoIfReady(admin, bookingGroupId);
+    if (result.outcome === "send_failed") {
+      console.warn(
+        `[MarkCompleted] payment-info dispatch failed for ${bookingGroupId}: ${result.detail}`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[MarkCompleted] notifyPaymentInfoIfReady crashed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   return NextResponse.json(data);
 }

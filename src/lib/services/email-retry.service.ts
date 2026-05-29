@@ -20,6 +20,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/google/gmail";
 import { buildConfirmationEmail } from "@/lib/services/booking-email-template";
 import { issueBookingEditToken } from "@/lib/booking-edit/token";
+import { scrubPii } from "@/lib/observability/pii";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -278,9 +279,5 @@ async function finalize(
 }
 
 // Gmail error responses sometimes echo the envelope address or parts of
-// the message. Strip email and Korean phone patterns before persisting.
-function scrubPii(msg: string): string {
-  return msg
-    .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "<email>")
-    .replace(/\b\d{2,3}-?\d{3,4}-?\d{4}\b/g, "<phone>");
-}
+// the message. scrubPii lives in @/lib/observability/pii now — same
+// regexes, one owner.

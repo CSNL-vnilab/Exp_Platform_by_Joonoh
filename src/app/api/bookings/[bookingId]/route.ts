@@ -14,6 +14,7 @@ import {
 } from "@/lib/services/booking.service";
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 import { notifyBookingStatusChange } from "@/lib/services/booking-status-notify.service";
+import { scrubPii } from "@/lib/observability/pii";
 
 // Valid status transitions: prevents going back from terminal states.
 // 'running' is set automatically when /run mints a completion code —
@@ -185,7 +186,9 @@ export async function PUT(
             .from("booking_integrations")
             .update({
               status: "failed",
-              last_error: `cancel deleteEvent failed for ${booking.google_event_id}: ${msg.slice(0, 500)}`,
+              last_error: scrubPii(
+                `cancel deleteEvent failed for ${booking.google_event_id}: ${msg}`,
+              ).slice(0, 500),
               processed_at: new Date().toISOString(),
             })
             .eq("booking_id", bookingId)
@@ -232,17 +235,28 @@ export async function PUT(
       }
     }
 
-    // Fire payment-info dispatch when this booking just transitioned to
-    // 'completed'. The notify helper itself checks "all bookings in the
-    // group are completed" + "payment_link_sent_at IS NULL" so calling it
-    // on every flip is safe; multi-session groups will simply no-op until
-    // the last session completes.
-    if (status === "completed" && booking.booking_group_id) {
+    // Fire payment-info dispatch on completion AND on cancellation. The
+    // notify helper itself checks "all non-cancelled bookings in the
+    // group are completed" + "payment_link_sent_at IS NULL" so calling
+    // it on every relevant flip is safe; multi-session groups simply
+    // no-op until the last non-cancelled session completes.
+    //
+    // 2026-05-29 (A2): also fire on cancelled — the helper now treats
+    // cancelled bookings as terminal-non-blocking. Cancelling the last
+    // pending session in a group whose other sessions are already
+    // completed triggers dispatch; cancelling every session transitions
+    // payment_info to 'cancelled' so it stops blocking the queue.
+    const paymentInfoGroupId =
+      (status === "completed" || status === "cancelled") &&
+      booking.booking_group_id
+        ? booking.booking_group_id
+        : null;
+    if (paymentInfoGroupId) {
       const admin = createAdminClient();
       try {
         const result = await notifyPaymentInfoIfReady(
           admin,
-          booking.booking_group_id,
+          paymentInfoGroupId,
         );
         if (result.outcome === "send_failed") {
           console.warn(

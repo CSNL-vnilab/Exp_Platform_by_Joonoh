@@ -13,6 +13,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendSMS } from "@/lib/solapi/client";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
+import { scrubPii } from "@/lib/observability/pii";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 
 type Supabase = ReturnType<typeof createAdminClient>;
@@ -112,8 +113,3 @@ async function finalize(
   }
 }
 
-function scrubPii(msg: string): string {
-  return msg
-    .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "<email>")
-    .replace(/\b\d{2,3}-?\d{3,4}-?\d{4}\b/g, "<phone>");
-}

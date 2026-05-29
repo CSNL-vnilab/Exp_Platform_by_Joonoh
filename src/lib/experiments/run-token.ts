@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { resolveSecret } from "@/lib/auth/secret-source";
 
 // Signed token handed to a participant when they open the /run shell.
 // Format: `${bookingId}.${issuedAtMs}.${nonceB64url}.${sigB64url}`
@@ -20,27 +21,14 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 // researcher via the reissue-run-token endpoint.
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
-let warnedAboutFallback = false;
-
 function getKey(): Buffer {
-  const explicit = process.env.RUN_TOKEN_SECRET ?? process.env.REGISTRATION_SECRET;
-  const source = explicit ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!source) {
-    throw new Error(
-      "RUN_TOKEN_SECRET, REGISTRATION_SECRET, or SUPABASE_SERVICE_ROLE_KEY must be set",
-    );
-  }
-  // If we fell back to the service-role key, rotating Supabase credentials
-  // will silently invalidate every outstanding run token. Warn once per
-  // process so deploys without an explicit secret leave a breadcrumb.
-  if (!explicit && !warnedAboutFallback) {
-    warnedAboutFallback = true;
-    console.warn(
-      "[run-token] RUN_TOKEN_SECRET not set — deriving HMAC key from " +
-        "SUPABASE_SERVICE_ROLE_KEY. Rotating the service role will invalidate " +
-        "all participant /run links. Set RUN_TOKEN_SECRET in production.",
-    );
-  }
+  // resolveSecret centralizes the fallback chain + the warn-once on
+  // SUPABASE_SERVICE_ROLE_KEY fall-through that this module pioneered.
+  const source = resolveSecret({
+    primary: "RUN_TOKEN_SECRET",
+    fallbacks: ["REGISTRATION_SECRET"],
+    purpose: "participant /run shell HMAC key",
+  });
   return createHash("sha256").update(source).digest();
 }
 

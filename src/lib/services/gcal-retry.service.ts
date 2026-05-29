@@ -13,6 +13,7 @@ import { createEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { fromInternalEmail } from "@/lib/auth/username";
 import { escapeHtml } from "@/lib/utils/validation";
+import { scrubPii } from "@/lib/observability/pii";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -196,9 +197,5 @@ async function finalize(
 }
 
 // Google Calendar API error messages sometimes embed the participant's
-// email/phone that we pasted into the event body; scrub before persisting.
-function scrubPii(msg: string): string {
-  return msg
-    .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "<email>")
-    .replace(/\b\d{2,3}-?\d{3,4}-?\d{4}\b/g, "<phone>");
-}
+// email/phone we pasted into the event body. scrubPii lives in
+// @/lib/observability/pii now — same regexes, one owner.

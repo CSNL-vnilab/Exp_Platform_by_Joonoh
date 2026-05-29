@@ -11,23 +11,22 @@
 // against a different token's group rejects.
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { resolveSecret } from "@/lib/auth/secret-source";
 
 const COOKIE_NAME = "be_session";
 const COOKIE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 function getKey(): Buffer {
-  const source =
-    process.env.BOOKING_EDIT_SESSION_SECRET ??
-    process.env.BOOKING_EDIT_TOKEN_SECRET ??
-    process.env.PAYMENT_TOKEN_SECRET ??
-    process.env.RUN_TOKEN_SECRET ??
-    process.env.REGISTRATION_SECRET ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!source) {
-    throw new Error(
-      "BOOKING_EDIT_SESSION_SECRET (or fallback) must be set to sign booking-edit verify cookies",
-    );
-  }
+  const source = resolveSecret({
+    primary: "BOOKING_EDIT_SESSION_SECRET",
+    fallbacks: [
+      "BOOKING_EDIT_TOKEN_SECRET",
+      "PAYMENT_TOKEN_SECRET",
+      "RUN_TOKEN_SECRET",
+      "REGISTRATION_SECRET",
+    ],
+    purpose: "booking-edit verify-session cookie signing key",
+  });
   return createHash("sha256").update(source).digest();
 }
 

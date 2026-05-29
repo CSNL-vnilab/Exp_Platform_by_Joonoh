@@ -17,26 +17,25 @@
 // reminder pipeline. Old tokens stay valid up to TTL.
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { resolveSecret } from "@/lib/auth/secret-source";
 
 const MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
 export const BOOKING_EDIT_TOKEN_TTL_MS = MAX_AGE_MS;
 
 function getKey(): Buffer {
-  // Fall back through the same secret chain as payment-token so a single
-  // env var bootstrap (PAYMENT_TOKEN_SECRET or RUN_TOKEN_SECRET) covers
-  // all stateless tokens. SUPABASE_SERVICE_ROLE_KEY is the universal
-  // last-resort fallback — it's always set on the server.
-  const source =
-    process.env.BOOKING_EDIT_TOKEN_SECRET ??
-    process.env.PAYMENT_TOKEN_SECRET ??
-    process.env.RUN_TOKEN_SECRET ??
-    process.env.REGISTRATION_SECRET ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!source) {
-    throw new Error(
-      "BOOKING_EDIT_TOKEN_SECRET (or fallback) must be set to issue booking-edit tokens",
-    );
-  }
+  // resolveSecret centralizes the fallback chain + warns once when we
+  // fall through to SUPABASE_SERVICE_ROLE_KEY (60-day token TTL means
+  // a service-role rotation can silently dead-letter weeks of issued
+  // edit links). See src/lib/auth/secret-source.ts.
+  const source = resolveSecret({
+    primary: "BOOKING_EDIT_TOKEN_SECRET",
+    fallbacks: [
+      "PAYMENT_TOKEN_SECRET",
+      "RUN_TOKEN_SECRET",
+      "REGISTRATION_SECRET",
+    ],
+    purpose: "booking-edit token signing key",
+  });
   return createHash("sha256").update(source).digest();
 }
 
