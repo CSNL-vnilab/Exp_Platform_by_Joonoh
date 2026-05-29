@@ -21,11 +21,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isValidUUID, observationSchema } from "@/lib/utils/validation";
+import { observationSchema } from "@/lib/utils/validation";
 import { syncObservationToNotion } from "@/lib/services/observation.service";
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
+import { requireBookingAccess } from "@/lib/auth/booking-access";
 
 // Observations get locked out of the future path until the session actually
 // starts; we give a 10-minute grace window so a researcher who opens the
@@ -37,33 +37,12 @@ export async function GET(
   { params }: { params: Promise<{ bookingId: string }> },
 ) {
   const { bookingId } = await params;
-  if (!isValidUUID(bookingId)) {
-    return NextResponse.json({ error: "Invalid booking ID" }, { status: 400 });
-  }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  // Ownership check (defence-in-depth; RLS would filter the observation
-  // row away anyway).
-  const { data: booking, error: bookingErr } = await supabase
-    .from("bookings")
-    .select("id, experiments(created_by)")
-    .eq("id", bookingId)
-    .maybeSingle();
-  if (bookingErr || !booking) {
-    return NextResponse.json({ error: "Booking not found" }, { status: 404 });
-  }
-  const experiment = booking.experiments as { created_by: string | null } | null;
-  if (!experiment || experiment.created_by !== user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // ownerOnly — RLS on booking_observations matches researchers to
+  // their own experiment rows; this 403-on-mismatch is defence-in-depth.
+  const access = await requireBookingAccess(bookingId, { ownerOnly: true });
+  if (access instanceof NextResponse) return access;
+  const { supabase } = access;
 
   const { data: observation } = await supabase
     .from("booking_observations")
@@ -81,18 +60,18 @@ export async function PUT(
   { params }: { params: Promise<{ bookingId: string }> },
 ) {
   const { bookingId } = await params;
-  if (!isValidUUID(bookingId)) {
-    return NextResponse.json({ error: "Invalid booking ID" }, { status: 400 });
-  }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const access = await requireBookingAccess(bookingId, {
+    extraBookingColumns: "slot_start",
+    ownerOnly: true,
+  });
+  if (access instanceof NextResponse) return access;
+  const { supabase } = access;
+  const booking = access.booking as unknown as {
+    id: string;
+    experiment_id: string;
+    slot_start: string;
+  };
 
   const body = await request.json().catch(() => null);
   const parsed = observationSchema.safeParse(body);
@@ -101,20 +80,6 @@ export async function PUT(
       { error: "Validation failed", issues: parsed.error.issues },
       { status: 400 },
     );
-  }
-
-  // Ownership + time-guard lookup in one shot.
-  const { data: booking, error: bookingErr } = await supabase
-    .from("bookings")
-    .select("id, slot_start, experiments(created_by)")
-    .eq("id", bookingId)
-    .maybeSingle();
-  if (bookingErr || !booking) {
-    return NextResponse.json({ error: "Booking not found" }, { status: 404 });
-  }
-  const experiment = booking.experiments as { created_by: string | null } | null;
-  if (!experiment || experiment.created_by !== user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // Time guard — observation may only be recorded once the session has

@@ -15,6 +15,7 @@ import {
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 import { notifyBookingStatusChange } from "@/lib/services/booking-status-notify.service";
 import { scrubPii } from "@/lib/observability/pii";
+import { requireBookingAccess } from "@/lib/auth/booking-access";
 
 // Valid status transitions: prevents going back from terminal states.
 // 'running' is set automatically when /run mints a completion code —
@@ -39,35 +40,16 @@ export async function GET(
   try {
     const { bookingId } = await params;
 
-    if (!isValidUUID(bookingId)) {
-      return NextResponse.json({ error: "Invalid booking ID" }, { status: 400 });
-    }
+    // ownerOnly preserves pre-helper semantics — admins cannot read
+    // arbitrary bookings via this route.
+    const access = await requireBookingAccess(bookingId, {
+      extraBookingColumns: "*",
+      ownerOnly: true,
+    });
+    if (access instanceof NextResponse) return access;
 
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Fetch booking with experiment data to check ownership
-    const { data: booking, error: bookingError } = await supabase
-      .from("bookings")
-      .select("*, experiments(created_by)")
-      .eq("id", bookingId)
-      .single();
-
-    if (bookingError || !booking) {
-      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
-    }
-
-    const experiment = booking.experiments as { created_by: string | null } | null;
-    if (!experiment || experiment.created_by !== user.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    return NextResponse.json({ booking });
-  } catch (err) {
+    return NextResponse.json({ booking: access.booking });
+  } catch {
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -82,39 +64,29 @@ export async function PUT(
   try {
     const { bookingId } = await params;
 
-    if (!isValidUUID(bookingId)) {
-      return NextResponse.json({ error: "Invalid booking ID" }, { status: 400 });
-    }
-
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Fetch booking with experiment to verify admin ownership. Also pull
-    // google_event_id + calendar id so a cancellation can clean up GCal.
-    // booking_group_id needed so we can fan out the payment-info link
-    // dispatch when the last booking in the group flips to 'completed'.
-    const { data: booking, error: bookingError } = await supabase
-      .from("bookings")
-      .select(
-        "id, status, google_event_id, booking_group_id, experiments(created_by, google_calendar_id)",
-      )
-      .eq("id", bookingId)
-      .single();
-
-    if (bookingError || !booking) {
-      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
-    }
-
-    const experiment = booking.experiments as
-      | { created_by: string | null; google_calendar_id: string | null }
-      | null;
-    if (!experiment || experiment.created_by !== user.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // ownerOnly — admins cannot flip arbitrary bookings via PUT. The
+    // helper join pulls status/google_event_id/booking_group_id off
+    // the booking and google_calendar_id off the experiment (needed
+    // for the cancel→GCal-delete path below).
+    const access = await requireBookingAccess(bookingId, {
+      extraBookingColumns: "status, google_event_id, booking_group_id",
+      extraExperimentColumns: "google_calendar_id",
+      ownerOnly: true,
+    });
+    if (access instanceof NextResponse) return access;
+    const { supabase } = access;
+    const booking = access.booking as unknown as {
+      id: string;
+      experiment_id: string;
+      status: string;
+      google_event_id: string | null;
+      booking_group_id: string | null;
+    };
+    const experiment = access.experiment as unknown as {
+      id: string;
+      created_by: string | null;
+      google_calendar_id: string | null;
+    };
 
     const body = await request.json();
     const result = bookingStatusSchema.safeParse(body);

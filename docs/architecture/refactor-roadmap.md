@@ -147,6 +147,16 @@
   - `bookings/[id]/route.ts`, `bookings/[id]/observation/route.ts` — paths carry `bookingId`, not `experimentId`. Each route does a `bookings.select(*, experiments(created_by, ...))` join + ownership check. A sibling helper `requireBookingAccess(bookingId, { extraExperimentColumns?, extraBookingColumns? })` would land the same consolidation but is its own Phase B-medium effort (bookings/[id] is 532 lines and merges several lifecycle paths). Deferred.
 
 **Cumulative B4-light** (iter 7-11): **13 routes migrated**, ~325 lines of duplicated auth-gate boilerplate removed, helper grew `ownerOnly` + `extraColumns` options. The remaining 5 candidate routes either don't fit the helper's "existing experiment" model (2) or need a sibling booking-scoped helper (3 routes / 759 total lines, Phase B-medium).
+
+### B4-medium. requireBookingAccess 헬퍼 — 진행 중 (auto-loop iter 12)
+
+- **Where**: `src/lib/auth/booking-access.ts` (신규 sibling helper).
+- **What**: `requireBookingAccess(bookingId, { extraBookingColumns?, extraExperimentColumns?, ownerOnly? })` — resolves booking + joined experiment, runs the same admin/owner gate as `requireExperimentAccess`. Returns `{ user, admin, supabase, booking, experiment, isOwner, isAdmin }`. Wildcard `extraBookingColumns: "*"` supported for routes that need the full row.
+- **Iter 12 migrated**:
+  - `bookings/[bookingId]/route.ts` (GET — `extraBookingColumns: "*"`, ownerOnly; PUT — `extraBookingColumns: "status, google_event_id, booking_group_id"` + `extraExperimentColumns: "google_calendar_id"`, ownerOnly)
+  - `bookings/[bookingId]/observation/route.ts` (GET — ownerOnly; PUT — `extraBookingColumns: "slot_start"`, ownerOnly)
+- **Deferred**:
+  - `bookings/[bookingId]/route.ts` PATCH (reschedule path) — 200+ lines of GCal/notify pipeline + already touches `experiments` separately for `weekdays, max_participants_per_slot, status`. Mixed `owner-or-admin` semantics. Worth migrating but the route's body is intertwined with the auth fetch. Phase B-medium follow-up.
 - **Behavior change**: 일부 route 가 한국어 에러 메시지 ("실험을 찾을 수 없습니다") 를 영어 ("Experiment not found") 로 표준화. UI 가 이 메시지를 i18n 으로 처리한다면 다음 phase 에서 헬퍼에 message override 옵션 추가.
 - **Blast radius**: 각 route 당 ~20 lines 제거, 1 helper 호출 추가. 동작 동일.
 
