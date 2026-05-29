@@ -5,7 +5,7 @@ import { createBookingPage } from "@/lib/notion/client";
 import { sendEmail } from "@/lib/google/gmail";
 import { sendSMS } from "@/lib/solapi/client";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
-import { fromInternalEmail } from "@/lib/auth/username";
+import { creatorInitial, formatKrPhone } from "@/lib/google/title-helpers";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { issueRunToken } from "@/lib/experiments/run-token";
 import { issuePaymentToken } from "@/lib/payments/token";
@@ -311,18 +311,10 @@ async function markIntegration(
     .eq("integration_type", type);
 }
 
-// Derive the researcher's initial from their login username (the local part
-// of the synthetic @lab.local email). Uppercased because calendar titles
-// should read as SHORT caps tags. If no username can be extracted (legacy
-// email), fall back to the first 2-3 chars of display_name.
-function creatorInitial(creator: CreatorProfile | null): string {
-  if (!creator) return "???";
-  const username = fromInternalEmail(creator.email);
-  if (username) return username.toUpperCase();
-  const localPart = creator.email.split("@")[0];
-  if (localPart) return localPart.toUpperCase().slice(0, 4);
-  return (creator.display_name ?? "???").toUpperCase().slice(0, 4);
-}
+// creatorInitial + formatKrPhone live in @/lib/google/title-helpers
+// now — same definitions both this runtime path and the gcal-retry
+// path used, with a small drift in the email-derived branch resolved
+// to the runtime semantics (commit iter 25, 2026-05-30).
 
 function calendarTitle(booking: BookingRow, creator: CreatorProfile | null): string {
   const initial = creatorInitial(creator);
@@ -331,13 +323,6 @@ function calendarTitle(booking: BookingRow, creator: CreatorProfile | null): str
   const sbj = booking.subject_number ?? 0;
   const day = booking.session_number ?? 1;
   return `[${initial}] ${project}/Sbj ${sbj}/Day ${day}`;
-}
-
-function formatKrPhone(raw: string): string {
-  const d = raw.replace(/\D/g, "");
-  if (d.length === 11) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
-  if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
-  return raw;
 }
 
 function calendarDescription(booking: BookingRow): string {

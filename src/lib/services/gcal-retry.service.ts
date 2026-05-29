@@ -11,9 +11,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
-import { fromInternalEmail } from "@/lib/auth/username";
 import { escapeHtml } from "@/lib/utils/validation";
 import { scrubPii } from "@/lib/observability/pii";
+import { creatorInitial, formatKrPhone } from "@/lib/google/title-helpers";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -38,24 +38,14 @@ export interface GCalRetryOutcome {
 // runGCalRetry here; callers that need to claim a gcal row in isolation
 // should go through that route, not re-invent a per-type claim helper.
 
-function creatorInitial(creator: {
-  email: string;
-  display_name: string | null;
-} | null): string {
-  if (!creator) return "???";
-  const local = fromInternalEmail(creator.email);
-  if (local) return local.toUpperCase().slice(0, 4);
-  const [beforeAt] = creator.email.split("@");
-  if (beforeAt) return beforeAt.toUpperCase().slice(0, 4);
-  return (creator.display_name ?? "???").toUpperCase().slice(0, 4);
-}
-
-function formatKrPhone(raw: string): string {
-  const d = raw.replace(/\D/g, "");
-  if (d.length === 11) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
-  if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
-  return raw;
-}
+// creatorInitial + formatKrPhone moved to @/lib/google/title-helpers
+// (iter 25, 2026-05-30). The previous local copy in this file had a
+// subtle drift in the fromInternalEmail branch (.slice(0, 4) here vs
+// no-slice in booking.service.ts), causing the same researcher's
+// calendar title to read differently depending on which path
+// (runtime vs retry) created the GCal event. Centralised on the
+// runtime semantics — no slice when the synthetic username is
+// available, slice(0, 4) for the email/display_name fallbacks.
 
 export async function runGCalRetry(
   supabase: Supabase,
