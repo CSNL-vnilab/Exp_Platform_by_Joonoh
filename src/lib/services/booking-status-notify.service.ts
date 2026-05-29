@@ -52,6 +52,32 @@ export async function notifyBookingStatusChange(
   mailer: Mailer = sendEmail,
   texter: Texter = sendSMS,
 ): Promise<NotifyStatusResult> {
+  // Same observability wrap as notifyPaymentInfoIfReady — every outcome
+  // gets one structured info-level line so an operator can audit
+  // cancel/no_show notification fan-out with `vercel logs | grep
+  // StatusNotify` without a Supabase query.
+  const result = await notifyBookingStatusChangeImpl(
+    supabase,
+    bookingId,
+    newStatus,
+    mailer,
+    texter,
+  );
+  console.info(
+    `[StatusNotify] ${result.outcome} ${result.bookingId}` +
+      (result.channel ? ` channel=${result.channel}` : ""),
+    result.detail ? { detail: result.detail } : undefined,
+  );
+  return result;
+}
+
+async function notifyBookingStatusChangeImpl(
+  supabase: Supabase,
+  bookingId: string,
+  newStatus: "cancelled" | "no_show",
+  mailer: Mailer,
+  texter: Texter,
+): Promise<NotifyStatusResult> {
   if (newStatus !== "cancelled" && newStatus !== "no_show") {
     return { outcome: "skipped_invalid_status", bookingId };
   }

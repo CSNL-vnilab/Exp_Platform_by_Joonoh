@@ -134,6 +134,38 @@ export async function notifyPaymentInfoIfReady(
   mailer: Mailer = defaultSendEmail,
   options: NotifyOptions = {},
 ): Promise<NotifyResult> {
+  // Thin wrapper so every outcome (sent / already_sent / lock_held /
+  // all_cancelled / auto_send_disabled / not_all_completed / amount_zero
+  // / no_payment_row / no_recipient / send_failed) lands as a single
+  // structured `vercel logs | grep PaymentInfoNotify` line. Lets the
+  // operator audit A2's new outcomes (all_cancelled / partial-cancel
+  // dispatch) without running a Supabase query. Logged at info level so
+  // it doesn't trip alerting.
+  const result = await notifyPaymentInfoIfReadyImpl(
+    supabase,
+    bookingGroupId,
+    mailer,
+    options,
+  );
+  if (result.detail) {
+    console.info(
+      `[PaymentInfoNotify] ${result.outcome} ${result.bookingGroupId}`,
+      { detail: result.detail },
+    );
+  } else {
+    console.info(
+      `[PaymentInfoNotify] ${result.outcome} ${result.bookingGroupId}`,
+    );
+  }
+  return result;
+}
+
+async function notifyPaymentInfoIfReadyImpl(
+  supabase: Supabase,
+  bookingGroupId: string,
+  mailer: Mailer,
+  options: NotifyOptions,
+): Promise<NotifyResult> {
   // 1) Load the payment_info row.
   const { data: rowRaw } = await supabase
     .from("participant_payment_info")
