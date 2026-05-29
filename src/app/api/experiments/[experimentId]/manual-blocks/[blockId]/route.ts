@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { isValidUUID } from "@/lib/utils/validation";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,34 +16,20 @@ export async function DELETE(
   },
 ) {
   const { experimentId, blockId } = await params;
-  if (!isValidUUID(experimentId) || !isValidUUID(blockId)) {
-    return NextResponse.json({ error: "잘못된 ID입니다" }, { status: 400 });
+  if (!isValidUUID(blockId)) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "인증이 필요합니다" }, { status: 401 });
-  }
-
-  const admin = createAdminClient();
-  const { data: exp } = await admin
-    .from("experiments")
-    .select("created_by, google_calendar_id")
-    .eq("id", experimentId)
-    .maybeSingle();
-  if (!exp) {
-    return NextResponse.json({ error: "실험을 찾을 수 없습니다" }, { status: 404 });
-  }
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isAdmin = profile?.role === "admin";
-  if (!isAdmin && exp.created_by !== user.id) {
-    return NextResponse.json({ error: "권한이 없습니다" }, { status: 403 });
-  }
+  const access = await requireExperimentAccess(experimentId, {
+    extraColumns: "google_calendar_id",
+  });
+  if (access instanceof NextResponse) return access;
+  const { admin } = access;
+  const exp = access.experiment as unknown as {
+    id: string;
+    created_by: string | null;
+    google_calendar_id: string | null;
+  };
 
   const { error } = await admin
     .from("experiment_manual_blocks")

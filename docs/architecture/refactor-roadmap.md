@@ -124,17 +124,19 @@
 
 - **Where**: `src/lib/auth/experiment-access.ts` (신규).
 - **What**: 15+ route 가 복사붙여넣기하던 admin/owner 게이트 (`getUser` → `experiments select` → `profiles role` → isOwner||isAdmin) 를 단일 `requireExperimentAccess(experimentId, { extraColumns? })` 로 통합. NextResponse 반환 시 caller 가 그대로 return, AccessContext 반환 시 supabase/admin/user/experiment/isOwner/isAdmin 분해해 사용.
-- **POC migrated** (commit pending iter 7):
-  - `src/app/api/experiments/[id]/payment-info/[gid]/mark-completed/route.ts`
-  - `src/app/api/experiments/[id]/pilot-toggle/route.ts`
-  - `src/app/api/experiments/[id]/manual-blocks/route.ts` (POST, with extraColumns: "google_calendar_id")
-- **Remaining ~12 caller** (다음 iter 들에서 1-2 씩):
+- **POC migrated** (iter 7, commit `750a0eb`):
+  - `experiments/[id]/payment-info/[gid]/mark-completed/route.ts`
+  - `experiments/[id]/pilot-toggle/route.ts`
+  - `experiments/[id]/manual-blocks/route.ts` (POST, with extraColumns: "google_calendar_id")
+- **Iter 8 migrated**:
+  - `experiments/[id]/offline-code/route.ts` (PUT + DELETE, **`ownerOnly: true`** — helper gained the option this iter)
+  - `experiments/[id]/backfill-payment-info/route.ts`
+  - `experiments/[id]/manual-blocks/[blockId]/route.ts` (DELETE, extraColumns: "google_calendar_id")
+  - `experiments/[id]/data-export-csv/route.ts` (GET, extraColumns: "experiment_mode, title, project_name")
+- **Remaining ~8 caller** (다음 iter 들에서 1-3 씩):
   - `experiments/route.ts`, `experiments/[id]/route.ts`
   - `experiments/[id]/payment-claim/route.ts`, `payment-claim/[claimId]/email/route.ts`
-  - `experiments/[id]/manual-blocks/[blockId]/route.ts`
-  - `experiments/[id]/backfill-payment-info/route.ts`
-  - `experiments/[id]/offline-code/route.ts`
-  - `experiments/[id]/data-export/route.ts`, `data-export-csv/route.ts`
+  - `experiments/[id]/data-export/route.ts`
   - `experiments/[id]/online-screeners/route.ts`
   - `experiments/[id]/status/route.ts`
   - `bookings/[id]/route.ts`, `bookings/[id]/observation/route.ts`

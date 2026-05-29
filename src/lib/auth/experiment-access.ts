@@ -76,6 +76,18 @@ export interface ExperimentAccessOptions {
    * shape).
    */
   extraColumns?: string;
+  /**
+   * When true, reject admins who aren't also the experiment owner.
+   * Default false — admins get access alongside owners, which is the
+   * common pattern (admin can do anything a researcher can on any
+   * experiment).
+   *
+   * Use this for routes that should ONLY be touched by the
+   * experiment's creator — e.g. mutating researcher-owned analysis
+   * payloads (offline-code) where an admin reviewing the dashboard
+   * shouldn't accidentally overwrite the researcher's draft.
+   */
+  ownerOnly?: boolean;
 }
 
 /**
@@ -135,7 +147,11 @@ export async function requireExperimentAccess(
   const isOwner = experimentRow.created_by === user.id;
   const isAdmin =
     (profile as unknown as { role: string | null } | null)?.role === "admin";
-  if (!isOwner && !isAdmin) {
+  if (opts.ownerOnly) {
+    if (!isOwner) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  } else if (!isOwner && !isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

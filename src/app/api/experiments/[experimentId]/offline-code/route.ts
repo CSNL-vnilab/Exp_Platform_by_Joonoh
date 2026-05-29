@@ -8,8 +8,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
-import { createClient } from "@/lib/supabase/server";
-import { isValidUUID } from "@/lib/utils/validation";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 import {
   CodeAnalysisSchema,
   CodeAnalysisOverridesSchema,
@@ -35,27 +34,14 @@ export async function PUT(
   { params }: { params: Promise<{ experimentId: string }> },
 ) {
   const { experimentId } = await params;
-  if (!isValidUUID(experimentId)) {
-    return NextResponse.json({ error: "Invalid experiment ID" }, { status: 400 });
-  }
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { data: existing, error: fetchError } = await supabase
-    .from("experiments")
-    .select("created_by")
-    .eq("id", experimentId)
-    .single();
-  if (fetchError || !existing) {
-    return NextResponse.json({ error: "Experiment not found" }, { status: 404 });
-  }
-  if (existing.created_by !== user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // ownerOnly — admins should not overwrite the researcher's analysis
+  // draft. The route preserves the pre-helper "creator-only" semantics.
+  const access = await requireExperimentAccess(experimentId, {
+    ownerOnly: true,
+  });
+  if (access instanceof NextResponse) return access;
+  const { supabase } = access;
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -100,21 +86,12 @@ export async function DELETE(
   { params }: { params: Promise<{ experimentId: string }> },
 ) {
   const { experimentId } = await params;
-  if (!isValidUUID(experimentId)) {
-    return NextResponse.json({ error: "Invalid experiment ID" }, { status: 400 });
-  }
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: existing } = await supabase
-    .from("experiments")
-    .select("created_by")
-    .eq("id", experimentId)
-    .single();
-  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (existing.created_by !== user.id)
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const access = await requireExperimentAccess(experimentId, {
+    ownerOnly: true,
+  });
+  if (access instanceof NextResponse) return access;
+  const { supabase } = access;
 
   const { error } = await supabase
     .from("experiments")
