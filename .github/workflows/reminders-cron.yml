@@ -1,8 +1,11 @@
-name: Reminders cron
+name: Reminders cron (manual)
 on:
-  schedule:
-    # Every 15 minutes (UTC).
-    - cron: "*/15 * * * *"
+  # Scheduled firing moved to Vercel Cron (vercel.json → /api/notifications/reminders)
+  # 2026-05-29 — GitHub Actions free-tier cron was firing every 2-4h instead of
+  # the declared 15 min, causing day-of 09:00 KST reminders to slip into the
+  # afternoon. Manual-trigger only here so the workflow remains available for
+  # debugging without racing the Vercel-cron path (processReminders has no
+  # advisory lock against concurrent dispatchers).
   workflow_dispatch:
 
 jobs:

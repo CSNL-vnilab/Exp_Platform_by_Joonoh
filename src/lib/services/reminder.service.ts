@@ -255,13 +255,11 @@ export async function processReminders(): Promise<number> {
             }
             ${contactBlock}
 
-            <p style="margin:22px 0 6px 0;font-size:13px;color:#6b7280;">
-              ${
-                isEvening
-                  ? "실험 시작 10분 전까지 도착해 주시면 감사하겠습니다. 부득이하게 불참하시는 경우에도 담당자에게 미리 연락 부탁드립니다."
-                  : "실험장소 도착 후 담당 연구원에게 간단히 인사 부탁드립니다. 조심히 오세요!"
-              }
-            </p>
+            ${
+              isEvening
+                ? `<p style="margin:22px 0 6px 0;font-size:13px;color:#6b7280;">실험 시작 10분 전까지 도착해 주시면 감사하겠습니다. 부득이하게 불참하시는 경우에도 담당자에게 미리 연락 부탁드립니다.</p>`
+                : ""
+            }
             <p style="margin:4px 0 0 0;font-size:12px;color:#9ca3af;">
               ${BRAND_NAME} — 자동 발송된 리마인드 메일입니다.
             </p>
