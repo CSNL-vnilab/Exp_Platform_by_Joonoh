@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { experimentEditSchema, isValidUUID } from "@/lib/utils/validation";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 
 export async function GET(
   _request: NextRequest,
@@ -51,31 +52,13 @@ export async function PUT(
   try {
     const { experimentId } = await params;
 
-    if (!isValidUUID(experimentId)) {
-      return NextResponse.json({ error: "Invalid experiment ID" }, { status: 400 });
-    }
-
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Verify ownership
-    const { data: existing, error: fetchError } = await supabase
-      .from("experiments")
-      .select("created_by")
-      .eq("id", experimentId)
-      .single();
-
-    if (fetchError || !existing) {
-      return NextResponse.json({ error: "Experiment not found" }, { status: 404 });
-    }
-
-    if (existing.created_by !== user.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // ownerOnly — admins shouldn't edit a researcher's experiment
+    // configuration directly. Matches pre-helper behavior.
+    const access = await requireExperimentAccess(experimentId, {
+      ownerOnly: true,
+    });
+    if (access instanceof NextResponse) return access;
+    const { supabase } = access;
 
     const body = await request.json();
     // Accept Notion page URL or bare hex id for notion_project_page_id,
@@ -172,31 +155,13 @@ export async function DELETE(
   try {
     const { experimentId } = await params;
 
-    if (!isValidUUID(experimentId)) {
-      return NextResponse.json({ error: "Invalid experiment ID" }, { status: 400 });
-    }
-
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Verify ownership
-    const { data: existing, error: fetchError } = await supabase
-      .from("experiments")
-      .select("created_by")
-      .eq("id", experimentId)
-      .single();
-
-    if (fetchError || !existing) {
-      return NextResponse.json({ error: "Experiment not found" }, { status: 404 });
-    }
-
-    if (existing.created_by !== user.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // ownerOnly — admins shouldn't permanently delete a researcher's
+    // experiment without their consent. Matches pre-helper behavior.
+    const access = await requireExperimentAccess(experimentId, {
+      ownerOnly: true,
+    });
+    if (access instanceof NextResponse) return access;
+    const { supabase } = access;
 
     // Hard delete. Cascades through bookings → booking_integrations, reminders,
     // manual_blocks via FK. GCal events created for confirmed bookings are
