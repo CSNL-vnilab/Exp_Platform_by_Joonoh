@@ -49,13 +49,27 @@
 - **Why**: `git status` noise 가 다른 변경의 review 를 늦춤. `DEPLOY.md` 에 이미 "참고용으로 남음" 명시.
 - **Blast radius**: zero (이미 reference 없음).
 
-### A5. 🟡 Outbox 두 메커니즘 통합
+### A5. 🟡 Outbox-retry 잔존 leak 정리 (scope 정정 2026-05-29)
 
-- **Where**: `booking_integrations` (HMAC token 없는 retry) vs `outbox` (HMAC + signed retry)
-- **Decision**: `booking_integrations` 로 일원화 — 모든 retry 가 `claim_next_outbox_retry` RPC 사용; `outbox` 테이블 deprecate (drop 은 phase C).
-- **Why**: 두 retry 패턴이 평행 진화하면서 type 별로 다른 finalize semantics 가짐 (#17). "outbox" 라는 이름이 더 익숙하지만 현재 production heavy lift 는 `booking_integrations`.
-- **Migration**: `outbox` 의 in-flight row 를 `booking_integrations` 로 backfill하고 OFF; 새 코드는 `booking_integrations` 만.
-- **Blast radius**: 6+ caller. 명시 RPC allowlist 확장.
+> **Scope 정정**: 초기 roadmap 은 "booking_integrations vs outbox 두 테이블" 이라
+> 잘못 기재. Codex Explore 정밀조사 (auto-loop iter 1) 결과 별도 "outbox" 테이블
+> 존재 안 함 — `booking_integrations` 가 곧 outbox. 실제 잔존 cleanup 은
+> 훨씬 작음.
+
+- **Where**:
+  - Legacy `claim_next_notion_retry()` RPC (00032) — hardcoded
+    `WHERE integration_type IN ('notion', 'notion_survey')`
+  - 일반화된 `claim_next_outbox_retry(p_types[])` (00037) 가 이미 모든
+    integration_type 커버
+  - 구 `/api/cron/notion-retry` endpoint (있다면) 가 legacy RPC 호출
+- **Decision**: 일반화된 RPC 만 유지; legacy RPC + 구 endpoint 제거.
+- **Why**: 두 RPC 가 동일 컬럼 (`booking_integrations.attempts`) 에 concurrent
+  작업. cron 이 둘 다 발사하면 attempts double-bump 가능.
+- **Migration**:
+  1. GH Actions 에서 구 endpoint cron 이 disable 됐는지 확인
+  2. endpoint 코드 삭제
+  3. 다음 release 의 migration 에서 `DROP FUNCTION claim_next_notion_retry`
+- **Blast radius**: 매우 작음 (legacy RPC 가 unused 면 zero).
 
 ### A6. 🟡 PII scrub centralize
 

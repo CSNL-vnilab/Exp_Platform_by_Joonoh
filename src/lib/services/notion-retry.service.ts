@@ -35,21 +35,6 @@ export interface RetryOutcome {
   error?: string | null;
 }
 
-// Grab the oldest eligible row atomically. Returns null when there's
-// nothing to do right now (either empty queue or all remaining rows are
-// still inside their backoff window).
-export async function claimNextRetry(
-  supabase: Supabase,
-): Promise<ClaimedRow | null> {
-  const { data, error } = await supabase.rpc("claim_next_notion_retry");
-  if (error) {
-    console.error("[NotionRetry] claim rpc failed:", error.message);
-    return null;
-  }
-  const rows = (data ?? []) as ClaimedRow[];
-  return rows[0] ?? null;
-}
-
 // Retry the per-booking Notion page creation. Only called when a row has
 // already been claimed (so we can trust the caller's attempts count).
 export async function runBookingNotionRetry(
@@ -235,7 +220,10 @@ async function finalize(
   externalId: string | null,
   lastError: string | null,
 ): Promise<void> {
-  const { error } = await supabase.rpc("finalize_notion_retry", {
+  // Unified with the gcal/sms/email retry services since A5 cleanup
+  // (refactor-roadmap 2026-05-29). The legacy finalize_notion_retry RPC
+  // has identical body and is scheduled for DROP in migration 00067.
+  const { error } = await supabase.rpc("finalize_outbox_retry", {
     p_integration_id: integrationId,
     p_status: status,
     p_external_id: externalId,
