@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { isValidUUID } from "@/lib/utils/validation";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 
 // GET /api/experiments/:experimentId/data-export
 //
@@ -17,32 +15,18 @@ export async function GET(
   { params }: { params: Promise<{ experimentId: string }> },
 ) {
   const { experimentId } = await params;
-  if (!isValidUUID(experimentId)) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await requireExperimentAccess(experimentId, {
+    extraColumns: "experiment_mode",
+  });
+  if (access instanceof NextResponse) return access;
+  const { admin } = access;
+  const exp = access.experiment as unknown as {
+    id: string;
+    created_by: string | null;
+    experiment_mode: string | null;
+  };
 
-  const admin = createAdminClient();
-
-  const { data: exp } = await admin
-    .from("experiments")
-    .select("id, created_by, experiment_mode")
-    .eq("id", experimentId)
-    .maybeSingle();
-  if (!exp) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isAdmin = profile?.role === "admin";
-  if (!isAdmin && exp.created_by !== user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
   if (exp.experiment_mode === "offline") {
     return NextResponse.json(
       { error: "Experiment is offline-only; no runtime data" },

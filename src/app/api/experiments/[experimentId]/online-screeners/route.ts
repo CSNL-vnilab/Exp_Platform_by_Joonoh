@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { isValidUUID } from "@/lib/utils/validation";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 
 // GET  /api/experiments/:id/online-screeners          — list
 // PUT  /api/experiments/:id/online-screeners          — replace list (atomic)
@@ -21,42 +19,16 @@ const screenerSchema = z.object({
   required: z.boolean().default(true),
 });
 
-async function requireResearcher(experimentId: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { status: 401, error: "Unauthorized" as const };
-  const admin = createAdminClient();
-  const { data: exp } = await admin
-    .from("experiments")
-    .select("created_by")
-    .eq("id", experimentId)
-    .maybeSingle();
-  if (!exp) return { status: 404, error: "Not found" as const };
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isAdmin = profile?.role === "admin";
-  if (!isAdmin && exp.created_by !== user.id)
-    return { status: 403, error: "Forbidden" as const };
-  return { admin, user };
-}
-
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ experimentId: string }> },
 ) {
   const { experimentId } = await params;
-  if (!isValidUUID(experimentId))
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  const guard = await requireResearcher(experimentId);
-  if ("error" in guard)
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+  const access = await requireExperimentAccess(experimentId);
+  if (access instanceof NextResponse) return access;
+  const { admin } = access;
 
-  const { data } = await guard.admin
+  const { data } = await admin
     .from("experiment_online_screeners")
     .select("*")
     .eq("experiment_id", experimentId)
@@ -69,11 +41,9 @@ export async function PUT(
   { params }: { params: Promise<{ experimentId: string }> },
 ) {
   const { experimentId } = await params;
-  if (!isValidUUID(experimentId))
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  const guard = await requireResearcher(experimentId);
-  if ("error" in guard)
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+  const access = await requireExperimentAccess(experimentId);
+  if (access instanceof NextResponse) return access;
+  const { admin } = access;
 
   const body = await request.json().catch(() => null);
   const parsed = z.array(screenerSchema).max(50).safeParse(body);
@@ -98,7 +68,7 @@ export async function PUT(
     .filter((x): x is string => !!x);
   let validIdSet = new Set<string>();
   if (suppliedIds.length > 0) {
-    const { data: ownedRows } = await guard.admin
+    const { data: ownedRows } = await admin
       .from("experiment_online_screeners")
       .select("id")
       .eq("experiment_id", experimentId)
@@ -119,7 +89,7 @@ export async function PUT(
     required: row.required,
   }));
 
-  const { error: upErr } = await guard.admin
+  const { error: upErr } = await admin
     .from("experiment_online_screeners")
     .upsert(payload, { onConflict: "id" });
   if (upErr) {
@@ -131,7 +101,7 @@ export async function PUT(
 
   // Delete rows not in new payload
   const keepIds = payload.filter((p) => p.id).map((p) => p.id as string);
-  let delQuery = guard.admin
+  let delQuery = admin
     .from("experiment_online_screeners")
     .delete()
     .eq("experiment_id", experimentId);
@@ -140,7 +110,7 @@ export async function PUT(
   }
   await delQuery;
 
-  const { data: fresh } = await guard.admin
+  const { data: fresh } = await admin
     .from("experiment_online_screeners")
     .select("*")
     .eq("experiment_id", experimentId)

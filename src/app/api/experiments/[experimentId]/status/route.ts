@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isValidUUID } from "@/lib/utils/validation";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 import { createExperimentPage } from "@/lib/notion/client";
 import { sendExperimentPublishedEmail } from "@/lib/services/lab-notifications.service";
 
@@ -17,18 +16,22 @@ export async function POST(
 ) {
   try {
     const { experimentId } = await params;
-    if (!isValidUUID(experimentId)) {
-      return NextResponse.json({ error: "Invalid experiment ID" }, { status: 400 });
-    }
 
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // ownerOnly — admins shouldn't flip a researcher's experiment
+    // status (publishes/cancels), matching the pre-helper behavior.
+    const access = await requireExperimentAccess(experimentId, {
+      ownerOnly: true,
+      extraColumns: "status, code_repo_url, data_path",
+    });
+    if (access instanceof NextResponse) return access;
+    const { user, supabase } = access;
+    const existing = access.experiment as unknown as {
+      id: string;
+      created_by: string | null;
+      status: string | null;
+      code_repo_url: string | null;
+      data_path: string | null;
+    };
 
     const parsed = statusBodySchema.safeParse(await request.json());
     if (!parsed.success) {
@@ -38,18 +41,6 @@ export async function POST(
       );
     }
     const nextStatus = parsed.data.status;
-
-    const { data: existing, error: fetchError } = await supabase
-      .from("experiments")
-      .select("*")
-      .eq("id", experimentId)
-      .single();
-    if (fetchError || !existing) {
-      return NextResponse.json({ error: "Experiment not found" }, { status: 404 });
-    }
-    if (existing.created_by !== user.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
 
     const wasActive = existing.status === "active";
 

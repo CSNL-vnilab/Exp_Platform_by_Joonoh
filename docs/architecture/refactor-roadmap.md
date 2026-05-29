@@ -133,13 +133,14 @@
   - `experiments/[id]/backfill-payment-info/route.ts`
   - `experiments/[id]/manual-blocks/[blockId]/route.ts` (DELETE, extraColumns: "google_calendar_id")
   - `experiments/[id]/data-export-csv/route.ts` (GET, extraColumns: "experiment_mode, title, project_name")
-- **Remaining ~8 caller** (다음 iter 들에서 1-3 씩):
+- **Iter 9 migrated**:
+  - `experiments/[id]/data-export/route.ts` (GET, extraColumns: "experiment_mode")
+  - `experiments/[id]/online-screeners/route.ts` (GET + PUT — also deleted local `requireResearcher()` helper that duplicated the same logic)
+  - `experiments/[id]/status/route.ts` (POST, **`ownerOnly: true`** + extraColumns: "status, code_repo_url, data_path")
+- **Remaining ~5 caller** (다음 iter 들에서):
   - `experiments/route.ts`, `experiments/[id]/route.ts`
-  - `experiments/[id]/payment-claim/route.ts`, `payment-claim/[claimId]/email/route.ts`
-  - `experiments/[id]/data-export/route.ts`
-  - `experiments/[id]/online-screeners/route.ts`
-  - `experiments/[id]/status/route.ts`
-  - `bookings/[id]/route.ts`, `bookings/[id]/observation/route.ts`
+  - `experiments/[id]/payment-claim/route.ts`, `payment-claim/[claimId]/email/route.ts` (larger files — separate iter)
+  - `bookings/[id]/route.ts`, `bookings/[id]/observation/route.ts` (largest — last)
 - **Behavior change**: 일부 route 가 한국어 에러 메시지 ("실험을 찾을 수 없습니다") 를 영어 ("Experiment not found") 로 표준화. UI 가 이 메시지를 i18n 으로 처리한다면 다음 phase 에서 헬퍼에 message override 옵션 추가.
 - **Blast radius**: 각 route 당 ~20 lines 제거, 1 helper 호출 추가. 동작 동일.
 
