@@ -13,18 +13,20 @@
 
 ## 1. Booking 완료 fan-out cluster
 
-### #1 🔴 PUT /api/bookings/[bookingId] 가 silent SMTP+SMS+payment-info fanout
+### #1 🟡 PUT /api/bookings/[bookingId] 가 silent SMTP+SMS+payment-info fanout (부분 해결)
 
 - **Where**: `src/app/api/bookings/[bookingId]/route.ts:179-224`
 - **What**: `cancelled`/`no_show` 으로 status PUT 하면 `notifyBookingStatusChange` (참여자 email + SMS + audit) 호출; `completed` 면 `notifyPaymentInfoIfReady` (정산 메일 가능).
 - **Caller view**: "status 만 바꾼다." Reader view: SMTP send, Solapi send, 2 booking_integrations audit row, 별도 참여자 email.
 - **Failure**: SMTP fail 은 swallow; DB 는 `cancelled` 이지만 참여자 모름. PII 가 `last_error` 로 누설 (일부 path 만 scrub).
+- **Partial fix (Phase A iter 0 + iter 3, 2026-05-29)**: PII 누설 부분은 A6 의 `@/lib/observability/pii` 중앙 helper 로 전 경로 통일됨. fan-out 자체는 outcome logging (iter 3: 구조화된 `[StatusNotify]`/`[PaymentInfoNotify]` info-level grep-able 로그) 으로 추적 가능. fan-out 의 동적 dispatch 자체는 여전히 silent — 완전 해결은 `notify/` subsystem 추출 (Phase B B1) 필요.
 
-### #2 🔴 `mark_group_completed` RPC bypasses notifyPaymentInfoIfReady — 최대 24h silent delay
+### #2 ✅ `mark_group_completed` RPC bypasses notifyPaymentInfoIfReady — 최대 24h silent delay
 
 - **Where**: `migrations/00055:101-143`; `mark-completed/route.ts:71-73`
 - **What**: 한 클릭으로 group 의 모든 booking 완료시키지만 route 가 즉시 return. PUT 와 observation 과 달리 `notifyPaymentInfoIfReady` 안 fire. 정산 메일은 nightly `auto-complete-bookings` cron 의 다음 sweep 까지 대기.
 - **Caller view**: "completed mark 했으니 참여자에게 link 갈 것." 실제: 24h 까지 silent delay.
+- **Fix (Phase A1, commit `595e933`)**: mark-completed/route.ts 가 RPC 후 `notifyPaymentInfoIfReady(admin, bookingGroupId)` 즉시 호출. lock 으로 idempotent — 다른 path 가 같은 group 에 fire 해도 no-op. silent 24h delay → <30s.
 
 ### #3 🔴 Blacklist cascade 가 bookings + GCal 을 silent 변형 + 알림 없음
 
@@ -47,11 +49,12 @@
 
 ## 2. Payment-info dispatch race / 4-way fan-in cluster
 
-### #6 🔴 `notifyPaymentInfoIfReady` 의 4 entry + 1 sweep — lock 만이 safety
+### #6 🟡 `notifyPaymentInfoIfReady` 의 4 entry + 1 sweep — lock 만이 safety (이전 검토 후 lock + outcome logging)
 
-- **Where**: `payment-info-notify.service.ts:97-434`; callers `bookings/[id]:208`, `observation:211`, `verify:149`, `resend:102`, `cron auto-complete:55`
+- **Where**: `payment-info-notify.service.ts:97-434`; callers `bookings/[id]:208`, `observation:211`, `verify:149`, `resend:102`, `cron auto-complete:55`, `mark-completed:101` (A1, 2026-05-29)
 - **What**: `payment_link_dispatch_lock_until` lease 없으면 같은 group 이 4 path race → 같은 email 이 4 token (preserve vs rotate) 으로 발송.
 - **Failure**: 미래 contributor 가 lock 제거 or 5번째 caller 가 lock 안 잡으면 multi-send 복귀.
+- **Mitigations (Phase A + iter 3, 2026-05-29)**: (a) Phase A 의 C6/C7/C8/C9 fix 로 atomic lock+sent_at reset + post-lock re-fetch — lock 자체의 race window 좁아짐. (b) iter 3 의 structured outcome logging (`[PaymentInfoNotify] ${outcome} ${groupId}`) 으로 race 디버깅 grep-able. (c) A2 (#25 fix) 후 5번째 caller (mark-completed) 도 lock 채택 — 6 entry 모두 lock 통과. 구조적 해결 (notify subsystem 추출) 은 Phase B B3 에서.
 
 ### #7 🟡 `payment_link_first_opened_at` 가 hidden control variable for token rotation
 
@@ -149,26 +152,29 @@
 
 - **Where**: `gmail.ts:3-11`
 - **What**: 모듈 init 때 env 읽음. Credential rotation 이 Lambda cold-start 필요. Caller 가 invalidate 방법 없음.
+- **Note**: 별도로 `APP_ORIGIN const cached at module load` 라는 동일한 패턴의 다른 module-cache 가 booking-status-notify.service.ts:46-49 에 있었음 — 그건 B7-light (iter 1, commit `acca07a`) 에서 `getAppOrigin()` per-call helper 로 해결됨. `nodemailer.transporter` 는 미해결.
 
 ---
 
 ## 7. Booking-edit token chain
 
-### #23 🔴 `issueBookingEditToken` 가 4 fallback secret chain — partial rotation 시 silent
+### #23 ✅ `issueBookingEditToken` 가 4 fallback secret chain — partial rotation 시 silent
 
 - **Where**: `booking-edit/token.ts:24-41`
 - **What**: `BOOKING_EDIT_TOKEN_SECRET → PAYMENT_TOKEN_SECRET → RUN_TOKEN_SECRET → REGISTRATION_SECRET → SUPABASE_SERVICE_ROLE_KEY`. `SUPABASE_SERVICE_ROLE_KEY` rotate 했지만 token secret rotate 안 했으면, 발급된 모든 booking-edit token 이 instantly invalid (HMAC key 가 fallback through 했음). 60일 TTL 가짐.
 - **Severity**: 🔴 (operational).
+- **Fix (Phase A3 + iter 1, commits `595e933`/`acca07a`)**: 5 token 모듈 (payments/booking-edit token/booking-edit session/run-token/symmetric) 모두 새 `src/lib/auth/secret-source.ts` 의 `resolveSecret({ primary, fallbacks, purpose })` 사용. `SUPABASE_SERVICE_ROLE_KEY` fall-through 시 process 당 1 회 warn 로그 + audit endpoint `/api/health/secret-audit` 가 anyFellThroughToServiceRole 보고. DEPLOY.md 에 rotation 주의 표 추가. fall-through 자체는 backward-compat 으로 유지 (deploy 무중단), audit 으로 가시화.
 
 ### #24 🟡 Booking-edit reschedule route 가 `renumberSessionsInGroup` + `runReschedulePipeline` 을 silent reuse
 
 - **Where**: `booking-edit/[token]/[bookingId]/reschedule/route.ts:264-290`
 - **What**: 참여자 한 클릭이 (a) GCal create, (b) DB update, (c) renumber every sibling, (d) `reschedule_reminders` RPC, (e) `propagate_payment_period` RPC, (f) email send, (g) SMS send, (h) cache invalidate. Unauthenticated (token-auth) endpoint 에 heavy fan-out.
 
-### #25 🔴 Participant cancel route 가 payment-info logic bypass — payment_info row 가 stay
+### #25 ✅ Participant cancel route 가 payment-info logic bypass — payment_info row 가 stay
 
 - **Where**: `booking-edit/[token]/[bookingId]/cancel/route.ts:78-130`
 - **What**: Multi-session group 의 한 booking cancel = payment_info row stays pending; `notifyPaymentInfoIfReady` 가 forever 거부 ("not all completed" — 하나가 cancelled). Silent payment-stuck state.
+- **Fix (Phase A2, commit `595e933`)**: 3 단계. (a) migration 00066 — `payment_status` enum 에 `'cancelled'` 추가. (b) `notifyPaymentInfoIfReady` 의 "all completed" gate 가 cancelled bookings 를 terminal-non-blocking 으로 취급. 모든 booking 이 cancelled 면 payment_info row 를 `'cancelled'` 로 transition + short-circuit (`outcome: "all_cancelled"`). (c) admin PUT + booking-edit cancel route 가 status='cancelled' 시에도 notify fire. partial-cancel group 의 나머지가 completed 면 즉시 dispatch, 전 cancel 이면 row 가 queue 에서 자동 퇴장.
 
 ---
 

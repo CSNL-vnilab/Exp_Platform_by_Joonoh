@@ -89,6 +89,23 @@
 
 **Goal**: [`subsystems.md`](./subsystems.md) 의 10 boundary 가 코드에서 실제 directory 로 reflect. Phase A 가 high-risk hot spot 해결했으므로 이제 평탄한 refactor.
 
+### B4 family auth helpers — 진행 상태 요약 (auto-loop iter 7-17, 2026-05-29~30)
+
+세 sibling helper 가 모든 admin/owner-gate route 의 boilerplate 를 단일 owner 로 통합. 누적 ~435 lines 의 중복 auth boilerplate 제거.
+
+| Helper | 위치 | Credential | Routes migrated | Iter |
+|---|---|---|---|---|
+| `requireExperimentAccess` | `src/lib/auth/experiment-access.ts` | `auth.getUser()` + `profiles.role` | **13** experiment routes (mark-completed, pilot-toggle, manual-blocks GET+POST+DELETE, offline-code PUT+DELETE, backfill-payment-info, data-export, data-export-csv, online-screeners GET+PUT, status, experiments/[id] PUT+DELETE, payment-claim, payment-claim/[claimId]/email) | 7-11 |
+| `requireBookingAccess` | `src/lib/auth/booking-access.ts` | same + booking→experiments join | **5** booking methods (bookings/[id] GET+PUT+PATCH, observation GET+PUT) | 12-13 |
+| `requireBookingEditAccess` | `src/lib/booking-edit/access.ts` | HMAC booking-edit token + name+phone verify-session cookie (**no admin override**) | **2** booking-edit routes (cancel, reschedule) | 17 |
+
+공통 옵션:
+- `extraColumns?: string` (또는 `extra*Columns?` 변형) — gate row 외 caller 가 필요로 하는 컬럼 prepend
+- `ownerOnly?: boolean` — admin 도 차단 (experiment helper / booking helper)
+- 한국어 에러 메시지: booking-edit helper 만 user-facing 이므로 유지; 다른 두 helper 는 영어 표준 ("Invalid id" / "Unauthorized" / "Experiment not found" / "Forbidden")
+
+**Not migrated (의도)**: `experiments/route.ts` (collection — auth shape 다름), `experiments/[id]/route.ts` GET (public-if-active path). 자세한 rationale 은 각 B4-* 섹션 참조.
+
 ### B1. `src/lib/notify/` — Notification dispatch & templates
 
 - **Move in**: `services/booking-email-template.ts`, `services/booking-status-notify.service.ts`, `services/booking-edit-email.ts`, `services/email-retry.service.ts`, `services/booking-sms.service.ts`, `services/post-booking-sms.service.ts`, `services/payment-claim-email.ts`
