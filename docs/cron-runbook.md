@@ -45,7 +45,13 @@ runner 큐 대기) 은 분 단위 정확도가 안 중요한 작업들에 적합
 |---|---|---|---|---|
 | `gcal-orphan-reaper-cron.yml` | `0 */6 * * *` (6h) | `/api/cron/gcal-orphan-reaper` | `status IN ('cancelled','no_show') AND google_event_id IS NOT NULL` 인 row 의 GCal event 삭제 + `google_event_id=null`. cancel route 의 GCal 삭제 실패가 누적되는 것을 sweep (hidden-couplings #3 #12 #14). | 취소된 booking 의 calendar event 가 lab 캘린더에 잔존 — 연구자 schedule view 가 stale, busy check 가 false positive 가능. |
 
-endpoint 는 iter 20 (`<commit>`) 에 main 에 landed; workflow YAML 작성은 D1-followup 과 동일 패턴 — repo 의 `workflow` scope 부여 후 다음 줄을 한 cron 파일로 추가하면 됨:
+URL params (iter 21 추가):
+
+- `?grace_hours=N` (default 12, max 720) — `updated_at` 이 N 시간보다 더 오래된 row 만 처리. reschedule 의 atomic create→update→delete-old 시퀀스가 race in-flight 일 때 reaper 가 가로채지 않도록. `0` 으로 grace 무효.
+- `?batch_limit=N` (default 100, max 500) — 한 sweep 의 최대 row 수. backlog drain 시 operator 가 일시적으로 키우는 용도.
+- response 에 `examined / cleared / failed / skipped_no_calendar / batch_limit / grace_hours / cutoff` 반환.
+
+endpoint 는 iter 20/21 에 main 에 landed; workflow YAML 작성은 D1-followup 과 동일 패턴 — repo 의 `workflow` scope 부여 후 다음 줄을 한 cron 파일로 추가하면 됨:
 
 ```yaml
 name: GCal orphan reaper
@@ -59,7 +65,8 @@ jobs:
     steps:
       - name: Trigger
         env:
-          URL: https://lab-reservation-seven.vercel.app/api/cron/gcal-orphan-reaper
+          # grace_hours=12 = reschedule race window 가 12h 안에 끝나도록 안전 (실제는 < 1s).
+          URL: https://lab-reservation-seven.vercel.app/api/cron/gcal-orphan-reaper?grace_hours=12
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           status=$(curl -sS -o /tmp/resp -w "%{http_code}" -X POST "$URL" \
@@ -71,6 +78,14 @@ jobs:
         with:
           cron-name: "GCal orphan reaper"
           slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
+operator 한 번 drain (큰 backlog):
+
+```bash
+# grace 끄고 batch 늘려서 즉시 drain
+curl -X POST -H "x-cron-secret: $CRON_SECRET" \
+  "https://lab-reservation-seven.vercel.app/api/cron/gcal-orphan-reaper?grace_hours=0&batch_limit=500"
 ```
 
 ---

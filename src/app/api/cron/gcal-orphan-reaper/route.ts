@@ -39,13 +39,58 @@ import { scrubPii } from "@/lib/observability/pii";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const BATCH_LIMIT = 100;
+// Defaults — overridable per-call via URL params.
+//
+// `grace_hours` exists because the reschedule path (`PATCH
+// /api/bookings/[id]`) follows a "create new GCal event → DB UPDATE →
+// delete old GCal event" sequence. Between the first two steps the
+// row briefly satisfies our orphan predicate (status flip is part of
+// the same UPDATE, but the picture would be similar for any
+// just-cancelled row). A small grace window ensures the legitimate
+// in-flight pipeline gets to call deleteEvent itself before this
+// background sweep races in.
+const DEFAULT_BATCH_LIMIT = 100;
+const MAX_BATCH_LIMIT = 500;
+const DEFAULT_GRACE_HOURS = 12;
+const MAX_GRACE_HOURS = 24 * 30; // 30 days — anything past this is just operator paranoia
+
+function parseIntParam(
+  raw: string | null,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (!raw) return fallback;
+  const v = Number.parseInt(raw, 10);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(min, Math.min(max, v));
+}
 
 async function handle(request: NextRequest) {
   try {
     if (!authorizeCronRequest(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const url = new URL(request.url);
+    const batchLimit = parseIntParam(
+      url.searchParams.get("batch_limit"),
+      DEFAULT_BATCH_LIMIT,
+      1,
+      MAX_BATCH_LIMIT,
+    );
+    const graceHours = parseIntParam(
+      url.searchParams.get("grace_hours"),
+      DEFAULT_GRACE_HOURS,
+      0,
+      MAX_GRACE_HOURS,
+    );
+    // Window cutoff: only rows updated MORE than `graceHours` ago are
+    // candidates. Passes graceHours=0 to disable the window (operator
+    // override for a one-shot backlog drain).
+    const cutoffIso = new Date(
+      Date.now() - graceHours * 60 * 60 * 1000,
+    ).toISOString();
 
     const admin = createAdminClient();
 
@@ -55,12 +100,13 @@ async function handle(request: NextRequest) {
     const { data: rows, error: listErr } = await admin
       .from("bookings")
       .select(
-        "id, status, google_event_id, experiments(google_calendar_id)",
+        "id, status, google_event_id, updated_at, experiments(google_calendar_id)",
       )
       .in("status", ["cancelled", "no_show"])
       .not("google_event_id", "is", null)
+      .lte("updated_at", cutoffIso)
       .order("updated_at", { ascending: true })
-      .limit(BATCH_LIMIT);
+      .limit(batchLimit);
 
     if (listErr) {
       console.error(
@@ -86,6 +132,7 @@ async function handle(request: NextRequest) {
         id: string;
         status: string;
         google_event_id: string | null;
+        updated_at: string;
         experiments: { google_calendar_id: string | null } | null;
       };
       const eventId = row.google_event_id;
@@ -147,7 +194,9 @@ async function handle(request: NextRequest) {
       cleared,
       failed,
       skipped_no_calendar: skippedNoCalendar,
-      batch_limit: BATCH_LIMIT,
+      batch_limit: batchLimit,
+      grace_hours: graceHours,
+      cutoff: cutoffIso,
     });
   } catch (err) {
     console.error("[GCalOrphanReaper] error:", err);
