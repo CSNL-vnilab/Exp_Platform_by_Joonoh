@@ -5,6 +5,7 @@ import { authorizeCronRequest } from "@/lib/auth/cron-secret";
 import { sendEmail } from "@/lib/google/gmail";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { escapeHtml } from "@/lib/utils/validation";
+import { getAppOrigin } from "@/lib/http/origin";
 
 // Researcher metadata reminder cron.
 //
@@ -156,9 +157,7 @@ async function handle(request: NextRequest) {
     );
 
     // 4. Send + log.
-    const appBase =
-      process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-      "https://lab-reservation-seven.vercel.app";
+    const appBase = getAppOrigin() || "https://lab-reservation-seven.vercel.app";
 
     const results: Array<{
       researcher_user_id: string;

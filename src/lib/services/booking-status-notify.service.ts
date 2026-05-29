@@ -16,6 +16,7 @@ import {
   buildNoShowSMS,
   type BookingStatusEmailInput,
 } from "@/lib/services/booking-status-email";
+import { getAppOriginOrNull } from "@/lib/http/origin";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -43,11 +44,6 @@ export interface NotifyStatusResult {
   channel?: "email" | "email+sms";
   detail?: string;
 }
-
-const APP_ORIGIN = (() =>
-  process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "") : "") ||
-  null)();
 
 export async function notifyBookingStatusChange(
   supabase: Supabase,
@@ -152,7 +148,9 @@ export async function notifyBookingStatusChange(
     },
     researcher,
     otherActiveSessions,
-    appOrigin: APP_ORIGIN,
+    // Per-call lookup; never cached at module scope (B7 fix —
+    // warm Lambdas previously kept the OLD origin past env swaps).
+    appOrigin: getAppOriginOrNull(),
   };
 
   const built =

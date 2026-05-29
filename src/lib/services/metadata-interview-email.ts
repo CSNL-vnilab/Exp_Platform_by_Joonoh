@@ -12,14 +12,12 @@ import { sendEmail } from "@/lib/google/gmail";
 import { wrapEmailHtml } from "@/lib/services/email-shell";
 import { escapeHtml } from "@/lib/utils/validation";
 import { BRAND_NAME } from "@/lib/branding";
+import { getAppOrigin } from "@/lib/http/origin";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
 function appBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    "https://lab-reservation-seven.vercel.app"
-  );
+  return getAppOrigin() || "https://lab-reservation-seven.vercel.app";
 }
 
 interface ExperimentRow {

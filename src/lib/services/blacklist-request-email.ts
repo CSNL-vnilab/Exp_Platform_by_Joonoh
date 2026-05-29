@@ -16,12 +16,13 @@ import { wrapEmailHtml } from "@/lib/services/email-shell";
 import { escapeHtml } from "@/lib/utils/validation";
 import { sendEmail } from "@/lib/google/gmail";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
+import { getAppOrigin } from "@/lib/http/origin";
 
+// Hardcoded prod URL as last resort so a misconfigured dev env still
+// renders a clickable link in blacklist confirmation mail. Production
+// always sets NEXT_PUBLIC_APP_URL so this fallback is dev-only.
 function appBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    "https://lab-reservation-seven.vercel.app"
-  );
+  return getAppOrigin() || "https://lab-reservation-seven.vercel.app";
 }
 
 export interface BlacklistRequestEmailInput {

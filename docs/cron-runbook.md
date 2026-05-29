@@ -119,27 +119,42 @@ node scripts/apply-migration-mgmt.mjs supabase/migrations/00059_*.sql
 
 ---
 
-## 5. 알림 (현재 미설정 — TODO)
+## 5. 알림 (composite action 준비 — workflow wiring 대기)
 
-**현재** 8 개 cron 모두 **알림 경로가 없습니다**. silent failure 시 다음
-manual sweep 까지 발견 안 됨.
-
-### 권장 — Slack incoming webhook 한 줄
-
-각 workflow 의 마지막 step 으로 추가 :
+`.github/actions/notify-cron-failure/action.yml` composite action 이
+준비되어 있습니다. 각 cron workflow 의 마지막 step 에 다음 한 블록을
+붙이면 실패 시 Slack 으로 알림이 갑니다:
 
 ```yaml
-- name: Notify Slack on failure
+- uses: ./.github/actions/notify-cron-failure
   if: failure()
-  run: |
-    curl -X POST -H 'Content-type: application/json' \
-      --data "{\"text\":\"❌ ${{ github.workflow }} failed — ${{ github.run_url }}\"}" \
-      ${{ secrets.SLACK_WEBHOOK_URL }}
+  with:
+    cron-name: "Outbox retry sweep"     # workflow 별로 식별 가능한 이름
+    slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
 ```
 
-`SLACK_WEBHOOK_URL` 은 `gh secret set` 으로 한 번만 등록.
+**왜 한 번에 안 들어갔나**: Claude 의 PAT 가 `.github/workflows/*.yml`
+수정에 필요한 `workflow` scope 가 없어서 9 개 workflow YAML 변경이
+push 거부 (`! [remote rejected] refusing to allow an OAuth App to
+create or update workflow ...`) 됐습니다. 해결책 둘 중 하나:
 
-### 더 간단한 대안
+1. **사람이 직접 wiring**: 9 개 workflow YAML 에 위 블록 추가 후
+   `git push`. composite action 은 이미 main 에 있어서 한 PR 로 끝.
+2. **Claude 가 wiring**: PAT 에 workflow scope 부여 → 재시도. 단,
+   `scripts/`, `vercel.json` 등에는 영향 없는 별도 scope.
+
+webhook 등록 (action 작동 전제):
+
+```bash
+# Slack → Apps → Incoming Webhooks → 채널 (예: #lab-ops) 선택 → URL 복사
+gh secret set SLACK_WEBHOOK_URL --body "https://hooks.slack.com/services/T.../B.../..."
+```
+
+**SLACK_WEBHOOK_URL 이 비어 있으면** notify 스텝은 silently no-op
+(워크플로우 자체는 여전히 빨간 ✕). 코드 재배포 없이 환경변수만으로
+on/off.
+
+### 더 간단한 대안 (Slack 안 쓰는 환경)
 
 - GitHub 의 본인 계정 Settings → Notifications → "Send notifications for
   failed workflows only" 체크. push 작성자 한 명만 받음.

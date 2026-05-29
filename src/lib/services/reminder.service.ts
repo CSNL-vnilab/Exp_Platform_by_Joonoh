@@ -6,6 +6,7 @@ import { escapeHtml } from "@/lib/utils/validation";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { wrapEmailHtml } from "@/lib/services/email-shell";
 import { issueBookingEditToken } from "@/lib/booking-edit/token";
+import { getAppOriginOrNull } from "@/lib/http/origin";
 
 interface ReminderRow {
   id: string;
@@ -33,11 +34,7 @@ interface ReminderRow {
 // nor VERCEL_URL is set (so we skip the box rather than render a broken
 // link in dev / preview without origin).
 function buildReminderEditLink(bookingGroupId: string): { url: string } | null {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  const vercelUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "")
-    : "";
-  const origin = appUrl || vercelUrl;
+  const origin = getAppOriginOrNull();
   if (!origin) return null;
   try {
     const issued = issueBookingEditToken(bookingGroupId);

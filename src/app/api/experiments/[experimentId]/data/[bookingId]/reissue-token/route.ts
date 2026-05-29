@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
 import { issueRunToken } from "@/lib/experiments/run-token";
+import { getAppOrigin } from "@/lib/http/origin";
 
 // POST /api/experiments/:experimentId/data/:bookingId/reissue-token
 //
@@ -77,11 +78,7 @@ export async function POST(
     );
   }
 
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    (process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "")
-      : "");
+  const origin = getAppOrigin();
   const run_url = `${origin}/run/${bookingId}?t=${encodeURIComponent(issued.token)}`;
 
   return NextResponse.json({

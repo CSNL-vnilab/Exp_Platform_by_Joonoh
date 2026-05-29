@@ -30,6 +30,7 @@ import { sendEmail as defaultSendEmail } from "@/lib/google/gmail";
 import { issuePaymentToken } from "@/lib/payments/token";
 import { buildPaymentInfoEmail } from "@/lib/services/payment-info-email-template";
 import { bytesFromSupabase, decryptToken, encryptToken } from "@/lib/crypto/payment-info";
+import { getAppOrigin } from "@/lib/http/origin";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -584,9 +585,7 @@ export async function notifyPaymentInfoIfReady(
   }
 
   // 6) Build URL.
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "") : "");
+  const origin = getAppOrigin();
   const path = `/payment-info/${encodeURIComponent(tokenString)}`;
   const paymentUrl = origin ? `${origin}${path}` : path;
 

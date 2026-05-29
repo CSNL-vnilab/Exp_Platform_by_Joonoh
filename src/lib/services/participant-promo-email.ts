@@ -18,6 +18,7 @@ import {
   BRAND_NAME,
   brandContactEmailOrNull,
 } from "@/lib/branding";
+import { getAppOrigin } from "@/lib/http/origin";
 
 export interface PromoExperimentInput {
   id: string;
@@ -42,10 +43,7 @@ export interface PromoExperimentInput {
 const WEEKDAY_LABELS_KO = ["일", "월", "화", "수", "목", "금", "토"];
 
 function appBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    "https://lab-reservation-seven.vercel.app"
-  );
+  return getAppOrigin() || "https://lab-reservation-seven.vercel.app";
 }
 
 function formatWeekdays(weekdays: number[] | null | undefined): string {

@@ -98,7 +98,121 @@ export function resolveSecret(opts: ResolveOptions): string {
  * For a startup audit endpoint. Returns the set of token systems
  * currently fallen through to SUPABASE_SERVICE_ROLE_KEY in this
  * process. Empty set = all token systems have explicit secrets.
+ *
+ * Note: a fresh Lambda cold-start won't have any state until each
+ * module's getKey() has been invoked at least once. For a stateless
+ * audit (no side effects, no warm-up required), use auditTokenSecrets()
+ * below — it walks KNOWN_TOKEN_SECRETS directly against process.env.
  */
 export function tokensFellThroughToServiceRole(): readonly string[] {
   return Array.from(fellThroughToServiceRole);
+}
+
+/**
+ * Declarative registry of every stateless-token / symmetric-crypto
+ * module that uses resolveSecret. Update this list when adding a new
+ * token kind. The /api/health/secret-audit endpoint reads it.
+ *
+ * MUST mirror the resolveSecret() call inside each module — when you
+ * add a fallback in payments/token.ts (for example), add it here too.
+ */
+export const KNOWN_TOKEN_SECRETS: ReadonlyArray<{
+  module: string;
+  primary: string;
+  fallbacks: string[];
+  /** TTL of tokens this key signs — informational, for the audit response. */
+  tokenTtl: string;
+}> = [
+  {
+    module: "payments/token",
+    primary: "PAYMENT_TOKEN_SECRET",
+    fallbacks: ["RUN_TOKEN_SECRET", "REGISTRATION_SECRET"],
+    tokenTtl: "60 days",
+  },
+  {
+    module: "booking-edit/token",
+    primary: "BOOKING_EDIT_TOKEN_SECRET",
+    fallbacks: [
+      "PAYMENT_TOKEN_SECRET",
+      "RUN_TOKEN_SECRET",
+      "REGISTRATION_SECRET",
+    ],
+    tokenTtl: "60 days",
+  },
+  {
+    module: "booking-edit/session",
+    primary: "BOOKING_EDIT_SESSION_SECRET",
+    fallbacks: [
+      "BOOKING_EDIT_TOKEN_SECRET",
+      "PAYMENT_TOKEN_SECRET",
+      "RUN_TOKEN_SECRET",
+      "REGISTRATION_SECRET",
+    ],
+    tokenTtl: "24 hours",
+  },
+  {
+    module: "experiments/run-token",
+    primary: "RUN_TOKEN_SECRET",
+    fallbacks: ["REGISTRATION_SECRET"],
+    tokenTtl: "14 days",
+  },
+  {
+    module: "crypto/symmetric",
+    primary: "REGISTRATION_SECRET",
+    fallbacks: [],
+    tokenTtl: "(storage lifetime)",
+  },
+];
+
+export interface TokenSecretAudit {
+  module: string;
+  primary: string;
+  /**
+   * Which env var actually resolves first against current process.env.
+   * One of [primary, ...fallbacks, "SUPABASE_SERVICE_ROLE_KEY"], or
+   * null if every source is unset (= module will throw on first use).
+   */
+  resolvedFrom: string | null;
+  /**
+   * True iff resolution would fall through to SUPABASE_SERVICE_ROLE_KEY.
+   * That's the rotation footgun — every outstanding token of this kind
+   * gets silently invalidated when the service role rotates.
+   */
+  fellThroughToServiceRole: boolean;
+  /** TTL of tokens this key signs. */
+  tokenTtl: string;
+}
+
+/**
+ * Side-effect-free audit. Walks every KNOWN_TOKEN_SECRETS entry against
+ * process.env and reports which env var would resolve. Safe to call on
+ * cold-start Lambdas; doesn't invoke any module's getKey().
+ */
+export function auditTokenSecrets(): TokenSecretAudit[] {
+  return KNOWN_TOKEN_SECRETS.map(({ module, primary, fallbacks, tokenTtl }) => {
+    const candidates = [primary, ...fallbacks];
+    let resolvedFrom: string | null = null;
+    for (const name of candidates) {
+      const v = process.env[name];
+      if (v && v.length > 0) {
+        resolvedFrom = name;
+        break;
+      }
+    }
+    let fellThroughToServiceRole = false;
+    if (!resolvedFrom) {
+      const sr = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (sr && sr.length > 0) {
+        resolvedFrom = "SUPABASE_SERVICE_ROLE_KEY";
+        fellThroughToServiceRole = true;
+      }
+    }
+    return {
+      module,
+      primary,
+      resolvedFrom,
+      fellThroughToServiceRole,
+      tokenTtl,
+    };
+  });
 }

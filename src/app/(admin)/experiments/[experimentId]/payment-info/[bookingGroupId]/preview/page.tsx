@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptToken, bytesFromSupabase } from "@/lib/crypto/payment-info";
 import { buildPaymentInfoEmail } from "@/lib/services/payment-info-email-template";
+import { getAppOrigin } from "@/lib/http/origin";
 import { CopyButton } from "./copy-button";
 
 export const dynamic = "force-dynamic";
@@ -122,9 +123,7 @@ export default async function PaymentInfoPreviewPage({
     tokenError = "암호화된 토큰이 DB에 없습니다 (legacy 행). 실제 발송 시 새 토큰이 발급됩니다.";
   }
 
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "") : "");
+  const origin = getAppOrigin();
   const paymentUrl = tokenString
     ? `${origin}/payment-info/${encodeURIComponent(tokenString)}`
     : `${origin}/payment-info/PREVIEW_TOKEN_PLACEHOLDER`;

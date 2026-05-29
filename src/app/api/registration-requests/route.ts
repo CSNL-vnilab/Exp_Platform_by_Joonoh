@@ -6,6 +6,7 @@ import { encryptString } from "@/lib/crypto/symmetric";
 import { sendEmail } from "@/lib/google/gmail";
 import { USERNAME_REGEX, PASSWORD_REGEX, normalizeUsername, toInternalEmail } from "@/lib/auth/username";
 import { getCurrentProfile } from "@/lib/auth/role";
+import { getAppOrigin } from "@/lib/http/origin";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 
 export const runtime = "nodejs";
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: msg }, { status: code });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
+  const appUrl = getAppOrigin();
   const approveUrl = appUrl ? `${appUrl}/users` : "(웹 콘솔의 /users 페이지)";
 
   // Fire-and-forget email notification. We don't block request success on

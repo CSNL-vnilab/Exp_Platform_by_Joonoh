@@ -9,14 +9,12 @@ import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { escapeHtml } from "@/lib/utils/validation";
 import { fromInternalEmail } from "@/lib/auth/username";
 import { formatDateKR } from "@/lib/utils/date";
+import { getAppOrigin } from "@/lib/http/origin";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
 function appBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    "https://lab-reservation-seven.vercel.app"
-  );
+  return getAppOrigin() || "https://lab-reservation-seven.vercel.app";
 }
 
 // ── 1. Registration approval ──

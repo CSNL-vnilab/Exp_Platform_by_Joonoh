@@ -1,0 +1,60 @@
+name: Notify cron failure
+description: |
+  Posts a Slack message when a cron workflow step has failed. No-op when
+  the SLACK_WEBHOOK_URL secret isn't set so the workflow still fails
+  loudly (red ✕ in the Actions tab) without erroring on the notify step
+  itself.
+
+  Usage:
+    - uses: ./.github/actions/notify-cron-failure
+      if: failure()
+      with:
+        cron-name: "Outbox retry sweep"
+        slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  Setting up the webhook:
+    1. Slack → Apps → Incoming Webhooks → Add to workspace
+    2. Pick the #lab-ops channel (or wherever cron failures should land)
+    3. Copy the URL into repo Settings → Secrets → Actions →
+       SLACK_WEBHOOK_URL
+    4. Future workflow failures auto-post. No code redeploy needed.
+
+inputs:
+  cron-name:
+    description: Human-readable name shown in the Slack message
+    required: true
+  slack-webhook-url:
+    description: Slack incoming webhook URL. When empty, the action no-ops.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Post failure to Slack
+      shell: bash
+      env:
+        WEBHOOK: ${{ inputs.slack-webhook-url }}
+        CRON: ${{ inputs.cron-name }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        if [ -z "$WEBHOOK" ]; then
+          echo "SLACK_WEBHOOK_URL not set — skipping Slack notification."
+          echo "Set it at Settings → Secrets → Actions to enable cron-failure alerts."
+          exit 0
+        fi
+        payload=$(cat <<EOF
+        {
+          "text": ":rotating_light: lab-reservation cron failed: *${CRON}*\n<${RUN_URL}|View run log>"
+        }
+        EOF
+        )
+        http_code=$(curl -sS -o /tmp/slack_resp -w "%{http_code}" \
+          -X POST -H 'Content-Type: application/json' \
+          --data "$payload" "$WEBHOOK" || echo "curl_err")
+        echo "Slack HTTP $http_code"
+        cat /tmp/slack_resp 2>/dev/null || true
+        echo
+        # Never fail the notify step itself — a Slack outage shouldn't
+        # turn a recoverable workflow run into something that looks like
+        # an alerting failure on top of an alerting failure.
+        exit 0

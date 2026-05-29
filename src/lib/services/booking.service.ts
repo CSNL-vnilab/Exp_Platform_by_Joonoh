@@ -13,6 +13,7 @@ import { encryptToken } from "@/lib/crypto/payment-info";
 import { backfillIdentityForBooking } from "@/lib/services/participant-identity.service";
 import { buildConfirmationEmail } from "@/lib/services/booking-email-template";
 import { issueBookingEditToken } from "@/lib/booking-edit/token";
+import { getAppOrigin } from "@/lib/http/origin";
 import {
   buildRescheduleEmail,
   buildRescheduleSMS,
@@ -149,14 +150,9 @@ export async function runPostBookingPipeline(params: {
 async function seedRunTokens(supabase: Supabase, rows: BookingRow[]): Promise<RunLink[]> {
   const mode = rows[0]?.experiments.experiment_mode ?? "offline";
   if (mode === "offline") return [];
-  // Absolute origin for the email link. Prefer explicit NEXT_PUBLIC_APP_URL;
-  // fall back to Vercel's deploy URL. Relative ("/run/...") would still work
-  // in-app but email clients require absolute URLs.
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  const vercelUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "")
-    : "";
-  const origin = appUrl || vercelUrl || "";
+  // Absolute origin for the email link. Email clients require absolute
+  // URLs; in-app a relative path would still work.
+  const origin = getAppOrigin();
 
   const links: RunLink[] = [];
   for (const row of rows) {
@@ -255,9 +251,7 @@ async function seedPaymentInfo(
       return null;
     }
 
-    const origin =
-      process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "") : "");
+    const origin = getAppOrigin();
     const path = `/payment-info/${encodeURIComponent(issued.token)}`;
     return {
       url: origin ? `${origin}${path}` : path,
@@ -504,11 +498,7 @@ type CreatorContact = CreatorProfile;
 // NEXT_PUBLIC_APP_URL or VERCEL_URL) so the email omits the box rather
 // than rendering a broken link. Stateless: doesn't touch the DB.
 function buildEditLink(bookingGroupId: string): { url: string } | null {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  const vercelUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "")
-    : "";
-  const origin = appUrl || vercelUrl;
+  const origin = getAppOrigin();
   if (!origin) return null;
   try {
     const issued = issueBookingEditToken(bookingGroupId);

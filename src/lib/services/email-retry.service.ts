@@ -21,6 +21,7 @@ import { sendEmail } from "@/lib/google/gmail";
 import { buildConfirmationEmail } from "@/lib/services/booking-email-template";
 import { issueBookingEditToken } from "@/lib/booking-edit/token";
 import { scrubPii } from "@/lib/observability/pii";
+import { getAppOriginOrNull } from "@/lib/http/origin";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -200,11 +201,7 @@ export async function runEmailRetry(
   // who needs to reschedule should not have to wait for the researcher.
   let editLink: { url: string } | null = null;
   if (row.booking_group_id) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-    const vercelUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`.replace(/\/$/, "")
-      : "";
-    const origin = appUrl || vercelUrl;
+    const origin = getAppOriginOrNull();
     if (origin) {
       try {
         const issued = issueBookingEditToken(row.booking_group_id);
