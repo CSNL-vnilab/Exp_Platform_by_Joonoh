@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod/v4";
 import { normalizeToISO } from "@/lib/utils/validation";
 import { getFreeBusy, deleteEvent } from "@/lib/google/calendar";
@@ -73,7 +72,7 @@ export async function PUT(
       ownerOnly: true,
     });
     if (access instanceof NextResponse) return access;
-    const { supabase } = access;
+    const { supabase, admin } = access;
     const booking = access.booking as unknown as {
       id: string;
       experiment_id: string;
@@ -152,7 +151,7 @@ export async function PUT(
           // Record on the booking_integrations audit row so the failure
           // is searchable later. We DON'T clear google_event_id here —
           // keeping it lets a future retry know which event to target.
-          const admin = createAdminClient();
+          // (admin client reused from requireBookingAccess above.)
           await admin
             .from("booking_integrations")
             .update({
@@ -186,7 +185,6 @@ export async function PUT(
     // no_show. Fire-and-forget — never let an SMTP/SMS failure roll back
     // the status change. Audit/observability is in the notify service.
     if (status === "cancelled" || status === "no_show") {
-      const admin = createAdminClient();
       try {
         const result = await notifyBookingStatusChange(
           admin,
@@ -223,7 +221,6 @@ export async function PUT(
         ? booking.booking_group_id
         : null;
     if (paymentInfoGroupId) {
-      const admin = createAdminClient();
       try {
         const result = await notifyPaymentInfoIfReady(
           admin,
