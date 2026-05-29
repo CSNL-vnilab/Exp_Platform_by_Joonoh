@@ -164,10 +164,48 @@ export async function POST(
     .eq("claimed_in", claim.id);
   if (freshErr) {
     console.error(
-      "[PaymentClaim] amount refresh failed; proceeding with stale rows:",
+      "[PaymentClaim] amount refresh select failed; falling back to pre-CAS amounts:",
       freshErr.message,
     );
-  } else if (freshAmounts && freshAmounts.length > 0) {
+  } else if (
+    !freshAmounts ||
+    freshAmounts.length !== claimedRows.length
+  ) {
+    // Codex 2nd-pass L (2026-05-29): refuse to build the bundle from
+    // partially-stale data. If the refresh didn't return one row per
+    // claimedRows entry, we don't know which amounts are current —
+    // proceeding would embed stale values in the workbook + total.
+    // Roll back the CAS (same pattern as the catch block below) and
+    // ask the operator to retry.
+    console.error(
+      `[PaymentClaim] amount refresh returned ${freshAmounts?.length ?? 0}/${claimedRows.length} rows — refusing to build bundle from incomplete data`,
+    );
+    await admin
+      .from("participant_payment_info")
+      .update({
+        status: "submitted_to_admin",
+        claimed_at: null,
+        claimed_by: null,
+        claimed_in: null,
+      })
+      .in("booking_group_id", claimedBgIds)
+      .eq("claimed_in", claim.id)
+      .eq("status", "claimed");
+    const { count: stillRefs } = await admin
+      .from("participant_payment_info")
+      .select("id", { count: "exact", head: true })
+      .eq("claimed_in", claim.id);
+    if ((stillRefs ?? 0) === 0) {
+      await admin.from("payment_claims").delete().eq("id", claim.id);
+    }
+    return NextResponse.json(
+      {
+        error:
+          "지급액 재확인 중 일부 참여자의 데이터를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+      },
+      { status: 503 },
+    );
+  } else {
     const amountByBgId = new Map(
       (freshAmounts as Array<{ booking_group_id: string; amount_krw: number }>)
         .map((r) => [r.booking_group_id, r.amount_krw]),

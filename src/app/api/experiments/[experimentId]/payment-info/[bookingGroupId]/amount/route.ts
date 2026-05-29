@@ -134,6 +134,36 @@ export async function PATCH(
     }
   }
 
+  // Codex 2nd-pass L (2026-05-29): when resend:true was requested but
+  // the dispatch didn't actually send, surface the failure with a non-
+  // 2xx so the client doesn't silently toast "성공". The amount edit
+  // itself still landed in the DB (and the audit columns are stamped),
+  // which is why this still returns the new amount + overriddenAt —
+  // the caller can use those to update the in-memory row even when it
+  // shows a separate "메일 발송 실패" notice.
+  if (parsed.data.resend && resendOutcome && resendOutcome !== "sent") {
+    const httpStatus = resendOutcome === "lock_held" ? 409 : 502;
+    return NextResponse.json(
+      {
+        ok: false,
+        amountKrw: parsed.data.amountKrw,
+        overriddenAt: nowIso,
+        resendOutcome,
+        error:
+          resendOutcome === "lock_held"
+            ? "다른 발송 작업이 진행 중입니다. 잠시 후 다시 시도해 주세요."
+            : resendOutcome === "auto_send_disabled"
+              ? "자동 발송이 비활성화된 실험입니다. 안내 메일은 별도로 발송해 주세요."
+              : resendOutcome === "amount_zero"
+                ? "지급액이 0이거나 미설정 상태라 메일이 발송되지 않았습니다."
+                : resendOutcome === "no_recipient"
+                  ? "참여자 이메일 주소가 비어 있어 발송할 수 없습니다."
+                  : "안내 메일 발송에 실패했습니다.",
+      },
+      { status: httpStatus },
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     amountKrw: parsed.data.amountKrw,

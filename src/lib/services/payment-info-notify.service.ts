@@ -221,9 +221,14 @@ export async function notifyPaymentInfoIfReady(
     };
   }
 
-  const recipientEmail =
+  // Computed from the pre-lock row; recomputed under-lock from freshRow
+  // below (Codex 2nd-pass M, 2026-05-29). `let` so the refresh can
+  // mutate them — previously these were const and the email body used
+  // the stale pre-lock recipient even when freshRow.email_override was
+  // updated.
+  let recipientEmail =
     (row.email_override?.trim() || participant?.email || "").trim();
-  const recipientName =
+  let recipientName =
     (row.name_override?.trim() || participant?.name || "").trim();
   if (!recipientEmail) {
     await stampFailure(supabase, row.id, "no recipient email");
@@ -276,6 +281,13 @@ export async function notifyPaymentInfoIfReady(
     lockUpdate.payment_link_sent_at = null;
     lockUpdate.payment_link_attempts = 0;
   }
+  // Codex 2nd-pass L (2026-05-29): the success / failure increments
+  // below add 1 to row.payment_link_attempts (the pre-lock snapshot).
+  // When force=true reset the column to 0 in the SAME UPDATE that
+  // acquired the lock, that increment would write stale+1 instead of
+  // 1. Track the post-reset base here so the increment reflects DB
+  // truth.
+  const attemptsBase = options.force ? 0 : row.payment_link_attempts ?? 0;
   let lockQuery = supabase
     .from("participant_payment_info")
     .update(lockUpdate, { count: "exact" })
@@ -340,6 +352,42 @@ export async function notifyPaymentInfoIfReady(
     row.amount_krw = freshRow.amount_krw;
     row.name_override = freshRow.name_override;
     row.email_override = freshRow.email_override;
+    // Codex 2nd-pass M (2026-05-29): recompute the recipient address +
+    // display name from the freshly-fetched overrides. Without this,
+    // an admin who edited email_override/name_override between the
+    // pre-lock fetch and the lock acquire had their edit silently
+    // ignored — the email body still used the stale recipient.
+    recipientEmail =
+      (freshRow.email_override?.trim() ||
+        participant?.email ||
+        "").trim();
+    recipientName =
+      (freshRow.name_override?.trim() ||
+        participant?.name ||
+        "").trim();
+    if (!recipientEmail) {
+      await releaseLock();
+      await stampFailure(supabase, row.id, "no recipient email after override removal");
+      return { outcome: "no_recipient", bookingGroupId };
+    }
+    // Codex 2nd-pass M: re-check status as well. submit/route.ts can
+    // CAS pending_participant → submitted_to_admin from another
+    // request between our pre-lock status gate at line 156 and SMTP
+    // dispatch below. Without this re-check we'd email a participant
+    // who already submitted bank info — confusing at best.
+    if (freshRow.status !== "pending_participant") {
+      await releaseLock();
+      // Stamp sent_at so a future retrigger doesn't re-send.
+      await supabase
+        .from("participant_payment_info")
+        .update({ payment_link_sent_at: new Date().toISOString() })
+        .eq("id", row.id);
+      return {
+        outcome: "already_sent",
+        bookingGroupId,
+        detail: `status changed to ${freshRow.status} after lock acquire`,
+      };
+    }
     // Defensive: another trigger may have stamped sent_at + released
     // the lock between our lock CAS and this re-fetch. We backed off
     // cleanly with already_sent in that case (the CAS only succeeds
@@ -525,7 +573,7 @@ export async function notifyPaymentInfoIfReady(
     await supabase
       .from("participant_payment_info")
       .update({
-        payment_link_attempts: (row.payment_link_attempts ?? 0) + 1,
+        payment_link_attempts: attemptsBase + 1,
         payment_link_last_error: (sendResult.error ?? "unknown").slice(0, 500),
         payment_link_last_attempt_at: nowIso,
         payment_link_dispatch_lock_until: null,
@@ -548,7 +596,7 @@ export async function notifyPaymentInfoIfReady(
     .update(
       {
         payment_link_sent_at: nowIso,
-        payment_link_attempts: (row.payment_link_attempts ?? 0) + 1,
+        payment_link_attempts: attemptsBase + 1,
         payment_link_last_error: null,
         payment_link_last_attempt_at: nowIso,
         payment_link_dispatch_lock_until: null,
