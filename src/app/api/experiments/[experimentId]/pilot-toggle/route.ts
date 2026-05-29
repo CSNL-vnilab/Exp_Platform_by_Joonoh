@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { isValidUUID } from "@/lib/utils/validation";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 
 // POST /api/experiments/:id/pilot-toggle
 // Body: { booking_id: uuid, is_pilot: boolean }
@@ -23,29 +21,10 @@ export async function POST(
   { params }: { params: Promise<{ experimentId: string }> },
 ) {
   const { experimentId } = await params;
-  if (!isValidUUID(experimentId))
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const admin = createAdminClient();
-  const { data: exp } = await admin
-    .from("experiments")
-    .select("created_by")
-    .eq("id", experimentId)
-    .maybeSingle();
-  if (!exp) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isAdmin = profile?.role === "admin";
-  if (!isAdmin && exp.created_by !== user.id)
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const access = await requireExperimentAccess(experimentId);
+  if (access instanceof NextResponse) return access;
+  const { admin } = access;
 
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success)

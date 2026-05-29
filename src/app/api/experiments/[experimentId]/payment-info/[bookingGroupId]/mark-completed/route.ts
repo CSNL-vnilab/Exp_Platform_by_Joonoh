@@ -11,9 +11,8 @@
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 
 export async function POST(
@@ -21,39 +20,14 @@ export async function POST(
   ctx: { params: Promise<{ experimentId: string; bookingGroupId: string }> },
 ) {
   const { experimentId, bookingGroupId } = await ctx.params;
-  if (!isValidUUID(experimentId) || !isValidUUID(bookingGroupId)) {
+  if (!isValidUUID(bookingGroupId)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const admin = createAdminClient();
-
   // Auth — defense in depth (RPC also enforces).
-  const { data: exp } = await admin
-    .from("experiments")
-    .select("id, created_by")
-    .eq("id", experimentId)
-    .maybeSingle();
-  if (!exp) {
-    return NextResponse.json({ error: "Experiment not found" }, { status: 404 });
-  }
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isOwner = exp.created_by === user.id;
-  const isAdmin = profile?.role === "admin";
-  if (!isOwner && !isAdmin) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const access = await requireExperimentAccess(experimentId);
+  if (access instanceof NextResponse) return access;
+  const { supabase, admin } = access;
 
   // Verify the group actually belongs to this experiment so a
   // researcher can't flip another experiment's bookings by guessing IDs.

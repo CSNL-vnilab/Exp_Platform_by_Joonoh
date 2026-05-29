@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { isValidUUID } from "@/lib/utils/validation";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,34 +41,20 @@ export async function POST(
   { params }: { params: Promise<{ experimentId: string }> },
 ) {
   const { experimentId } = await params;
-  if (!isValidUUID(experimentId)) {
-    return NextResponse.json({ error: "잘못된 실험 ID입니다" }, { status: 400 });
-  }
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "인증이 필요합니다" }, { status: 401 });
-  }
 
-  // Permission: admin OR experiment owner.
-  const admin = createAdminClient();
-  const { data: exp } = await admin
-    .from("experiments")
-    .select("created_by, google_calendar_id")
-    .eq("id", experimentId)
-    .maybeSingle();
-  if (!exp) {
-    return NextResponse.json({ error: "실험을 찾을 수 없습니다" }, { status: 404 });
-  }
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isAdmin = profile?.role === "admin";
-  if (!isAdmin && exp.created_by !== user.id) {
-    return NextResponse.json({ error: "권한이 없습니다" }, { status: 403 });
-  }
+  // Permission: admin OR experiment owner. Pulled via the shared
+  // experiment-access helper which also gives us the google_calendar_id
+  // we need below for the cache invalidation.
+  const access = await requireExperimentAccess(experimentId, {
+    extraColumns: "google_calendar_id",
+  });
+  if (access instanceof NextResponse) return access;
+  const { user, admin } = access;
+  const exp = access.experiment as unknown as {
+    id: string;
+    created_by: string | null;
+    google_calendar_id: string | null;
+  };
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

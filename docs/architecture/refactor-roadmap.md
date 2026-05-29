@@ -120,6 +120,27 @@
 - **Public API**: `token.issue(kind, claims, ttl)`, `token.verify(kind, token)`, `session.startVerify(kind, identity)`, `session.checkVerify(kind, cookie)`.
 - **Why**: 3-4 parallel HMAC system 의 boilerplate 통합. Hidden coupling #23 의 secret 명시화도 여기서.
 
+### B4-light. requireExperimentAccess 헬퍼 — 진행 중 (auto-loop iter 7)
+
+- **Where**: `src/lib/auth/experiment-access.ts` (신규).
+- **What**: 15+ route 가 복사붙여넣기하던 admin/owner 게이트 (`getUser` → `experiments select` → `profiles role` → isOwner||isAdmin) 를 단일 `requireExperimentAccess(experimentId, { extraColumns? })` 로 통합. NextResponse 반환 시 caller 가 그대로 return, AccessContext 반환 시 supabase/admin/user/experiment/isOwner/isAdmin 분해해 사용.
+- **POC migrated** (commit pending iter 7):
+  - `src/app/api/experiments/[id]/payment-info/[gid]/mark-completed/route.ts`
+  - `src/app/api/experiments/[id]/pilot-toggle/route.ts`
+  - `src/app/api/experiments/[id]/manual-blocks/route.ts` (POST, with extraColumns: "google_calendar_id")
+- **Remaining ~12 caller** (다음 iter 들에서 1-2 씩):
+  - `experiments/route.ts`, `experiments/[id]/route.ts`
+  - `experiments/[id]/payment-claim/route.ts`, `payment-claim/[claimId]/email/route.ts`
+  - `experiments/[id]/manual-blocks/[blockId]/route.ts`
+  - `experiments/[id]/backfill-payment-info/route.ts`
+  - `experiments/[id]/offline-code/route.ts`
+  - `experiments/[id]/data-export/route.ts`, `data-export-csv/route.ts`
+  - `experiments/[id]/online-screeners/route.ts`
+  - `experiments/[id]/status/route.ts`
+  - `bookings/[id]/route.ts`, `bookings/[id]/observation/route.ts`
+- **Behavior change**: 일부 route 가 한국어 에러 메시지 ("실험을 찾을 수 없습니다") 를 영어 ("Experiment not found") 로 표준화. UI 가 이 메시지를 i18n 으로 처리한다면 다음 phase 에서 헬퍼에 message override 옵션 추가.
+- **Blast radius**: 각 route 당 ~20 lines 제거, 1 helper 호출 추가. 동작 동일.
+
 ### B5. `src/lib/calendar/` — Calendar gateway
 
 - **Move in**: `google/calendar.ts`, `google/slab-calendar.ts`, `services/freebusy-cache.ts`, GCal retry logic.
