@@ -75,6 +75,17 @@ curl -X POST "https://lab-reservation-seven.vercel.app/api/cron/auto-complete-bo
 
 ### Operator health probes (Phase A 이후 도입)
 
+**한 번에 다 돌리기:**
+
+```bash
+# cron-auth + secret-audit + queue-depth + pii-scrub 4 smoke 를
+# 차례로 실행 + 마지막에 summary. exit code 가 0 이 아니면 어느
+# smoke 가 실패했는지 위에 표기.
+node scripts/smoke-all.mjs
+```
+
+**개별 실행:**
+
 ```bash
 # Token-secret 모듈 5개 중 어느 것이 SUPABASE_SERVICE_ROLE_KEY 으로 fallback
 # 됐는지 한 번에 확인. anyFellThroughToServiceRole=true 면 회전 footgun.
@@ -83,6 +94,10 @@ node scripts/smoke-secret-audit.mjs
 # 모든 integration_type 의 pending/failed 큐 깊이 + 오래된 row age.
 # ok=false 면 outbox 백로그 — 보통 SMTP/Notion 5xx 또는 cron 정지.
 node scripts/smoke-queue-depth.mjs
+
+# PII redaction regex 가 18 golden fixtures 와 일치하는지 (drift check).
+# 로컬 unit test — 네트워크 무관, env 무관.
+node scripts/check-pii-scrub.mjs
 ```
 
 엔드포인트 직접 호출:
