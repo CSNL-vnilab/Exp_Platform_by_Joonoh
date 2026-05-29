@@ -1,19 +1,26 @@
 // Observation → Notion sync. Called from the PUT
 // /api/bookings/[bookingId]/observation route after a successful
-// submit_booking_observation RPC, and reusable by a future retry worker.
+// submit_booking_observation RPC, and reused by the outbox-retry worker.
 //
 // Contract:
 //   * Resolves the booking + observation + participant's lab-scoped public
 //     code via the admin client (bypassing RLS — the caller already gated
 //     access at the HTTP layer).
-//   * PATCHes the existing booking Notion page when one exists. Otherwise
-//     creates a fresh page. Both paths persist the returned Notion page id
-//     onto booking_observations.notion_page_id.
+//   * PATCHes the booking's existing Notion page with the observation
+//     columns and persists the same page id onto
+//     booking_observations.notion_page_id.
+//   * DEFERS to the outbox retry when neither the observation row nor the
+//     booking row carries a notion_page_id yet (= the booking-page sync
+//     itself is still pending). The old behavior — create a fresh
+//     standalone Notion page anyway — produced two pages per booking
+//     once notion-retry eventually completed the booking sync. See
+//     hidden-couplings.md #28 + the inline rationale below.
 //   * Marks booking_integrations.notion_survey = completed/failed/skipped
-//     so retries/observability can key off the same outbox pattern the rest
-//     of the post-booking pipeline uses.
+//     so retries/observability can key off the same outbox pattern the
+//     rest of the post-booking pipeline uses.
 //   * Never throws to the caller — all failures are captured in the return
-//     value and mirrored to booking_integrations.last_error.
+//     value and mirrored to booking_integrations.last_error (PII-scrubbed
+//     via @/lib/observability/pii).
 //
 // PII note: we only ever ship the lab-scoped public_code (e.g. "CSNL-A4F2B1")
 // to Notion through the observation columns. The booking page row still
@@ -23,6 +30,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { upsertObservationPage } from "@/lib/notion/client";
+import { scrubPii } from "@/lib/observability/pii";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -31,6 +39,15 @@ interface SyncResult {
   notionPageId?: string;
   error?: string;
   skipped?: boolean;
+  /**
+   * True when the sync was deliberately deferred because the booking's
+   * own Notion page hasn't been created yet (post-booking pipeline still
+   * pending or in retry). The outbox-retry cron will pick the row back
+   * up on its next sweep — by then the booking page should exist and
+   * the observation can PATCH it instead of forking a parallel page.
+   * Introduced 2026-05-30 (B6, hidden-couplings #28).
+   */
+  deferred?: boolean;
 }
 
 export async function syncObservationToNotion(
@@ -148,11 +165,40 @@ export async function syncObservationToNotion(
     researcherName = prof?.display_name ?? null;
   }
 
-  // Prefer the Notion page id we've already stored on the observation row
-  // (for retries); otherwise fall back to the one booking.notion_page_id
-  // (set by createBookingPage during post-booking pipeline).
+  // Page-id resolution — explicit two-tier preference (B6 / hidden-
+  // couplings #28, 2026-05-30):
+  //
+  //   1. observation.notion_page_id        — we've synced this
+  //      observation to Notion at least once. PATCH the same page on
+  //      every retry / re-edit. This is the steady-state path.
+  //   2. bookings.notion_page_id           — observation hasn't been
+  //      synced yet, but the booking page exists. PATCH that page with
+  //      the observation columns; persist the same id back onto the
+  //      observation row so future calls take branch (1). This is the
+  //      first-observation-after-booking-sync path.
+  //   3. NEITHER set                       — the booking-page sync
+  //      itself is still pending (post-booking pipeline failed or is
+  //      mid-retry). We DO NOT fall through to creating a fresh
+  //      standalone Notion page here. Doing so used to produce TWO
+  //      pages per booking — the standalone observation page now, and
+  //      a separate booking page later when notion-retry catches up.
+  //      Instead we mark the outbox row as 'failed' with an explicit
+  //      detail string and return; the outbox-retry cron will pick it
+  //      back up on its next sweep. By then the booking page should
+  //      exist and we'll fall into branch (2).
   const existingPageId =
     observation.notion_page_id ?? row.notion_page_id ?? null;
+
+  if (!existingPageId) {
+    const detail =
+      "booking-page sync pending — observation deferred until booking " +
+      "page exists (avoid forking a parallel Notion page)";
+    console.warn(
+      `[Observation→Notion] deferred for booking ${bookingId}: ${detail}`,
+    );
+    await mark({ status: "failed", last_error: detail.slice(0, 500) });
+    return { ok: false, deferred: true, error: detail };
+  }
 
   try {
     const pageId = await upsertObservationPage({
@@ -186,13 +232,9 @@ export async function syncObservationToNotion(
     return { ok: true, notionPageId: pageId };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Scrub common PII patterns from Notion errors before they land in
-    // booking_integrations.last_error. Notion sometimes echoes the
-    // offending property value in 400 responses (reviewer finding O4).
-    const scrubbed = msg
-      .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "<email>")
-      .replace(/\b\d{2,3}-?\d{3,4}-?\d{4}\b/g, "<phone>");
-    await mark({ status: "failed", last_error: scrubbed.slice(0, 500) });
+    // scrubPii lives in @/lib/observability/pii now — same regexes,
+    // one owner across every retry service + cancel path (A6).
+    await mark({ status: "failed", last_error: scrubPii(msg).slice(0, 500) });
     return { ok: false, error: msg };
   }
 }

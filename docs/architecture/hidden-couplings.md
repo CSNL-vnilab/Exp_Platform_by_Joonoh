@@ -188,10 +188,11 @@
 
 ## 9. Misc
 
-### #28 🟡 `syncObservationToNotion` 가 `bookings.notion_page_id` 로 fallback — observation sync 가 booking-page creation order 에 couple
+### #28 ✅ `syncObservationToNotion` 가 `bookings.notion_page_id` 로 fallback — observation sync 가 booking-page creation order 에 couple
 
-- **Where**: `observation.service.ts:154-158`
-- **What**: Runtime pipeline 의 Notion creation 실패 + observation arrival 이 outbox retry 성공 전에 = observation page standalone created (Notion 에 2 page: booking-not-yet + observation). Later booking-page retry 성공 시 merge 없음.
+- **Where**: `observation.service.ts:154-158` (resolved 2026-05-30, auto-loop iter 18)
+- **What (original)**: Runtime pipeline 의 Notion creation 실패 + observation arrival 이 outbox retry 성공 전에 = observation page standalone created (Notion 에 2 page: booking-not-yet + observation). Later booking-page retry 성공 시 merge 없음.
+- **Fix (iter 18)**: `existingPageId === null` (둘 다 없음) 일 때 standalone page 생성 제거. 명시적으로 `mark({ status: 'failed', last_error: 'booking-page sync pending — observation deferred…' })` + `return { ok: false, deferred: true }`. outbox-retry cron 이 다음 sweep 에서 재시도 → booking-page 가 그때 존재하면 normal PATCH path 로 들어감. 2 page 분기 race 제거. `upsertObservationPage` 의 standalone-create fallback 은 defensive 로 남김 (다른 caller 가 null 전달 가능성).
 
 ### #29 🟡 `runEmail` (initial confirmation) 이 `rows` 의 모든 row 를 같은 결과로 mark
 
