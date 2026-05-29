@@ -51,7 +51,19 @@ const experimentObjectSchema = z.object({
   daily_end_time: z.string().min(1, "종료 시간을 선택해주세요"),
   break_between_slots_minutes: z.number().min(0).default(0),
   google_calendar_id: z.string().optional(),
-  irb_document_url: z.string().url().optional().or(z.literal("")),
+  // Scheme allowlist — value flows to <a href={...}> in booking-flow /
+  // precaution-check / run-shell / demo. Without the http(s) refine,
+  // a researcher could paste `javascript:` / `data:` and ship live XSS
+  // on every participant-facing surface that renders the link.
+  irb_document_url: z
+    .string()
+    .url()
+    .refine(
+      (v) => /^https?:\/\//i.test(v.trim()),
+      "http:// 또는 https:// URL만 허용합니다",
+    )
+    .optional()
+    .or(z.literal("")),
   precautions: z.array(
     z.object({
       question: z.string().min(1),

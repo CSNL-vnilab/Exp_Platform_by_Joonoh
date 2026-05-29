@@ -29,6 +29,14 @@ const putBodySchema = z.object({
     .trim()
     .max(2048)
     .url("올바른 URL 이어야 합니다")
+    // Scheme allowlist — `z.url()` alone accepts javascript: / data: /
+    // file: / ftp:, and this value lands in <a href={...}> sinks
+    // across booking + run + demo surfaces (XSS vector if unrestricted).
+    // Mirror experimentObjectSchema.online_runtime_config.entry_url.
+    .refine(
+      (v) => /^https?:\/\//i.test(v.trim()),
+      "http:// 또는 https:// URL만 허용합니다",
+    )
     .nullable()
     .or(z.literal("").transform(() => null)),
 });

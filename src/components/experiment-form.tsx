@@ -88,6 +88,24 @@ export function ExperimentForm({
   const [requiredSessions, setRequiredSessions] = useState(experiment?.required_sessions ?? 1);
   const [googleCalendarId, setGoogleCalendarId] = useState(experiment?.google_calendar_id ?? "");
   const [irbDocumentUrl, setIrbDocumentUrl] = useState(experiment?.irb_document_url ?? "");
+  // Lab-wide IRB URL admin registers via /lab-settings (migration 00065).
+  // Fetched once on mount; surfaces a one-click prefill button under the
+  // per-experiment IRB input when present. Researchers editing existing
+  // experiments through this form get the same convenience as the
+  // /metadata-fill page.
+  const [labIrbBaseUrl, setLabIrbBaseUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/lab/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (alive && j) setLabIrbBaseUrl(j.irb_base_url ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [precautions, setPrecautions] = useState<Array<{ question: string; required_answer: boolean }>>(
     experiment?.precautions ?? []
   );
@@ -1452,14 +1470,26 @@ export function ExperimentForm({
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-4">IRB 승인 및 참여 조건</h2>
             <div className="grid gap-4">
-              <Input
-                id="irb_document_url"
-                label="IRB 승인 문서 URL (선택)"
-                value={irbDocumentUrl}
-                onChange={(e) => setIrbDocumentUrl(e.target.value)}
-                placeholder="https://drive.google.com/file/d/..."
-                error={errors.irb_document_url}
-              />
+              <div>
+                <Input
+                  id="irb_document_url"
+                  label="IRB 승인 문서 URL (선택)"
+                  value={irbDocumentUrl}
+                  onChange={(e) => setIrbDocumentUrl(e.target.value)}
+                  placeholder="https://drive.google.com/file/d/..."
+                  error={errors.irb_document_url}
+                />
+                {labIrbBaseUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setIrbDocumentUrl(labIrbBaseUrl)}
+                    className="mt-1 inline-flex items-center gap-1 text-xs text-sky-700 underline-offset-2 hover:underline"
+                    title={labIrbBaseUrl}
+                  >
+                    📎 관리자 등록 IRB 사용
+                  </button>
+                )}
+              </div>
 
               <div>
                 <div className="flex items-center justify-between mb-2">
