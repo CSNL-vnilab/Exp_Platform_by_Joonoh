@@ -96,7 +96,10 @@ const experimentObjectSchema = z.object({
   reminder_day_before_enabled: z.boolean().default(true),
   reminder_day_before_time: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),
   reminder_day_of_enabled: z.boolean().default(true),
-  reminder_day_of_time: z.string().regex(/^\d{2}:\d{2}$/).default("09:00"),
+  // Day-of default is 07:00 (not 09:00) to compensate for GitHub Actions
+  // free-tier cron jitter — see migration 00067 for context. UI / DB
+  // defaults track this value.
+  reminder_day_of_time: z.string().regex(/^\d{2}:\d{2}$/).default("07:00"),
   // Research metadata (migration 00022). Required to transition status → active.
   code_repo_url: z
     .string()

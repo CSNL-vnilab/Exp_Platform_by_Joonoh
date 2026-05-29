@@ -141,7 +141,7 @@ export function ExperimentForm({
     experiment?.reminder_day_of_enabled ?? true,
   );
   const [reminderDayOfTime, setReminderDayOfTime] = useState<string>(
-    (experiment?.reminder_day_of_time ?? "09:00").slice(0, 5),
+    (experiment?.reminder_day_of_time ?? "07:00").slice(0, 5),
   );
 
   // Research metadata (migration 00022) — required for status → active.

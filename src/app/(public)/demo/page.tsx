@@ -61,7 +61,7 @@ const DEMO_EXPERIMENT: Experiment = {
   reminder_day_before_enabled: true,
   reminder_day_before_time: "18:00",
   reminder_day_of_enabled: true,
-  reminder_day_of_time: "09:00",
+  reminder_day_of_time: "07:00",
   code_repo_url: "https://github.com/example/demo-exp",
   data_path: "/data/demo/exp001",
   parameter_schema: [],
