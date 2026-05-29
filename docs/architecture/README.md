@@ -45,3 +45,79 @@
 ## 변경 이력
 
 - **2026-05-29** — 최초 작성. codex×3 + opus×3 의 통합 결과. f957baa / 529f0ed / 2751af1 / 53d66c2 까지 반영.
+- **2026-05-29 ~ 30** — Phase A + 자율 loop iter 1-22 진행. 아래 "자율 loop 진행 요약" 절 참조.
+
+## 자율 loop 진행 요약 (Phase A + iter 1-22, 2026-05-29 ~ 30)
+
+원본 청사진의 "broken/fragile" 영역과 hidden-couplings 의 🔴 8 항목 중 다수를 자율적으로 처리한 작업 누적. 인계인이 이 절만 읽고도 현 위치를 파악할 수 있도록 의도.
+
+### 신설 모듈 (6)
+
+| 모듈 | 역할 | 도입 | 누적 사용처 |
+|---|---|---|---|
+| `src/lib/auth/secret-source.ts` | resolveSecret + KNOWN_TOKEN_SECRETS + auditTokenSecrets | A3 / iter 1 | 5 token 모듈 |
+| `src/lib/auth/experiment-access.ts` | requireExperimentAccess (extraColumns, ownerOnly) | iter 7 | 13 routes |
+| `src/lib/auth/booking-access.ts` | requireBookingAccess (extraBookingColumns, extraExperimentColumns, ownerOnly, `*` wildcard) | iter 12 | 5 methods |
+| `src/lib/booking-edit/access.ts` | requireBookingEditAccess (no admin override, HMAC token + verify-session cookie) | iter 17 | 2 routes |
+| `src/lib/observability/pii.ts` | scrubPii / scrubLastError 단일 owner | A6 / iter 1 | 8+ caller (4 retry service + 2 cancel path + observation + reaper) |
+| `src/lib/http/origin.ts` | getAppOrigin / getAppOriginOrNull (per-call, not module-cached) | B7-light / iter 1 | 13 call site |
+
+### 신설 endpoint (3)
+
+| Endpoint | 역할 | 도입 |
+|---|---|---|
+| `GET /api/health/secret-audit` | 5 token 모듈 중 어느 것이 SUPABASE_SERVICE_ROLE_KEY 으로 fallback 됐는지 audit (cron-secret-gated) | iter 1 |
+| `GET /api/health/queue` | booking_integrations 의 pending/failed 큐 깊이 + 오래된 row age | iter 5 |
+| `POST/GET /api/cron/gcal-orphan-reaper` | status=cancelled/no_show + google_event_id 존재 row sweep (grace_hours + batch_limit param) | iter 20-21 |
+
+### 5 신설 smoke scripts
+
+`scripts/smoke-all.mjs` 한 번에 실행 → cron-auth / secret-audit / queue-depth / pii-scrub 일괄 점검 + summary.
+
+### Hidden-couplings 진척 (30 항목 중)
+
+- ✅ 완전 해결: **5** — #2 (mark_group_completed gap), #23 (token-secret fallback chain), #25 (partial-cancel payment_info stuck), #28 (observation Notion fork), 그리고 audit-row-vs-reality drift 일부.
+- 🟡 부분 해결: **5** — #1 (PII scrub centralize + outcome logging), #3 (GCal orphan side via reaper), #6 (lock + outcome logging + 5번째 entry 통합), #12 (long-tail orphan reaper), #14 (5번째 clearer = reaper).
+- ⏳ 미해결: **20** — refactor-roadmap.md 의 Phase B/C 에서 처리.
+
+### 누적 통계
+
+- ~435 lines 중복 auth boilerplate 제거 (B4 family 3 helpers)
+- ~290 lines 중복 inline compute 제거 (origin / PII / secret-source)
+- migration 00066-00067 신규 (payment_status enum + 폐기 RPC drop)
+- 5 token 모듈 + 13 experiment routes + 5 booking methods + 2 booking-edit routes 의 auth 가 단일 helper-family 통과
+
+### 다음 단계 (사용자 작업 필요)
+
+- **`#68` D1-followup**: 9 cron workflow YAML 에 composite action wiring + 새 `gcal-orphan-reaper-cron.yml` 추가. PAT `workflow` scope 필요. 또는 사람이 직접 push.
+- **`SLACK_WEBHOOK_URL`** GH secret 등록 → 실패 알림 즉시 활성화.
+- **migration 00066/00067** prod 적용 (Supabase Dashboard 또는 `supabase db push`).
+- **Phase B 본격 진행 검토**: B1 (`notify/`), B2 (`outbox/`), B3 (`payment-info/`), B4 (token kernel HMAC body 통합), B5 (`calendar/`), B6 (`notion/`), B7 (`http/` 의 rate-limit + KV-backed), B8 (KST date helpers — partial done).
+
+### Cumulative commits (Phase A + iter 1-22)
+
+| Iter | Commit | 주제 |
+|---|---|---|
+| Phase A | `595e933` | A1 mark_group_completed gap + A2 partial-cancel + A3 token secret + A6 PII scrub |
+| 1 | `acca07a` | B7-light origin + secret-audit endpoint + Slack composite action |
+| 2 | `e1d89a3` | A5 cleanup — notion-retry 통합 + migration 00067 |
+| 3 | `caf0966` | obs wraps on payment-info-notify + booking-status-notify |
+| 4 | `03b0fad` | smoke scripts (secret-audit + pii-scrub) |
+| 5 | `e4452f3` | D2 /api/health/queue endpoint + smoke |
+| 6 | `65f1d80` | smoke-cron-auth health 확장 |
+| 7 | `750a0eb` | B4-light helper + 3 route POC |
+| 8 | `37305de` | B4-light + ownerOnly (4 routes) |
+| 9 | `4902900` | B4-light 3 routes (data-export, online-screeners, status) |
+| 10 | `61fcda3` | B4-light experiments/[id] PUT+DELETE + payment-claim |
+| 11 | `1af669d` | B4-light closeout (payment-claim/email) |
+| 12 | `428a7a2` | B4-medium requireBookingAccess + 4 methods |
+| 13 | `610da13` | B4-medium PATCH reschedule + closeout |
+| 14 | `f753b4c` | D3 PII tests 18 cases |
+| 15 | `4b33368` | smoke-all 통합 runner |
+| 16 | `10a608a` | PUT bookings/[id] admin client dedup |
+| 17 | `619f2e9` | B4-edit (booking-edit cancel + reschedule) |
+| 18 | `ccbf5af` | B6 observation Notion defer (#28 ✅) |
+| 19 | `62cd975` | hidden-couplings 정리 + B4 family summary |
+| 20 | `470105a` | GCal orphan reaper endpoint (#3 #12 #14 partial) |
+| 21 | `d789ee0` | reaper grace_hours + batch_limit params |
+| 22 | `11b16d2` | subsystems.md mermaid + cross-cutting helpers ✅ |
