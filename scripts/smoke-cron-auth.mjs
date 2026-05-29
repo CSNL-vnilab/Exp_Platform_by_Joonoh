@@ -35,9 +35,10 @@ async function loadEnv() {
 }
 await loadEnv();
 
-// Keep this list in sync with the cron inventory in docs/ops-playbook.md.
-// Adding a route here is cheap; missing one from prod is the whole point
-// of this smoke.
+// Keep this list in sync with the cron inventory in docs/ops-playbook.md
+// + the /api/health/* endpoints (Phase A follow-up). Adding a route
+// here is cheap; missing one from prod is the whole point of this smoke.
+// All these should reject unauthenticated requests with 401.
 const CRON_PATHS = [
   "/api/notifications/reminders",
   "/api/cron/auto-complete-bookings",
@@ -50,6 +51,14 @@ const CRON_PATHS = [
   "/api/cron/metadata-reminders",
 ];
 
+// /api/health/* endpoints — same cron-secret auth, probed via GET.
+// Added Phase A iter 1/5: secret-audit checks token-secret fallback;
+// queue checks integration outbox backlog. Both must 401 without secret.
+const HEALTH_PATHS = [
+  "/api/health/secret-audit",
+  "/api/health/queue",
+];
+
 const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
 if (!base) {
   console.error("NEXT_PUBLIC_APP_URL is required");
@@ -60,19 +69,28 @@ console.log(`Cron-auth smoke against ${base}`);
 console.log("────────────────────────────────────────────────────────────");
 
 let fails = 0;
-for (const path of CRON_PATHS) {
+async function probe(path, method) {
   const url = `${base}${path}`;
   let status = 0;
   let note = "";
   try {
-    const res = await fetch(url, { method: "POST" });
+    const res = await fetch(url, { method });
     status = res.status;
   } catch (err) {
     note = ` (fetch error: ${err instanceof Error ? err.message : String(err)})`;
   }
   const ok = status === 401;
   if (!ok) fails += 1;
-  console.log(`  ${ok ? "✓" : "✗"} ${status} ${path}${note}`);
+  console.log(`  ${ok ? "✓" : "✗"} ${status} [${method}] ${path}${note}`);
+}
+
+console.log("Cron endpoints (POST):");
+for (const path of CRON_PATHS) {
+  await probe(path, "POST");
+}
+console.log("Health endpoints (GET):");
+for (const path of HEALTH_PATHS) {
+  await probe(path, "GET");
 }
 
 console.log("────────────────────────────────────────────────────────────");
