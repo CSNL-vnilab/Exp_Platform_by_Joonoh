@@ -24,9 +24,6 @@ node scripts/db-audit.mjs
 # Idempotent Notion schema verify (no-op on healthy DB; reports drift)
 node scripts/notion-setup.mjs
 
-# End-to-end Notion write smoke test (creates 2 demo pages)
-node scripts/notion-demo.mjs
-
 # Continuous QC loop — db-audit + notion-setup every 20 min.
 # Intended to run under the Monitor tool during active ops.
 node scripts/qc-loop.mjs --interval=1200
@@ -86,13 +83,16 @@ For a faster inline spot-check that also authenticates, keep the
 curl loop handy:
 
 ```bash
+# Cron endpoint health check — runs against every active cron route.
+# notion-retry was retired 2026-04-24 (superseded by outbox-retry);
+# legacy line removed.  See docs/cron-runbook.md for the full table.
 for p in /api/notifications/reminders \
          /api/cron/auto-complete-bookings \
-         /api/cron/notion-retry \
-         /api/cron/notion-health \
          /api/cron/outbox-retry \
+         /api/cron/notion-health \
          /api/cron/promotion-notifications \
-         /api/cron/metadata-reminders; do
+         /api/cron/metadata-reminders \
+         /api/cron/db-quality-check; do
   curl -sS -o /dev/null -w "%{http_code} $p\n" -X POST \
     "https://lab-reservation-seven.vercel.app$p" \
     -H "x-cron-secret: $CRON_SECRET"

@@ -1,92 +1,174 @@
-# 외부 배포 체크리스트 (Cloudflare Workers + Supabase Cloud)
+# Deploy / 운영 체크리스트 (Vercel + Supabase Cloud)
 
-모든 명령은 repo root에서 실행. 총 예상 시간 **55분~1시간 30분** (네트워크 · 검수 제외).
+본 프로젝트의 production 호스팅은 **Vercel** (`lab-reservation-seven.vercel.app`),
+DB 는 **Supabase Cloud**, cron 은 **GitHub Actions + Vercel Cron**.
 
-## 1. Supabase Cloud 프로젝트 (15분)
+> 이 문서는 신규 인스턴스를 처음 띄우거나, 기존 production 운영 흐름을
+> 빠르게 파악할 때 보는 한 장 문서입니다. 일상 운영 (migration 적용, cron
+> 점검, 장애 대응) 은 [`docs/ops-playbook.md`](./docs/ops-playbook.md) 와
+> [`docs/cron-runbook.md`](./docs/cron-runbook.md) 가 더 자세합니다.
+
+---
+
+## 신규 인스턴스 띄우기 (총 ~1h)
+
+### 1) Supabase Cloud 프로젝트 (15분)
 
 ```bash
-# supabase.com → New project → 리전 Seoul (ap-northeast-2) 권장
-# 생성 후 대시보드에서 복사:
+# supabase.com → New project → 리전 Seoul (ap-northeast-2)
+# 생성 후 대시보드 → Project settings → API:
 #   Project URL  → NEXT_PUBLIC_SUPABASE_URL
 #   anon key     → NEXT_PUBLIC_SUPABASE_ANON_KEY
 #   service_role → SUPABASE_SERVICE_ROLE_KEY (비공개)
 ```
 
-로컬에서 원격 DB로 마이그레이션 푸시:
+마이그레이션 push:
 
 ```bash
-npm install -g supabase  # 또는 brew install supabase/tap/supabase
+npm install -g supabase     # 또는: brew install supabase/tap/supabase
 supabase login
 supabase link --project-ref <project-ref>
-supabase db push
+supabase db push            # 또는: node scripts/apply-migration-mgmt.mjs <file>
 ```
 
-초기 관리자 계정 생성 (로컬과 동일):
-```bash
-npm run bootstrap-admin       # csnl/slab1234 또는 커스텀
-```
-
-## 2. Cloudflare 계정 + Wrangler 로그인 (5분)
+초기 관리자 계정:
 
 ```bash
-npx wrangler login            # 브라우저 열림 → 권한 승인
+npm run bootstrap-admin     # 기본: csnl/slab1234 (변경 권장)
 ```
 
-## 3. 환경변수 주입 (10분)
-
-평문 ID는 `wrangler.jsonc`의 `vars`, 비밀값은 `wrangler secret put`:
+### 2) Vercel 프로젝트 (10분)
 
 ```bash
-npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
-npx wrangler secret put GMAIL_APP_PASSWORD
-npx wrangler secret put CRON_SECRET
-npx wrangler secret put NOTION_API_KEY
-npx wrangler secret put SOLAPI_API_SECRET
+npm install -g vercel       # 또는: brew install vercel-cli
+vercel login                # 브라우저 인증
+
+# 로컬 repo 를 Vercel project 와 연결
+vercel link                 # team / project 선택
+# → .vercel/project.json 생성 (commit 안 함, gitignored)
 ```
 
-`wrangler.jsonc`의 `vars`에 공개 값:
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `NEXT_PUBLIC_APP_URL`
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
-- `GOOGLE_CALENDAR_ID`
-- `GMAIL_USER`
-- `SOLAPI_API_KEY`, `SOLAPI_SENDER_PHONE`
-- `NOTION_DATABASE_ID`
+Vercel Dashboard → Project → Settings → Git → GitHub repo 연결 (Vercel
+GitHub App). 이후 `main` 으로 push 하면 자동 배포.
 
-## 4. 빌드 + 배포 (5분)
+### 3) 환경 변수 주입 (15분)
+
+`vercel env` 로 모든 환경에 한 번에 설정 (Production / Preview / Development):
 
 ```bash
-npm run build:cloudflare      # @opennextjs/cloudflare 어댑터로 변환
-npm run deploy                # wrangler deploy
-# → https://lab-reservation.<account>.workers.dev 반환
+# 필수 — 빠뜨리면 빌드 자체 실패
+vercel env add NEXT_PUBLIC_SUPABASE_URL production preview development
+vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY production preview development
+vercel env add SUPABASE_SERVICE_ROLE_KEY production preview
+vercel env add NEXT_PUBLIC_APP_URL production preview   # 예: https://lab-reservation-seven.vercel.app
+
+# Cron 보호 (GitHub Actions / Vercel Cron 이 호출 시 사용)
+vercel env add CRON_SECRET production                    # openssl rand -hex 32
+
+# Gmail / SMTP (이메일 발송)
+vercel env add GMAIL_USER production preview
+vercel env add GMAIL_APP_PASSWORD production preview     # Gmail 16자 앱 비밀번호
+
+# Google Calendar (SLab 이벤트 sync)
+vercel env add GOOGLE_SERVICE_ACCOUNT_EMAIL production preview
+vercel env add GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY production preview
+vercel env add GOOGLE_CALENDAR_ID production preview
+
+# Notion (실험 mirror — 선택, 안 쓰면 생략)
+vercel env add NOTION_API_KEY production
+vercel env add NOTION_DATABASE_ID production              # URL 이 아닌 32자 ID 만
+
+# SMS via Solapi (선택)
+vercel env add SOLAPI_API_KEY production
+vercel env add SOLAPI_API_SECRET production
+vercel env add SOLAPI_SENDER_PHONE production
+
+# Token 서명 (P0 stateless tokens — 누락 시 SUPABASE_SERVICE_ROLE_KEY fallback)
+vercel env add PAYMENT_TOKEN_SECRET production           # openssl rand -hex 32
+vercel env add RUN_TOKEN_SECRET production               # 같이 발급
+vercel env add BOOKING_EDIT_TOKEN_SECRET production      # 같이 발급
+vercel env add BOOKING_EDIT_SESSION_SECRET production    # 같이 발급
 ```
 
-## 5. 커스텀 도메인 (선택, 15~30분)
-
-Cloudflare Dashboard → Workers & Pages → lab-reservation → Settings → Triggers →
-Add Custom Domain → 도메인 입력. DNS 전파 5~30분.
-
-## 6. 배포 후 검증 (10분)
+GitHub Actions secrets 도 같은 값으로 설정 (cron 들이 직접 호출):
 
 ```bash
-NEXT_PUBLIC_APP_URL=https://<deployed-url> npm run e2e-booking
+gh secret set CRON_SECRET --body "$(vercel env pull --environment=production --yes /dev/stdout | grep CRON_SECRET | cut -d= -f2- | tr -d \\")"
+gh secret set NEXT_PUBLIC_APP_URL --body "https://lab-reservation-seven.vercel.app"
+gh secret set SUPABASE_URL --body "<from above>"
+gh secret set SUPABASE_SERVICE_ROLE_KEY --body "<from above>"
+gh secret set TIMEEXP_EXPERIMENT_ID --body "<uuid>"     # timeexp-data-integrity 만 필요
 ```
 
-실제 DB, 실제 GCal, 실제 SMTP 전부 통과해야 완료.
+### 4) 빌드 + 첫 배포 (5분)
+
+```bash
+# 보통은 git push main 만으로 충분 — Vercel GitHub App 이 webhook 으로 자동 deploy
+git push origin main
+
+# 또는 명시적으로:
+vercel --prod --yes
+```
+
+배포 확인:
+
+```bash
+curl -sI https://lab-reservation-seven.vercel.app/ | head -5
+# HTTP/2 307 (auth redirect — 정상)
+```
+
+### 5) 커스텀 도메인 (선택)
+
+Vercel Dashboard → Project → Settings → Domains → Add Domain. CNAME 또는
+A record 안내대로 DNS 설정 → 5–30 분 전파.
+
+### 6) 배포 후 검증 (10분)
+
+```bash
+# Cron 라우트 보안 점검 (모두 401 이어야 — secret 없이는 거부)
+for p in /api/notifications/reminders \
+         /api/cron/auto-complete-bookings \
+         /api/cron/outbox-retry \
+         /api/cron/notion-health \
+         /api/cron/promotion-notifications \
+         /api/cron/metadata-reminders \
+         /api/cron/db-quality-check; do
+  curl -sS -o /dev/null -w "%{http_code} $p\n" -X POST \
+    "https://lab-reservation-seven.vercel.app$p"
+done
+# 7줄 모두 401 → 정상.  prod-smoke 워크플로우가 6 시간마다 같은 점검 자동 수행.
+
+# 인증된 트리거 (한 cron 정상 동작 확인)
+curl -sS -o /dev/null -w "%{http_code}\n" -X POST \
+  "https://lab-reservation-seven.vercel.app/api/cron/auto-complete-bookings" \
+  -H "x-cron-secret: $CRON_SECRET"
+# 200 → OK.
+
+# E2E booking (실제 DB / GCal / SMTP 통과)
+NEXT_PUBLIC_APP_URL=https://lab-reservation-seven.vercel.app npm run e2e-booking
+```
 
 ---
 
-## 지금 수정 필요한 env 값
+## 일상 운영 (이미 띄워둔 인스턴스)
 
-현재 로컬 `.env.local` 기준:
+| 작업 | 도구 / 문서 |
+|---|---|
+| 새 migration 적용 | `node scripts/apply-migration-mgmt.mjs supabase/migrations/000XX_xxx.sql` → ops-playbook §"Deploy workflow" |
+| 다음 배포 전 가드 (CI) | `node scripts/migration-status.mjs` — 미적용 migration 있으면 exit 1 |
+| Cron 상태 확인 | [`docs/cron-runbook.md`](./docs/cron-runbook.md) — 8개 cron 표 + 실패 대응 |
+| Cron 수동 트리거 | GitHub Actions → 해당 workflow → "Run workflow" (수동 입력 지원) |
+| Vercel-GitHub link 점검 | `curl -s "https://api.vercel.com/v9/projects/{id}?teamId={team}" \| jq .link` — `null` 이면 재연결 |
+| Production runtime 로그 | Vercel Dashboard → Project → Logs (또는 `vercel logs <url>`) |
+| 배포 rollback | Vercel Dashboard → Deployments → 이전 deployment → "Promote to Production" |
 
-| 변수 | 상태 | 필요 조치 |
-|---|---|---|
-| `GMAIL_APP_PASSWORD` | ❌ `viznidaccnl` (11자) | Gmail 계정 → 보안 → 앱 비밀번호 → 16자 재발급 |
-| `NOTION_DATABASE_ID` | ❌ 전체 URL 붙음 | `3482a38e4f5f800298e7d7a07294ccd0` 형태 32자 ID만 |
-| `CRON_SECRET` | ❌ 비어있음 | `openssl rand -hex 32`로 생성 |
-| `SOLAPI_*` | ❌ 비어있음 | SMS 쓰려면 solapi.com에서 발급, 안 쓰면 그대로 |
+---
 
-두 값만 고치면 이메일·Notion 연동까지 녹색 신호등.
+## 폐기됨 (참고용)
+
+- ~~`@opennextjs/cloudflare` adapter + `wrangler` deploy~~ — 2026-04 production
+  이 Vercel 로 완전 이전 후 dormant. 관련 파일 (`open-next.config.ts`,
+  `wrangler.jsonc`, `proxy.ts`) 은 working tree 에서 deletion 처리됨.
+- `vercel.json` 의 cron 슬롯 (Hobby tier 2 개 한도) → 이미 GitHub Actions
+  로 7 개 cron 모두 마이그레이션. `vercel.json` 의 `crons:` 항목은 그대로
+  유지 (reminders + auto-complete 두 개만; 나머지 5 개는 `.github/workflows/*-cron.yml`).
