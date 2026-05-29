@@ -188,6 +188,15 @@
   - `src/app/api/booking-edit/[token]/[bookingId]/cancel/route.ts` (POST — `extraBookingColumns: "status, google_event_id, slot_start"` + `extraExperimentColumns: "google_calendar_id"`)
   - `src/app/api/booking-edit/[token]/[bookingId]/reschedule/route.ts` (PATCH — full column set for the reschedule pipeline)
 - **Removed**: 50+ lines of duplicated `verifyBookingEditToken` try/catch + `cookies().get()` + `readVerifySession` + `bookings.select(...experiments(...))` + `booking_group_id` mismatch check from each route.
+
+### B4-edit-verify. verifyBookingEditTokenOrError sub-helper — iter 24
+
+- **Where**: `src/lib/booking-edit/access.ts` (exported alongside `requireBookingEditAccess`)
+- **What**: 작은 sub-helper — token HMAC verify + Korean 에러 메시지 (`"링크가 만료되었습니다"` / `"링크가 유효하지 않습니다"`) NextResponse 발급. cancel/reschedule 의 4 단계 gate 의 step 2 와, verify endpoint (cookie 발급 path, session 없음) 양쪽에서 사용.
+- **Iter 24 migrated**:
+  - `src/lib/booking-edit/access.ts` requireBookingEditAccess 가 자체 try/catch 대신 sub-helper 호출
+  - `src/app/api/booking-edit/[token]/verify/route.ts` (POST — session 발급 endpoint. session 자체가 없으므로 requireBookingEditAccess 부적합, sub-helper 만 사용)
+- **Rationale**: B4-edit 의 verify endpoint 는 cookie 를 발급하는 곳이라 `requireBookingEditAccess` 의 4-step gate 를 적용 불가 (session step 이 chicken-and-egg). 작은 sub-helper 로 token-verify 부분만 공유.
 - **Behavior change**: 일부 route 가 한국어 에러 메시지 ("실험을 찾을 수 없습니다") 를 영어 ("Experiment not found") 로 표준화. UI 가 이 메시지를 i18n 으로 처리한다면 다음 phase 에서 헬퍼에 message override 옵션 추가.
 - **Blast radius**: 각 route 당 ~20 lines 제거, 1 helper 호출 추가. 동작 동일.
 

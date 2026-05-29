@@ -3,10 +3,7 @@ import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod/v4";
 import { normalizePhone } from "@/lib/utils/validation";
-import {
-  verifyBookingEditToken,
-  BookingEditTokenError,
-} from "@/lib/booking-edit/token";
+import { verifyBookingEditTokenOrError } from "@/lib/booking-edit/access";
 import {
   issueVerifySession,
   BOOKING_EDIT_SESSION_COOKIE,
@@ -43,21 +40,9 @@ export async function POST(
 ) {
   const { token } = await params;
 
-  let verifiedToken;
-  try {
-    verifiedToken = verifyBookingEditToken(token);
-  } catch (err) {
-    if (err instanceof BookingEditTokenError && err.code === "EXPIRED") {
-      return NextResponse.json(
-        { error: "링크가 만료되었습니다" },
-        { status: 401 },
-      );
-    }
-    return NextResponse.json(
-      { error: "링크가 유효하지 않습니다" },
-      { status: 401 },
-    );
-  }
+  const tokenResult = verifyBookingEditTokenOrError(token);
+  if (tokenResult instanceof NextResponse) return tokenResult;
+  const verifiedToken = tokenResult;
 
   const parsed = verifySchema.safeParse(
     await request.json().catch(() => null),

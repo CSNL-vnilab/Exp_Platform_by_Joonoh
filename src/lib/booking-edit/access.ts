@@ -42,6 +42,37 @@ import {
   type VerifySession,
 } from "@/lib/booking-edit/session";
 
+/**
+ * Verify a booking-edit HMAC token and translate the typed error into a
+ * NextResponse with the same Korean user-facing message the cancel /
+ * reschedule / verify routes were duplicating. Returns the decoded
+ * claims on success.
+ *
+ * Exposed separately from `requireBookingEditAccess` because the verify
+ * endpoint itself (`POST /api/booking-edit/[token]/verify`) needs the
+ * token check WITHOUT the session-cookie / booking-row resolution —
+ * that endpoint IS what mints the session cookie in the first place
+ * (chicken-and-egg).
+ */
+export function verifyBookingEditTokenOrError(
+  token: string,
+): VerifiedBookingEditToken | NextResponse {
+  try {
+    return verifyBookingEditToken(token);
+  } catch (err) {
+    if (err instanceof BookingEditTokenError && err.code === "EXPIRED") {
+      return NextResponse.json(
+        { error: "링크가 만료되었습니다" },
+        { status: 401 },
+      );
+    }
+    return NextResponse.json(
+      { error: "링크가 유효하지 않습니다" },
+      { status: 401 },
+    );
+  }
+}
+
 type AdminClient = ReturnType<typeof createAdminClient>;
 
 export interface BookingEditAccessContext {
@@ -105,21 +136,9 @@ export async function requireBookingEditAccess(
     );
   }
 
-  let verified: VerifiedBookingEditToken;
-  try {
-    verified = verifyBookingEditToken(token);
-  } catch (err) {
-    if (err instanceof BookingEditTokenError && err.code === "EXPIRED") {
-      return NextResponse.json(
-        { error: "링크가 만료되었습니다" },
-        { status: 401 },
-      );
-    }
-    return NextResponse.json(
-      { error: "링크가 유효하지 않습니다" },
-      { status: 401 },
-    );
-  }
+  const tokenResult = verifyBookingEditTokenOrError(token);
+  if (tokenResult instanceof NextResponse) return tokenResult;
+  const verified: VerifiedBookingEditToken = tokenResult;
 
   const cookieJar = await cookies();
   const sessionRaw = cookieJar.get(BOOKING_EDIT_SESSION_COOKIE)?.value;
