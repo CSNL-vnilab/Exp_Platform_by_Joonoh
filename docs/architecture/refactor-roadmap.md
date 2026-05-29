@@ -162,6 +162,15 @@
 **Cumulative B4-medium** (iter 12-13): **5 methods migrated** (GET + PUT + PATCH on bookings/[id]; GET + PUT on observation), ~110 lines of duplicated auth-gate boilerplate removed. Booking auth surface now fully consolidated — no remaining inline `bookings.select(..., experiments(created_by, ...))` ownership checks in production routes.
 
 **Iter 16 cleanup**: PUT /bookings/[id] had three inline `createAdminClient()` calls in its cancel/notify/payment-info fan-out (lines 155, 189, 226 pre-cleanup) — leftovers from before the helper landed. Each was independently spawning a service-role client when one was already available via `access.admin`. Deduped to a single client per request (also dropped the now-unused `createAdminClient` import). Behavioural no-op — `createAdminClient()` is a thin factory, but having one shared instance makes the data flow easier to follow and matches the pattern PATCH already uses.
+
+### B4-edit. requireBookingEditAccess 헬퍼 — 진행 중 (auto-loop iter 17)
+
+- **Where**: `src/lib/booking-edit/access.ts` (신규, booking-edit module 안에서만 사용)
+- **What**: `requireBookingEditAccess(token, bookingId, { extraBookingColumns?, extraExperimentColumns? })` — 4 단계 gate (UUID 검증 → HMAC token verify → name+phone verify-session cookie → booking_group_id ownership) 를 단일 helper 로. **No admin override** — token IS the credential. 참여자-facing Korean 에러 메시지 (`"링크가 만료되었습니다"`, `"본인 확인이 필요합니다..."`, `"권한이 없습니다"`) 헬퍼가 그대로 발급.
+- **Iter 17 migrated**:
+  - `src/app/api/booking-edit/[token]/[bookingId]/cancel/route.ts` (POST — `extraBookingColumns: "status, google_event_id, slot_start"` + `extraExperimentColumns: "google_calendar_id"`)
+  - `src/app/api/booking-edit/[token]/[bookingId]/reschedule/route.ts` (PATCH — full column set for the reschedule pipeline)
+- **Removed**: 50+ lines of duplicated `verifyBookingEditToken` try/catch + `cookies().get()` + `readVerifySession` + `bookings.select(...experiments(...))` + `booking_group_id` mismatch check from each route.
 - **Behavior change**: 일부 route 가 한국어 에러 메시지 ("실험을 찾을 수 없습니다") 를 영어 ("Experiment not found") 로 표준화. UI 가 이 메시지를 i18n 으로 처리한다면 다음 phase 에서 헬퍼에 message override 옵션 추가.
 - **Blast radius**: 각 route 당 ~20 lines 제거, 1 helper 호출 추가. 동작 동일.
 

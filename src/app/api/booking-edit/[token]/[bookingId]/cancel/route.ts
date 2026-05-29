@@ -1,21 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { cookies } from "next/headers";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { isValidUUID } from "@/lib/utils/validation";
 import { deleteEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { notifyBookingStatusChange } from "@/lib/services/booking-status-notify.service";
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 import { scrubPii } from "@/lib/observability/pii";
-import {
-  verifyBookingEditToken,
-  BookingEditTokenError,
-} from "@/lib/booking-edit/token";
-import {
-  readVerifySession,
-  BOOKING_EDIT_SESSION_COOKIE,
-} from "@/lib/booking-edit/session";
+import { requireBookingEditAccess } from "@/lib/booking-edit/access";
 
 // Participant-facing cancellation. Mirrors admin PUT
 // /api/bookings/[bookingId] {status:'cancelled'} but the auth gate is
@@ -31,49 +21,20 @@ export async function POST(
 ) {
   const { token, bookingId } = await params;
 
-  if (!isValidUUID(bookingId)) {
-    return NextResponse.json({ error: "잘못된 예약 ID입니다" }, { status: 400 });
-  }
-
-  let verified;
-  try {
-    verified = verifyBookingEditToken(token);
-  } catch (err) {
-    if (err instanceof BookingEditTokenError && err.code === "EXPIRED") {
-      return NextResponse.json({ error: "링크가 만료되었습니다" }, { status: 401 });
-    }
-    return NextResponse.json({ error: "링크가 유효하지 않습니다" }, { status: 401 });
-  }
-
-  // Identity gate: require a fresh name+phone verification cookie scoped
-  // to this booking_group. Mirrors the reschedule route.
-  const cookieJar = await cookies();
-  const sessionRaw = cookieJar.get(BOOKING_EDIT_SESSION_COOKIE)?.value;
-  const session = readVerifySession(sessionRaw, verified.bookingGroupId);
-  if (!session) {
-    return NextResponse.json(
-      { error: "본인 확인이 필요합니다. 페이지를 새로고침해 주세요." },
-      { status: 401 },
-    );
-  }
-
-  const admin = createAdminClient();
-
-  const { data: booking, error: fetchErr } = await admin
-    .from("bookings")
-    .select(
-      "id, status, google_event_id, slot_start, booking_group_id, experiments(google_calendar_id)",
-    )
-    .eq("id", bookingId)
-    .single();
-
-  if (fetchErr || !booking) {
-    return NextResponse.json({ error: "예약을 찾을 수 없습니다" }, { status: 404 });
-  }
-
-  if (booking.booking_group_id !== verified.bookingGroupId) {
-    return NextResponse.json({ error: "권한이 없습니다" }, { status: 403 });
-  }
+  const access = await requireBookingEditAccess(token, bookingId, {
+    extraBookingColumns: "status, google_event_id, slot_start",
+    extraExperimentColumns: "google_calendar_id",
+  });
+  if (access instanceof NextResponse) return access;
+  const { verified, admin } = access;
+  const booking = access.booking as unknown as {
+    id: string;
+    booking_group_id: string;
+    status: string;
+    google_event_id: string | null;
+    slot_start: string;
+    experiments: { google_calendar_id: string | null } | null;
+  };
 
   if (booking.status !== "confirmed") {
     return NextResponse.json(
