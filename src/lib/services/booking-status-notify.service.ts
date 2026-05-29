@@ -33,13 +33,27 @@ type Texter = (
   text: string,
 ) => Promise<{ success: boolean; error?: string }>;
 
+/**
+ * Discrete reasons a notifyBookingStatusChange call did or didn't
+ * dispatch the participant cancel/no_show envelope. Same const-object
+ * pattern as `NOTIFY_OUTCOME` in payment-info-notify (iter 26) — caller
+ * sites can write `STATUS_NOTIFY_OUTCOME.SENT` instead of the bare
+ * `"sent"` string. String literals stay assignment-compatible so
+ * existing caller sites keep working.
+ */
+export const STATUS_NOTIFY_OUTCOME = {
+  SENT: "sent",
+  NO_RECIPIENT: "no_recipient",
+  SEND_FAILED: "send_failed",
+  SKIPPED_INVALID_STATUS: "skipped_invalid_status",
+  BOOKING_NOT_FOUND: "booking_not_found",
+} as const;
+
+export type StatusNotifyOutcome =
+  (typeof STATUS_NOTIFY_OUTCOME)[keyof typeof STATUS_NOTIFY_OUTCOME];
+
 export interface NotifyStatusResult {
-  outcome:
-    | "sent"
-    | "no_recipient"
-    | "send_failed"
-    | "skipped_invalid_status"
-    | "booking_not_found";
+  outcome: StatusNotifyOutcome;
   bookingId: string;
   channel?: "email" | "email+sms";
   detail?: string;

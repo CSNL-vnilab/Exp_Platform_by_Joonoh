@@ -78,29 +78,59 @@ interface PaymentInfoRow {
 // crashed worker doesn't block redelivery for an annoying duration.
 const DISPATCH_LOCK_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Discrete reasons a notifyPaymentInfoIfReady call did or didn't end
+ * up sending a payment-info email. Exported as a const object so
+ * caller sites can write `NOTIFY_OUTCOME.SEND_FAILED` instead of
+ * the bare `"send_failed"` string — easier to grep, easier to find
+ * every site that branches on a specific outcome, and easier to
+ * detect typos at compile time.
+ *
+ * Iter 3 (2026-05-29) added the `[PaymentInfoNotify] ${outcome}`
+ * structured log so an operator can `vercel logs | grep PaymentInfoNotify`
+ * for a per-call audit trail; iter 26 (2026-05-30) makes the call
+ * sites more grep-friendly too.
+ *
+ * Caller sites can keep the bare string literals — they're
+ * assignment-compatible with the const values, so this change is
+ * purely additive. Future migrations to `NOTIFY_OUTCOME.X` are
+ * stylistic.
+ */
+export const NOTIFY_OUTCOME = {
+  SENT: "sent",
+  ALREADY_SENT: "already_sent",
+  NO_PAYMENT_ROW: "no_payment_row",
+  AMOUNT_ZERO: "amount_zero",
+  NOT_ALL_COMPLETED: "not_all_completed",
+  NO_RECIPIENT: "no_recipient",
+  SEND_FAILED: "send_failed",
+  /**
+   * experiments.payment_link_auto_send=false — researcher opted out
+   * of auto-dispatch so the amount can be reviewed before going out.
+   * The send only happens when they click "안내 메일 발송" in the
+   * payment-panel (which calls this same function with force=true).
+   */
+  AUTO_SEND_DISABLED: "auto_send_disabled",
+  /**
+   * Another trigger is currently mid-send; we backed off cleanly.
+   * Caller (cron) sees this and knows the next tick will retry.
+   */
+  LOCK_HELD: "lock_held",
+  /**
+   * Every booking in the group ended up cancelled. Helper transitions
+   * payment_info.status to 'cancelled' so the row stops blocking the
+   * pending-payment dashboard / cron sweep. 2026-05-29 (A2 fix for
+   * hidden-couplings.md #25).
+   */
+  ALL_CANCELLED: "all_cancelled",
+} as const;
+
+export type NotifyOutcome =
+  (typeof NOTIFY_OUTCOME)[keyof typeof NOTIFY_OUTCOME];
+
 export interface NotifyResult {
   /** Why the call did/didn't end up sending. Useful for cron logs. */
-  outcome:
-    | "sent"
-    | "already_sent"
-    | "no_payment_row"
-    | "amount_zero"
-    | "not_all_completed"
-    | "no_recipient"
-    | "send_failed"
-    // experiments.payment_link_auto_send=false — researcher opted out
-    // of auto-dispatch so the amount can be reviewed before going out.
-    // The send only happens when they click "안내 메일 발송" in the
-    // payment-panel (which calls this same function with force=true).
-    | "auto_send_disabled"
-    // Another trigger is currently mid-send; we backed off cleanly.
-    // Caller (cron) sees this and knows the next tick will retry.
-    | "lock_held"
-    // Every booking in the group ended up cancelled. Helper transitions
-    // payment_info.status to 'cancelled' so the row stops blocking the
-    // pending-payment dashboard / cron sweep. 2026-05-29 (A2 fix for
-    // hidden-couplings.md #25).
-    | "all_cancelled";
+  outcome: NotifyOutcome;
   bookingGroupId: string;
   detail?: string;
 }

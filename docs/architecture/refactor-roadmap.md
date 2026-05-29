@@ -197,6 +197,13 @@
   - `src/lib/booking-edit/access.ts` requireBookingEditAccess 가 자체 try/catch 대신 sub-helper 호출
   - `src/app/api/booking-edit/[token]/verify/route.ts` (POST — session 발급 endpoint. session 자체가 없으므로 requireBookingEditAccess 부적합, sub-helper 만 사용)
 - **Rationale**: B4-edit 의 verify endpoint 는 cookie 를 발급하는 곳이라 `requireBookingEditAccess` 의 4-step gate 를 적용 불가 (session step 이 chicken-and-egg). 작은 sub-helper 로 token-verify 부분만 공유.
+
+### Outcome const objects — iter 26
+
+- **Where**: `src/lib/services/payment-info-notify.service.ts` (`NOTIFY_OUTCOME`), `src/lib/services/booking-status-notify.service.ts` (`STATUS_NOTIFY_OUTCOME`)
+- **What**: 두 notify service 의 string-literal union outcome (9 + 5 = 14 outcome) 을 `as const` 객체 + `keyof typeof` 파생 type 으로. caller 가 `NOTIFY_OUTCOME.SEND_FAILED` / `STATUS_NOTIFY_OUTCOME.SENT` 으로 작성 가능. type 은 union 과 동등 — caller 가 string literal 그대로 써도 backward-compat.
+- **Why**: grep-friendliness. "어디서 send_failed 분기?" 같은 질문에 caller-side 코드를 IDE-search 로 즉시 찾을 수 있고, 새 outcome 추가 시 한 곳만 수정. iter 3 의 outcome logging 도입 후 자연스러운 후속 정리.
+- **Caller migration**: 강제하지 않음. 점진적 마이그레이션 정책. 신규 caller / 신규 분기 작성 시 권장.
 - **Behavior change**: 일부 route 가 한국어 에러 메시지 ("실험을 찾을 수 없습니다") 를 영어 ("Experiment not found") 로 표준화. UI 가 이 메시지를 i18n 으로 처리한다면 다음 phase 에서 헬퍼에 message override 옵션 추가.
 - **Blast radius**: 각 route 당 ~20 lines 제거, 1 helper 호출 추가. 동작 동일.
 
