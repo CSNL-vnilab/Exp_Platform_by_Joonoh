@@ -73,6 +73,27 @@ curl -X POST "https://lab-reservation-seven.vercel.app/api/cron/auto-complete-bo
 
 `CRON_SECRET` 는 `vercel env pull` 또는 Vercel Dashboard → Settings → Environment Variables 에서 확인.
 
+### Operator health probes (Phase A 이후 도입)
+
+```bash
+# Token-secret 모듈 5개 중 어느 것이 SUPABASE_SERVICE_ROLE_KEY 으로 fallback
+# 됐는지 한 번에 확인. anyFellThroughToServiceRole=true 면 회전 footgun.
+node scripts/smoke-secret-audit.mjs
+
+# 모든 integration_type 의 pending/failed 큐 깊이 + 오래된 row age.
+# ok=false 면 outbox 백로그 — 보통 SMTP/Notion 5xx 또는 cron 정지.
+node scripts/smoke-queue-depth.mjs
+```
+
+엔드포인트 직접 호출:
+
+```bash
+curl -sS -H "x-cron-secret: $CRON_SECRET" \
+  https://lab-reservation-seven.vercel.app/api/health/secret-audit | jq .
+curl -sS -H "x-cron-secret: $CRON_SECRET" \
+  https://lab-reservation-seven.vercel.app/api/health/queue | jq .
+```
+
 ---
 
 ## 4. 실패 시 대응

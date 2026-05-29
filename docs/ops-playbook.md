@@ -102,6 +102,20 @@ done
 All seven must be `200` or `401` — a `404` means the deploy missed that
 route.
 
+For backlog + secret-rotation visibility (Phase A 이후):
+
+```bash
+node scripts/smoke-secret-audit.mjs   # token-secret 5 modules fallback check
+node scripts/smoke-queue-depth.mjs    # booking_integrations 큐 depth + 오래된 row
+```
+
+또는 직접:
+
+```bash
+curl -sS -H "x-cron-secret: $CRON_SECRET" \
+  https://lab-reservation-seven.vercel.app/api/health/queue | jq .
+```
+
 ## Cron inventory
 
 | Schedule | Path | Fallback |
