@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
+import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 import { buildPaymentClaimEmail } from "@/lib/services/payment-claim-email";
 import { sendEmail } from "@/lib/google/gmail";
 
@@ -35,42 +35,37 @@ const sendBodySchema = z.object({
   confirm: z.literal(true),
 });
 
-async function loadAuthContext(
-  experimentId: string,
-): Promise<
-  | { ok: true; user: Awaited<ReturnType<Awaited<ReturnType<typeof createClient>>["auth"]["getUser"]>>["data"]["user"]; admin: ReturnType<typeof createAdminClient>; experiment: { id: string; title: string; created_by: string }; researcherName: string; researcherReplyEmail: string | null; ccEmail: string | null }
-  | { ok: false; status: number; error: string }
-> {
-  if (!isValidUUID(experimentId)) {
-    return { ok: false, status: 400, error: "Invalid experiment ID" };
+// Wraps the shared requireExperimentAccess helper with the extra
+// researcher-profile fields this route needs for the dispatch email
+// envelope (display_name → "발송자명", contact_email → reply-to + CC).
+// Returns the same flat shape the callers used pre-refactor so GET /
+// POST bodies don't need changes.
+async function loadAuthContext(experimentId: string) {
+  const access = await requireExperimentAccess(experimentId, {
+    extraColumns: "title",
+  });
+  if (access instanceof NextResponse) {
+    const body = (await access.json()) as { error?: string };
+    return {
+      ok: false as const,
+      status: access.status,
+      error: body.error ?? "Forbidden",
+    };
   }
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return { ok: false, status: 401, error: "Unauthorized" };
-  }
-  const admin = createAdminClient();
-  const { data: experiment } = await admin
-    .from("experiments")
-    .select("id, title, created_by")
-    .eq("id", experimentId)
-    .maybeSingle();
-  if (!experiment) {
-    return { ok: false, status: 404, error: "Experiment not found" };
-  }
+  const { user, admin } = access;
+  const experimentRow = access.experiment as unknown as {
+    id: string;
+    created_by: string | null;
+    title: string | null;
+  };
+  // Profile lookup for the email envelope. The role check already
+  // happened inside requireExperimentAccess; we only need
+  // display_name + contact_email here.
   const { data: profile } = await admin
     .from("profiles")
-    .select("role, display_name, contact_email")
+    .select("display_name, contact_email")
     .eq("id", user.id)
     .maybeSingle();
-  const isOwner = experiment.created_by === user.id;
-  const isAdmin = profile?.role === "admin";
-  if (!isOwner && !isAdmin) {
-    return { ok: false, status: 403, error: "Forbidden" };
-  }
   const researcherName =
     (profile as { display_name: string | null } | null)?.display_name ??
     "연구자";
@@ -78,15 +73,18 @@ async function loadAuthContext(
     (profile as { contact_email: string | null } | null)?.contact_email ??
     null;
   // CC the researcher's primary email so they have a record of every
-  // dispatch in their own inbox. Prefer contact_email (the address they
-  // chose to receive lab mail at) but fall back to auth.users.email so
-  // the field is never null in practice.
+  // dispatch in their own inbox. Prefer contact_email; fall back to
+  // auth.users.email so the field is never null in practice.
   const ccEmail = researcherReplyEmail ?? user.email ?? null;
   return {
-    ok: true,
+    ok: true as const,
     user,
     admin,
-    experiment: experiment as { id: string; title: string; created_by: string },
+    experiment: {
+      id: experimentRow.id,
+      title: experimentRow.title ?? "experiment",
+      created_by: experimentRow.created_by ?? "",
+    },
     researcherName,
     researcherReplyEmail,
     ccEmail,
