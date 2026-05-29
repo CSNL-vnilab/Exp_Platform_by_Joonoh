@@ -39,6 +39,40 @@ runner 큐 대기) 은 분 단위 정확도가 안 중요한 작업들에 적합
 
 비활성 / 폐기됨: `notion-retry-cron.yml` (2026-04-24 outbox-retry 로 통합).
 
+### 추가 후보 — workflow YAML 작성 대기 중
+
+| Workflow (예정 이름) | 권장 주기 | 호출 path | 무엇을 하는가 | 안 돌리면 |
+|---|---|---|---|---|
+| `gcal-orphan-reaper-cron.yml` | `0 */6 * * *` (6h) | `/api/cron/gcal-orphan-reaper` | `status IN ('cancelled','no_show') AND google_event_id IS NOT NULL` 인 row 의 GCal event 삭제 + `google_event_id=null`. cancel route 의 GCal 삭제 실패가 누적되는 것을 sweep (hidden-couplings #3 #12 #14). | 취소된 booking 의 calendar event 가 lab 캘린더에 잔존 — 연구자 schedule view 가 stale, busy check 가 false positive 가능. |
+
+endpoint 는 iter 20 (`<commit>`) 에 main 에 landed; workflow YAML 작성은 D1-followup 과 동일 패턴 — repo 의 `workflow` scope 부여 후 다음 줄을 한 cron 파일로 추가하면 됨:
+
+```yaml
+name: GCal orphan reaper
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # 6h
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger
+        env:
+          URL: https://lab-reservation-seven.vercel.app/api/cron/gcal-orphan-reaper
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" -X POST "$URL" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $status"; cat /tmp/resp; echo
+          [ "$status" = "200" ] || exit 1
+      - uses: ./.github/actions/notify-cron-failure
+        if: failure()
+        with:
+          cron-name: "GCal orphan reaper"
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
 ---
 
 ## 3. Cron 점검 — 빠른 명령

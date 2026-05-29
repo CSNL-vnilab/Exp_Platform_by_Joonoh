@@ -49,6 +49,9 @@ const CRON_PATHS = [
   "/api/cron/outbox-retry",
   "/api/cron/promotion-notifications",
   "/api/cron/metadata-reminders",
+  // gcal-orphan-reaper landed iter 20 (2026-05-30). The endpoint is
+  // gated; the GH Actions workflow YAML is the operator's follow-up.
+  "/api/cron/gcal-orphan-reaper",
 ];
 
 // /api/health/* endpoints — same cron-secret auth, probed via GET.

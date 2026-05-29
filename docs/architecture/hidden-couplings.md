@@ -28,11 +28,12 @@
 - **Caller view**: "completed mark 했으니 참여자에게 link 갈 것." 실제: 24h 까지 silent delay.
 - **Fix (Phase A1, commit `595e933`)**: mark-completed/route.ts 가 RPC 후 `notifyPaymentInfoIfReady(admin, bookingGroupId)` 즉시 호출. lock 으로 idempotent — 다른 path 가 같은 group 에 fire 해도 no-op. silent 24h delay → <30s.
 
-### #3 🔴 Blacklist cascade 가 bookings + GCal 을 silent 변형 + 알림 없음
+### #3 🟡 Blacklist cascade 가 bookings + GCal 을 silent 변형 + 알림 없음 (GCal orphan side 부분 해결)
 
 - **Where**: `participants/[participantId]/class/route.ts:186-241`
 - **What**: class 를 `blacklist` 로 set → 모든 future confirmed/running booking cancel, GCal event delete, 그러나 `notifyBookingStatusChange` 의도적으로 skip.
 - **Reader view**: 연구원이 자기 캘린더에서 참여자 사라진 것 모름; 참여자도 모름; payment_info row 가 stuck (한 booking 이 cancelled 이라 "not all completed" 가 forever block).
+- **Partial fix (iter 18 + iter 20, 2026-05-30)**: payment_info 정체 부분은 #25 ✅ 의 `'cancelled'` enum + `all_cancelled` outcome 으로 해결됨 — blacklist 가 그룹의 모든 booking 을 cancel 하면 payment_info 가 자동으로 `cancelled` 로 transition. GCal orphan 누적 부분은 새 `/api/cron/gcal-orphan-reaper` 가 sweep — blacklist cascade 가 deleteEvent 를 skip 해도 reaper 가 catch-up. **남은 문제**: notification 자체 (참여자/연구자 알림). Phase B B1 의 notify subsystem 추출에서 처리.
 
 ### #4 🟡 `bookings_recompute_class` trigger 가 모든 status='completed' transition 에 arbitrary class recompute 발사
 
@@ -86,10 +87,11 @@
 - **Where**: `booking.service.ts:709-769`
 - **What**: RPC 가 email send 전 실행되어야 email 의 "기간" 라인이 새 date 반영. Comment 가 "P0-Γ" 라 표시. 이 RPC 가 옮겨지면 email 이 stale data 사용.
 
-### #12 🟡 `createReschedGCalEvent` MUST run before bookings.update; DB-failure 시 orphan event 의 cleanup path 없음
+### #12 🟡 `createReschedGCalEvent` MUST run before bookings.update; DB-failure 시 orphan event 의 cleanup path 없음 (reaper 추가)
 
 - **Where**: PATCH `bookings/[id]:391-434`
 - **Failure**: Long-tail orphan event on shared calendar; busy-check 가 다른 참여자에게 spurious conflict.
+- **Partial fix (iter 20, 2026-05-30)**: cleanup path 가 신설됨 — `/api/cron/gcal-orphan-reaper` 가 status='cancelled'/'no_show' + google_event_id 존재 row 를 6h 마다 sweep. reschedule 의 race window (create-then-DB-update 사이 DB 실패) 자체는 여전히 가능하지만 long-tail 누적은 막힘. **남은 문제**: ordering 자체 (create-before-update) 의 전체 atomic 화 — 작은 가능성이지만 race 자체 제거하려면 trigger-based 접근 필요.
 
 ---
 
@@ -100,11 +102,12 @@
 - **Where**: `booking.service.ts:483`, `notion-retry.service.ts:182-186` (CAS via `.is("notion_page_id", null)`), `observation.service.ts:176-182` (booking_observations.notion_page_id 만, bookings 아님)
 - **What**: Notion sync target 이 2 컬럼으로 split. `syncObservationToNotion` 가 `bookings.notion_page_id` 로 fallback → observation sync 가 booking-page creation 성공에 silent depend.
 
-### #14 🟡 `bookings.google_event_id` 가 4 writer + 3 clearer
+### #14 🟡 `bookings.google_event_id` 가 4 writer + 3 clearer (reconciler 추가)
 
 - **Writers**: `booking.service.ts:384` (initial), `:814` (reschedule-legacy), `gcal-retry.service.ts:165` (CAS-guarded), `bookings/[id] PATCH:419` (reschedule new)
-- **Clearers**: PUT cancel:159, booking-edit cancel:101, blacklist cascade:227
+- **Clearers**: PUT cancel:159, booking-edit cancel:101, blacklist cascade:227, **`/api/cron/gcal-orphan-reaper`** (iter 20)
 - **What**: 일부 clearer (PUT cancel) 가 rest of pipeline skip; 다른 (blacklist) 가 `markIntegration` 우회. "event_id null" 이 cancel / never had / GCal down 어느 것인지 reader 구분 불가.
+- **Partial fix (iter 20, 2026-05-30)**: 5번째 clearer (orphan-reaper) 가 doc 의 "Key takeaways for refactor" 섹션에서 명시한 `Missing cron: GCal orphan-event reaper` 를 충족. status=terminal + event_id non-null 인 row 가 누적되지 않음. **남은 문제**: writer-clearer semantic divergence 자체 (왜 5 시스템 이 같은 컬럼 만지는지) — Phase B B5 calendar gateway 추출 때 단일 owner 화.
 
 ### #15 🟡 `booking_integrations` upsert behavior 가 seed (`ignoreDuplicates: true`) vs `markIntegration` (`update`) 으로 변경
 
