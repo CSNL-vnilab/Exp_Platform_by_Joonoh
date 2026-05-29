@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod/v4";
-import { isValidUUID, normalizeToISO } from "@/lib/utils/validation";
+import { normalizeToISO } from "@/lib/utils/validation";
 import { getFreeBusy, deleteEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { intervalsOverlap } from "@/lib/utils/date";
@@ -276,46 +275,39 @@ export async function PATCH(
   { params }: { params: Promise<{ bookingId: string }> },
 ) {
   const { bookingId } = await params;
-  if (!isValidUUID(bookingId)) {
-    return NextResponse.json({ error: "잘못된 예약 ID입니다" }, { status: 400 });
-  }
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "인증이 필요합니다" }, { status: 401 });
-  }
-
-  const admin = createAdminClient();
-  const { data: booking, error: fetchErr } = await admin
-    .from("bookings")
-    .select(
-      "id, status, experiment_id, slot_start, slot_end, session_number, booking_group_id, google_event_id, experiments(created_by, weekdays, max_participants_per_slot, google_calendar_id, status)",
-    )
-    .eq("id", bookingId)
-    .single();
-
-  if (fetchErr || !booking) {
-    return NextResponse.json({ error: "예약을 찾을 수 없습니다" }, { status: 404 });
-  }
-
-  const exp = booking.experiments as unknown as {
+  // Default owner-or-admin — admins were allowed to reschedule
+  // pre-helper. The select pulls every booking + experiment column the
+  // reschedule pipeline below references (status / slot window / group
+  // members for renumber / google_event_id for GCal patch on the
+  // booking side; weekdays / capacity / calendar_id / status on the
+  // experiment side for the slot validation).
+  const access = await requireBookingAccess(bookingId, {
+    extraBookingColumns:
+      "status, slot_start, slot_end, session_number, booking_group_id, google_event_id",
+    extraExperimentColumns:
+      "weekdays, max_participants_per_slot, google_calendar_id, status",
+  });
+  if (access instanceof NextResponse) return access;
+  const { admin } = access;
+  const booking = access.booking as unknown as {
+    id: string;
+    experiment_id: string;
+    status: string;
+    slot_start: string;
+    slot_end: string;
+    session_number: number;
+    booking_group_id: string | null;
+    google_event_id: string | null;
+  };
+  const exp = access.experiment as unknown as {
+    id: string;
     created_by: string | null;
     weekdays: number[];
     max_participants_per_slot: number;
     google_calendar_id: string | null;
     status: string;
   };
-
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isAdmin = profile?.role === "admin";
-  if (!isAdmin && exp.created_by !== user.id) {
-    return NextResponse.json({ error: "권한이 없습니다" }, { status: 403 });
-  }
 
   if (booking.status !== "confirmed") {
     return NextResponse.json(

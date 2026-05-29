@@ -155,8 +155,11 @@
 - **Iter 12 migrated**:
   - `bookings/[bookingId]/route.ts` (GET — `extraBookingColumns: "*"`, ownerOnly; PUT — `extraBookingColumns: "status, google_event_id, booking_group_id"` + `extraExperimentColumns: "google_calendar_id"`, ownerOnly)
   - `bookings/[bookingId]/observation/route.ts` (GET — ownerOnly; PUT — `extraBookingColumns: "slot_start"`, ownerOnly)
-- **Deferred**:
-  - `bookings/[bookingId]/route.ts` PATCH (reschedule path) — 200+ lines of GCal/notify pipeline + already touches `experiments` separately for `weekdays, max_participants_per_slot, status`. Mixed `owner-or-admin` semantics. Worth migrating but the route's body is intertwined with the auth fetch. Phase B-medium follow-up.
+- **Iter 13 migrated**:
+  - `bookings/[bookingId]/route.ts` PATCH (reschedule, 200+ lines) — `owner-or-admin` (default), `extraBookingColumns: "status, slot_start, slot_end, session_number, booking_group_id, google_event_id"` + `extraExperimentColumns: "weekdays, max_participants_per_slot, google_calendar_id, status"`. The route body's reschedule pipeline (GCal patch, renumber, reminders RPC, propagate_payment_period RPC, email/SMS, cache invalidate) is unchanged — only the auth preamble swapped.
+  - Cleaned up the file's now-unused `createClient` and `isValidUUID` imports — every method now goes through `requireBookingAccess` (which provides both internally).
+
+**Cumulative B4-medium** (iter 12-13): **5 methods migrated** (GET + PUT + PATCH on bookings/[id]; GET + PUT on observation), ~110 lines of duplicated auth-gate boilerplate removed. Booking auth surface now fully consolidated — no remaining inline `bookings.select(..., experiments(created_by, ...))` ownership checks in production routes.
 - **Behavior change**: 일부 route 가 한국어 에러 메시지 ("실험을 찾을 수 없습니다") 를 영어 ("Experiment not found") 로 표준화. UI 가 이 메시지를 i18n 으로 처리한다면 다음 phase 에서 헬퍼에 message override 옵션 추가.
 - **Blast radius**: 각 route 당 ~20 lines 제거, 1 helper 호출 추가. 동작 동일.
 
