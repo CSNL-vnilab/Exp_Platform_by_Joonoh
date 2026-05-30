@@ -47,7 +47,7 @@
 - **2026-05-29** — 최초 작성. codex×3 + opus×3 의 통합 결과. f957baa / 529f0ed / 2751af1 / 53d66c2 까지 반영.
 - **2026-05-29 ~ 30** — Phase A + 자율 loop iter 1-22 진행. 아래 "자율 loop 진행 요약" 절 참조.
 
-## 자율 loop 진행 요약 (Phase A + iter 1-30, 2026-05-29 ~ 30)
+## 자율 loop 진행 요약 (Phase A + iter 1-32, 2026-05-29 ~ 30)
 
 원본 청사진의 "broken/fragile" 영역과 hidden-couplings 의 🔴 8 항목 중 다수를 자율적으로 처리한 작업 누적. 인계인이 이 절만 읽고도 현 위치를 파악할 수 있도록 의도.
 
@@ -61,7 +61,7 @@
 | `src/lib/booking-edit/access.ts` | requireBookingEditAccess + verifyBookingEditTokenOrError sub-helper (iter 24) | iter 17 / 24 | 3 routes (cancel, reschedule, verify) |
 | `src/lib/observability/pii.ts` | scrubPii / scrubLastError 단일 owner | A6 / iter 1 | 8+ caller |
 | `src/lib/http/origin.ts` | getAppOrigin / getAppOriginOrNull (per-call, not module-cached) | B7-light / iter 1 | 13 call site |
-| `src/lib/google/title-helpers.ts` | creatorInitial + formatKrPhone + calendarTitle (drift fix — runtime vs retry 의 calendar title 변동 버그 완전 해소) | iter 25 + 30 | booking.service + gcal-retry.service |
+| `src/lib/google/title-helpers.ts` | creatorInitial + formatKrPhone + calendarTitle + calendarDescription (4 helper, drift fix 완전 — runtime/retry 의 모든 calendar title/description 차이 해소) | iter 25 + 30 + 32 | booking.service + gcal-retry.service |
 
 **확장 (기존 모듈에 const 추가)**:
 
@@ -98,7 +98,7 @@
 - creatorInitial + formatKrPhone + calendarTitle drift fix (iter 25 + 30) — calendar title 일관성 완전 해소
 - migration 00066-00067 신규 (payment_status enum + 폐기 RPC drop)
 - 5 token 모듈 + 13 experiment routes + 5 booking methods + 3 booking-edit routes 의 auth 가 단일 helper-family 통과
-- subsystems.md cross-cutting helpers 5 항목 중 **4 ✅ 완전** (#1 PII, #2 origin, #4 title-helpers, #5 token secret 부분) + #3 KST partial. 잔여 — calendarDescription escapeHtml drift (gcal-retry only) 만.
+- subsystems.md cross-cutting helpers 5 항목 중 **4 ✅ 완전** (#1 PII, #2 origin, #4 title-helpers 완전 including calendarDescription, #5 token secret 부분) + #3 KST partial. cross-cutting 영역의 잔여 hold 없음.
 
 ### 다음 단계 (사용자 작업 필요)
 
@@ -107,7 +107,7 @@
 - **migration 00066/00067** prod 적용 (Supabase Dashboard 또는 `supabase db push`).
 - **Phase B 본격 진행 검토**: B1 (`notify/`), B2 (`outbox/`), B3 (`payment-info/`), B4 (token kernel HMAC body 통합), B5 (`calendar/`), B6 (`notion/`), B7 (`http/` 의 rate-limit + KV-backed), B8 (KST date helpers — partial done).
 
-### Cumulative commits (Phase A + iter 1-30)
+### Cumulative commits (Phase A + iter 1-32)
 
 | Iter | Commit | 주제 |
 |---|---|---|
@@ -141,4 +141,6 @@
 | 27 | `7464f01` | NOTION_COLUMN const (21 ids) + client.ts migration |
 | 28 | `b21914e` | README iter 23-27 후속 정리 |
 | 29 | `98328fd` | notify service 23 return site → *_OUTCOME.X |
-| 30 | `eb9dfb6` | calendarTitle extraction (cross-cutting #4 ✅ 완전) |
+| 30 | `eb9dfb6` | calendarTitle extraction |
+| 31 | `bb1e4a9` | README iter 28-30 후속 정리 |
+| 32 | `775c755` | calendarDescription extraction + escapeHtml drift 해소 (cross-cutting #4 ✅ 완전) |
