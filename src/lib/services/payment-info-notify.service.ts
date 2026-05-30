@@ -207,17 +207,17 @@ async function notifyPaymentInfoIfReadyImpl(
 
   const row = rowRaw as unknown as PaymentInfoRow | null;
   if (!row) {
-    return { outcome: "no_payment_row", bookingGroupId };
+    return { outcome: NOTIFY_OUTCOME.NO_PAYMENT_ROW, bookingGroupId };
   }
 
   // Idempotency gate — force=true (explicit admin resend) bypasses so
   // the researcher can re-send after an amount edit. Without force we
   // refuse to re-send a row that's already been dispatched once.
   if (row.payment_link_sent_at && !options.force) {
-    return { outcome: "already_sent", bookingGroupId };
+    return { outcome: NOTIFY_OUTCOME.ALREADY_SENT, bookingGroupId };
   }
   if (row.amount_krw <= 0) {
-    return { outcome: "amount_zero", bookingGroupId };
+    return { outcome: NOTIFY_OUTCOME.AMOUNT_ZERO, bookingGroupId };
   }
   // If the row was already submitted (참여자가 이미 정산 정보를 제출한 경우)
   // — 이미 메일이 굳이 필요 없다. 멱등성 차원에서 sent_at 을 stamp 해둔다.
@@ -226,7 +226,7 @@ async function notifyPaymentInfoIfReadyImpl(
       .from("participant_payment_info")
       .update({ payment_link_sent_at: new Date().toISOString() })
       .eq("id", row.id);
-    return { outcome: "already_sent", bookingGroupId, detail: "row not pending" };
+    return { outcome: NOTIFY_OUTCOME.ALREADY_SENT, bookingGroupId, detail: "row not pending" };
   }
 
   // 2) Group readiness gate.
@@ -254,7 +254,7 @@ async function notifyPaymentInfoIfReadyImpl(
     .eq("booking_group_id", bookingGroupId);
   const groupBookings = bookings ?? [];
   if (groupBookings.length === 0) {
-    return { outcome: "not_all_completed", bookingGroupId, detail: "no bookings" };
+    return { outcome: NOTIFY_OUTCOME.NOT_ALL_COMPLETED, bookingGroupId, detail: "no bookings" };
   }
   const nonCancelled = groupBookings.filter((b) => b.status !== "cancelled");
   if (nonCancelled.length === 0) {
@@ -277,14 +277,14 @@ async function notifyPaymentInfoIfReadyImpl(
       .eq("id", row.id)
       .eq("status", "pending_participant");
     return {
-      outcome: "all_cancelled",
+      outcome: NOTIFY_OUTCOME.ALL_CANCELLED,
       bookingGroupId,
       detail: "all bookings in group are cancelled",
     };
   }
   const allCompleted = nonCancelled.every((b) => b.status === "completed");
   if (!allCompleted) {
-    return { outcome: "not_all_completed", bookingGroupId };
+    return { outcome: NOTIFY_OUTCOME.NOT_ALL_COMPLETED, bookingGroupId };
   }
 
   // 3) Resolve recipient + experiment context. participants(name, email) is
@@ -326,7 +326,7 @@ async function notifyPaymentInfoIfReadyImpl(
     experimentForGate.payment_link_auto_send === false
   ) {
     return {
-      outcome: "auto_send_disabled",
+      outcome: NOTIFY_OUTCOME.AUTO_SEND_DISABLED,
       bookingGroupId,
       detail:
         "experiment.payment_link_auto_send=false — researcher must trigger explicitly",
@@ -344,14 +344,14 @@ async function notifyPaymentInfoIfReadyImpl(
     (row.name_override?.trim() || participant?.name || "").trim();
   if (!recipientEmail) {
     await stampFailure(supabase, row.id, "no recipient email");
-    return { outcome: "no_recipient", bookingGroupId };
+    return { outcome: NOTIFY_OUTCOME.NO_RECIPIENT, bookingGroupId };
   }
   const experiment = experimentRaw as unknown as
     | { id: string; title: string; created_by: string | null }
     | null;
   if (!experiment) {
     await stampFailure(supabase, row.id, "experiment not found");
-    return { outcome: "send_failed", bookingGroupId, detail: "experiment missing" };
+    return { outcome: NOTIFY_OUTCOME.SEND_FAILED, bookingGroupId, detail: "experiment missing" };
   }
 
   // 3.5) Acquire dispatch lock (P0-Α). Atomic UPDATE that succeeds only
@@ -414,7 +414,7 @@ async function notifyPaymentInfoIfReadyImpl(
 
   if ((lockCount ?? 0) === 0) {
     return {
-      outcome: "lock_held",
+      outcome: NOTIFY_OUTCOME.LOCK_HELD,
       bookingGroupId,
       detail: "another dispatch in progress",
     };
@@ -480,7 +480,7 @@ async function notifyPaymentInfoIfReadyImpl(
     if (!recipientEmail) {
       await releaseLock();
       await stampFailure(supabase, row.id, "no recipient email after override removal");
-      return { outcome: "no_recipient", bookingGroupId };
+      return { outcome: NOTIFY_OUTCOME.NO_RECIPIENT, bookingGroupId };
     }
     // Codex 2nd-pass M: re-check status as well. submit/route.ts can
     // CAS pending_participant → submitted_to_admin from another
@@ -495,7 +495,7 @@ async function notifyPaymentInfoIfReadyImpl(
         .update({ payment_link_sent_at: new Date().toISOString() })
         .eq("id", row.id);
       return {
-        outcome: "already_sent",
+        outcome: NOTIFY_OUTCOME.ALREADY_SENT,
         bookingGroupId,
         detail: `status changed to ${freshRow.status} after lock acquire`,
       };
@@ -507,7 +507,7 @@ async function notifyPaymentInfoIfReadyImpl(
     // but cheap insurance against future lock-pattern changes).
     if (freshRow.payment_link_sent_at) {
       await releaseLock();
-      return { outcome: "already_sent", bookingGroupId, detail: "stamped after lock acquire" };
+      return { outcome: NOTIFY_OUTCOME.ALREADY_SENT, bookingGroupId, detail: "stamped after lock acquire" };
     }
   }
   // Re-validate auto_send under lock. force=true bypasses, matching
@@ -522,7 +522,7 @@ async function notifyPaymentInfoIfReadyImpl(
     if (gate && gate.payment_link_auto_send === false) {
       await releaseLock();
       return {
-        outcome: "auto_send_disabled",
+        outcome: NOTIFY_OUTCOME.AUTO_SEND_DISABLED,
         bookingGroupId,
         detail: "auto_send toggled off after lock acquire",
       };
@@ -531,7 +531,7 @@ async function notifyPaymentInfoIfReadyImpl(
   // Same guard for amount_krw becoming 0 after override.
   if (row.amount_krw <= 0) {
     await releaseLock();
-    return { outcome: "amount_zero", bookingGroupId, detail: "amount zeroed after lock acquire" };
+    return { outcome: NOTIFY_OUTCOME.AMOUNT_ZERO, bookingGroupId, detail: "amount zeroed after lock acquire" };
   }
   // 4) Token strategy (P0 #6):
   //
@@ -690,7 +690,7 @@ async function notifyPaymentInfoIfReadyImpl(
       })
       .eq("id", row.id);
     return {
-      outcome: "send_failed",
+      outcome: NOTIFY_OUTCOME.SEND_FAILED,
       bookingGroupId,
       detail: sendResult.error ?? "unknown",
     };
@@ -725,7 +725,7 @@ async function notifyPaymentInfoIfReadyImpl(
     );
   }
 
-  return { outcome: "sent", bookingGroupId, detail: sendResult.messageId };
+  return { outcome: NOTIFY_OUTCOME.SENT, bookingGroupId, detail: sendResult.messageId };
   } finally {
     // Belt-and-braces: if any unexpected throw escaped the try (template
     // crash, network error before stamp, etc.), release the lock so the
@@ -786,7 +786,7 @@ export async function sweepPaymentInfoNotifications(
     } catch (err) {
       errors++;
       results.push({
-        outcome: "send_failed",
+        outcome: NOTIFY_OUTCOME.SEND_FAILED,
         bookingGroupId: bgId,
         detail: err instanceof Error ? err.message : "unknown",
       });

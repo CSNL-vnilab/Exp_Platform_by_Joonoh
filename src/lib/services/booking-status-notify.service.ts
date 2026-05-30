@@ -93,7 +93,7 @@ async function notifyBookingStatusChangeImpl(
   texter: Texter,
 ): Promise<NotifyStatusResult> {
   if (newStatus !== "cancelled" && newStatus !== "no_show") {
-    return { outcome: "skipped_invalid_status", bookingId };
+    return { outcome: STATUS_NOTIFY_OUTCOME.SKIPPED_INVALID_STATUS, bookingId };
   }
 
   // Pull everything the templates need in one shot.
@@ -123,12 +123,12 @@ async function notifyBookingStatusChangeImpl(
         } | null;
       }
     | null;
-  if (!booking) return { outcome: "booking_not_found", bookingId };
+  if (!booking) return { outcome: STATUS_NOTIFY_OUTCOME.BOOKING_NOT_FOUND, bookingId };
 
   const participant = booking.participants;
   const experiment = booking.experiments;
   if (!participant?.email || !experiment) {
-    return { outcome: "no_recipient", bookingId };
+    return { outcome: STATUS_NOTIFY_OUTCOME.NO_RECIPIENT, bookingId };
   }
 
   // Researcher contact (best-effort — falls back through helper chain).
@@ -234,7 +234,7 @@ async function notifyBookingStatusChangeImpl(
 
   if (!emailResult.success) {
     return {
-      outcome: "send_failed",
+      outcome: STATUS_NOTIFY_OUTCOME.SEND_FAILED,
       bookingId,
       channel: "email",
       detail: emailResult.error ?? "unknown",
@@ -273,7 +273,7 @@ async function notifyBookingStatusChangeImpl(
   }
 
   return {
-    outcome: "sent",
+    outcome: STATUS_NOTIFY_OUTCOME.SENT,
     bookingId,
     channel,
     detail: emailResult.messageId,
