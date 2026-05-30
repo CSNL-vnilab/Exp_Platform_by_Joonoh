@@ -5,7 +5,10 @@ import { createBookingPage } from "@/lib/notion/client";
 import { sendEmail } from "@/lib/google/gmail";
 import { sendSMS } from "@/lib/solapi/client";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
-import { creatorInitial, formatKrPhone } from "@/lib/google/title-helpers";
+import {
+  calendarTitle as buildCalendarTitle,
+  formatKrPhone,
+} from "@/lib/google/title-helpers";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { issueRunToken } from "@/lib/experiments/run-token";
 import { issuePaymentToken } from "@/lib/payments/token";
@@ -316,13 +319,17 @@ async function markIntegration(
 // path used, with a small drift in the email-derived branch resolved
 // to the runtime semantics (commit iter 25, 2026-05-30).
 
-function calendarTitle(booking: BookingRow, creator: CreatorProfile | null): string {
-  const initial = creatorInitial(creator);
-  const project =
-    booking.experiments.project_name?.trim() || booking.experiments.title;
-  const sbj = booking.subject_number ?? 0;
-  const day = booking.session_number ?? 1;
-  return `[${initial}] ${project}/Sbj ${sbj}/Day ${day}`;
+function calendarTitle(
+  booking: BookingRow,
+  creator: CreatorProfile | null,
+): string {
+  return buildCalendarTitle({
+    creator,
+    experimentTitle: booking.experiments.title,
+    projectName: booking.experiments.project_name,
+    subjectNumber: booking.subject_number,
+    sessionNumber: booking.session_number,
+  });
 }
 
 function calendarDescription(booking: BookingRow): string {

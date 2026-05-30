@@ -13,7 +13,10 @@ import { createEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { escapeHtml } from "@/lib/utils/validation";
 import { scrubPii } from "@/lib/observability/pii";
-import { creatorInitial, formatKrPhone } from "@/lib/google/title-helpers";
+import {
+  calendarTitle as buildCalendarTitle,
+  formatKrPhone,
+} from "@/lib/google/title-helpers";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -127,14 +130,18 @@ export async function runGCalRetry(
     creator = (prof as { email: string; display_name: string | null } | null) ?? null;
   }
 
-  const initial = creatorInitial(creator);
-  const projectName = experiment.project_name?.trim() || experiment.title;
-  const sbj = row.subject_number ?? 0;
+  const summary = buildCalendarTitle({
+    creator,
+    experimentTitle: experiment.title,
+    projectName: experiment.project_name,
+    subjectNumber: row.subject_number,
+    sessionNumber: row.session_number,
+  });
   const day = row.session_number ?? 1;
 
   try {
     const eventId = await createEvent(calendarId, {
-      summary: `[${initial}] ${projectName}/Sbj ${sbj}/Day ${day}`,
+      summary,
       description: [
         `예약자: ${escapeHtml(participant.name)}`,
         `이메일: ${participant.email}`,

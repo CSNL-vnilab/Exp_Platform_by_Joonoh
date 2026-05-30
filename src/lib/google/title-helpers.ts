@@ -64,3 +64,37 @@ export function formatKrPhone(raw: string): string {
   if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
   return raw;
 }
+
+export interface CalendarTitleInput {
+  /** Researcher whose initial tag goes in `[...]` at the front. */
+  creator: CalendarTitleCreator | null;
+  /** Experiment project_name (preferred when set) or title (fallback). */
+  experimentTitle: string;
+  /** Optional project label. When trimmed-non-empty, used instead of title. */
+  projectName: string | null;
+  /** 1-based subject number; 0 when unassigned. */
+  subjectNumber: number | null;
+  /** 1-based session count within the booking_group. */
+  sessionNumber: number | null;
+}
+
+/**
+ * Generate a Google Calendar event title from the booking + experiment
+ * shape. Format is:
+ *
+ *     [<INITIAL>] <project-or-title>/Sbj <n>/Day <n>
+ *
+ * e.g. `[KIMJ] TimeExp1/Sbj 7/Day 3`.
+ *
+ * Both the runtime post-booking pipeline (booking.service.ts) and the
+ * cron retry path (gcal-retry.service.ts) compose the title identically
+ * — extracted here in iter 30 (2026-05-30) so a future tweak (e.g.
+ * adding the experiment status flag) touches one place.
+ */
+export function calendarTitle(input: CalendarTitleInput): string {
+  const initial = creatorInitial(input.creator);
+  const project = input.projectName?.trim() || input.experimentTitle;
+  const sbj = input.subjectNumber ?? 0;
+  const day = input.sessionNumber ?? 1;
+  return `[${initial}] ${project}/Sbj ${sbj}/Day ${day}`;
+}
