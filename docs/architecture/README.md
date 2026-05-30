@@ -47,20 +47,29 @@
 - **2026-05-29** — 최초 작성. codex×3 + opus×3 의 통합 결과. f957baa / 529f0ed / 2751af1 / 53d66c2 까지 반영.
 - **2026-05-29 ~ 30** — Phase A + 자율 loop iter 1-22 진행. 아래 "자율 loop 진행 요약" 절 참조.
 
-## 자율 loop 진행 요약 (Phase A + iter 1-22, 2026-05-29 ~ 30)
+## 자율 loop 진행 요약 (Phase A + iter 1-27, 2026-05-29 ~ 30)
 
 원본 청사진의 "broken/fragile" 영역과 hidden-couplings 의 🔴 8 항목 중 다수를 자율적으로 처리한 작업 누적. 인계인이 이 절만 읽고도 현 위치를 파악할 수 있도록 의도.
 
-### 신설 모듈 (6)
+### 신설 모듈 (7) + 확장 (3)
 
 | 모듈 | 역할 | 도입 | 누적 사용처 |
 |---|---|---|---|
 | `src/lib/auth/secret-source.ts` | resolveSecret + KNOWN_TOKEN_SECRETS + auditTokenSecrets | A3 / iter 1 | 5 token 모듈 |
 | `src/lib/auth/experiment-access.ts` | requireExperimentAccess (extraColumns, ownerOnly) | iter 7 | 13 routes |
 | `src/lib/auth/booking-access.ts` | requireBookingAccess (extraBookingColumns, extraExperimentColumns, ownerOnly, `*` wildcard) | iter 12 | 5 methods |
-| `src/lib/booking-edit/access.ts` | requireBookingEditAccess (no admin override, HMAC token + verify-session cookie) | iter 17 | 2 routes |
-| `src/lib/observability/pii.ts` | scrubPii / scrubLastError 단일 owner | A6 / iter 1 | 8+ caller (4 retry service + 2 cancel path + observation + reaper) |
+| `src/lib/booking-edit/access.ts` | requireBookingEditAccess + verifyBookingEditTokenOrError sub-helper (iter 24) | iter 17 / 24 | 3 routes (cancel, reschedule, verify) |
+| `src/lib/observability/pii.ts` | scrubPii / scrubLastError 단일 owner | A6 / iter 1 | 8+ caller |
 | `src/lib/http/origin.ts` | getAppOrigin / getAppOriginOrNull (per-call, not module-cached) | B7-light / iter 1 | 13 call site |
+| `src/lib/google/title-helpers.ts` | creatorInitial + formatKrPhone (drift fix — 같은 연구자가 runtime vs retry 경로에서 다른 calendar title 받던 버그 해소) | iter 25 | booking.service + gcal-retry.service |
+
+**확장 (기존 모듈에 const 추가)**:
+
+| 확장 | 어디 | 도입 | 의도 |
+|---|---|---|---|
+| `NOTIFY_OUTCOME` const + `NotifyOutcome` type | `payment-info-notify.service.ts` | iter 26 | 9 outcome 의 caller-side grep 가능성. string literal 그대로 써도 backward-compat. |
+| `STATUS_NOTIFY_OUTCOME` const + `StatusNotifyOutcome` type | `booking-status-notify.service.ts` | iter 26 | 5 outcome 동일 패턴. |
+| `NOTION_COLUMN` const + `NotionColumnName` type | `notion/schema.ts` | iter 27 | 21 semantic id ↔ Korean column name. client.ts 의 ~28 inline string literal 제거. NOTION_REQUIRED_PROPERTIES 도 const 참조 (single owner). |
 
 ### 신설 endpoint (3)
 
@@ -84,8 +93,11 @@
 
 - ~435 lines 중복 auth boilerplate 제거 (B4 family 3 helpers)
 - ~290 lines 중복 inline compute 제거 (origin / PII / secret-source)
+- ~28 inline Notion column string literal 제거 → 21 semantic id const (iter 27)
+- creatorInitial + formatKrPhone drift fix (iter 25) — calendar title 일관성
 - migration 00066-00067 신규 (payment_status enum + 폐기 RPC drop)
-- 5 token 모듈 + 13 experiment routes + 5 booking methods + 2 booking-edit routes 의 auth 가 단일 helper-family 통과
+- 5 token 모듈 + 13 experiment routes + 5 booking methods + 3 booking-edit routes 의 auth 가 단일 helper-family 통과
+- subsystems.md cross-cutting helpers 5 항목 중 4 ✅ (#1 PII, #2 origin, #4 title-helpers, #5 token secret partial). #3 KST partial, 나머지 unfixed.
 
 ### 다음 단계 (사용자 작업 필요)
 
@@ -94,7 +106,7 @@
 - **migration 00066/00067** prod 적용 (Supabase Dashboard 또는 `supabase db push`).
 - **Phase B 본격 진행 검토**: B1 (`notify/`), B2 (`outbox/`), B3 (`payment-info/`), B4 (token kernel HMAC body 통합), B5 (`calendar/`), B6 (`notion/`), B7 (`http/` 의 rate-limit + KV-backed), B8 (KST date helpers — partial done).
 
-### Cumulative commits (Phase A + iter 1-22)
+### Cumulative commits (Phase A + iter 1-27)
 
 | Iter | Commit | 주제 |
 |---|---|---|
@@ -121,3 +133,8 @@
 | 20 | `470105a` | GCal orphan reaper endpoint (#3 #12 #14 partial) |
 | 21 | `d789ee0` | reaper grace_hours + batch_limit params |
 | 22 | `11b16d2` | subsystems.md mermaid + cross-cutting helpers ✅ |
+| 23 | `ee5ed54` | README 자율 loop 종합 요약 (iter 1-22) |
+| 24 | `3a2d2b7` | verifyBookingEditTokenOrError sub-helper + verify route 정리 |
+| 25 | `8abdf8f` | creatorInitial + formatKrPhone dedup + drift fix (subsystems #4 ✅) |
+| 26 | `194983f` | NOTIFY_OUTCOME + STATUS_NOTIFY_OUTCOME const exports |
+| 27 | `7464f01` | NOTION_COLUMN const (21 ids) + client.ts migration |
