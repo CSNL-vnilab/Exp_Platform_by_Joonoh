@@ -11,11 +11,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
-import { escapeHtml } from "@/lib/utils/validation";
 import { scrubPii } from "@/lib/observability/pii";
 import {
   calendarTitle as buildCalendarTitle,
-  formatKrPhone,
+  calendarDescription as buildCalendarDescription,
 } from "@/lib/google/title-helpers";
 
 type Supabase = ReturnType<typeof createAdminClient>;
@@ -137,17 +136,17 @@ export async function runGCalRetry(
     subjectNumber: row.subject_number,
     sessionNumber: row.session_number,
   });
-  const day = row.session_number ?? 1;
+  const description = buildCalendarDescription({
+    participantName: participant.name,
+    participantEmail: participant.email,
+    participantPhone: participant.phone,
+    sessionNumber: row.session_number ?? 1,
+  });
 
   try {
     const eventId = await createEvent(calendarId, {
       summary,
-      description: [
-        `예약자: ${escapeHtml(participant.name)}`,
-        `이메일: ${participant.email}`,
-        `전화번호: ${formatKrPhone(participant.phone)}`,
-        `회차: ${day}회차`,
-      ].join("\n"),
+      description,
       start: new Date(row.slot_start),
       end: new Date(row.slot_end),
       // Same idempotency key the runtime pipeline uses, so a retry after a

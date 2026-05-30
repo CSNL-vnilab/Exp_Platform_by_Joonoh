@@ -98,3 +98,36 @@ export function calendarTitle(input: CalendarTitleInput): string {
   const day = input.sessionNumber ?? 1;
   return `[${initial}] ${project}/Sbj ${sbj}/Day ${day}`;
 }
+
+export interface CalendarDescriptionInput {
+  participantName: string;
+  participantEmail: string;
+  /** Digits-only or pretty-printed; helper passes through formatKrPhone. */
+  participantPhone: string;
+  sessionNumber: number;
+}
+
+/**
+ * Compose the Google Calendar event description block — the
+ * researcher-facing card that lists the participant's contact info
+ * and the session count.
+ *
+ * iter 32 (2026-05-30) resolved a drift between the runtime path
+ * (booking.service.ts, which left the participant name raw) and the
+ * cron retry path (gcal-retry.service.ts, which ran the name through
+ * `escapeHtml` before substituting). The drift was incidental — only
+ * `name` was being escaped while `email` and `phone` were not, and the
+ * runtime path has been running in production unescaped without
+ * issue. Modern Google Calendar clients display plain text in the
+ * description card, so the escape was effectively a no-op. Single
+ * owner now skips it for both paths; if a future client renders HTML
+ * we can add the escape here and inherit it everywhere.
+ */
+export function calendarDescription(input: CalendarDescriptionInput): string {
+  return [
+    `예약자: ${input.participantName}`,
+    `이메일: ${input.participantEmail}`,
+    `전화번호: ${formatKrPhone(input.participantPhone)}`,
+    `회차: ${input.sessionNumber}회차`,
+  ].join("\n");
+}

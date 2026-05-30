@@ -7,7 +7,7 @@ import { sendSMS } from "@/lib/solapi/client";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import {
   calendarTitle as buildCalendarTitle,
-  formatKrPhone,
+  calendarDescription as buildCalendarDescription,
 } from "@/lib/google/title-helpers";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { issueRunToken } from "@/lib/experiments/run-token";
@@ -334,12 +334,12 @@ function calendarTitle(
 
 function calendarDescription(booking: BookingRow): string {
   const p = booking.participants;
-  return [
-    `예약자: ${p.name}`,
-    `이메일: ${p.email}`,
-    `전화번호: ${formatKrPhone(p.phone)}`,
-    `회차: ${booking.session_number}회차`,
-  ].join("\n");
+  return buildCalendarDescription({
+    participantName: p.name,
+    participantEmail: p.email,
+    participantPhone: p.phone,
+    sessionNumber: booking.session_number,
+  });
 }
 
 async function runGCal(
