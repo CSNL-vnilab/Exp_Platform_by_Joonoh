@@ -3,6 +3,7 @@
 // headers and back off pre-emptively. The wrapper handles auth,
 // Notion-Version, JSON body, and 429 retry with Retry-After respect.
 import { fetchNotion } from "@/lib/notion/rate-limit";
+import { NOTION_COLUMN } from "@/lib/notion/schema";
 
 export interface BookingNotionData {
   experimentTitle: string;
@@ -47,43 +48,54 @@ export async function createBookingPage(data: BookingNotionData): Promise<string
   const timeRange = `${formatTime(data.slotStartIso)} - ${formatTime(data.slotEndIso)}`;
 
   const properties: Record<string, unknown> = {
-    실험명: { title: [{ text: { content: data.experimentTitle } }] },
-    프로젝트: {
+    [NOTION_COLUMN.TITLE]: {
+      title: [{ text: { content: data.experimentTitle } }],
+    },
+    [NOTION_COLUMN.PROJECT]: {
       rich_text: [{ text: { content: data.projectName ?? "" } }],
     },
-    실험날짜: { date: { start: kstDate } },
-    시간: { rich_text: [{ text: { content: timeRange } }] },
-    "피험자 ID": {
+    [NOTION_COLUMN.DATE]: { date: { start: kstDate } },
+    [NOTION_COLUMN.TIME]: {
+      rich_text: [{ text: { content: timeRange } }],
+    },
+    [NOTION_COLUMN.SUBJECT_ID]: {
       rich_text: [
-        { text: { content: data.subjectNumber != null ? `Sbj${data.subjectNumber}` : "" } },
+        {
+          text: {
+            content:
+              data.subjectNumber != null ? `Sbj${data.subjectNumber}` : "",
+          },
+        },
       ],
     },
-    회차: { number: data.sessionNumber },
-    참여자: { rich_text: [{ text: { content: data.participantName } }] },
+    [NOTION_COLUMN.SESSION_NUMBER]: { number: data.sessionNumber },
+    [NOTION_COLUMN.PARTICIPANT]: {
+      rich_text: [{ text: { content: data.participantName } }],
+    },
     // NOTE: 실험자 is now a Relation column (type changed via Notion API
     // 2026-04-23). It's populated below only when researcherMemberPageId
     // is known. Writing rich_text here would 400.
-    상태: { select: { name: data.status } },
+    [NOTION_COLUMN.STATUS]: { select: { name: data.status } },
     // Pseudonymous lab-scoped code. Populated when Stream B's identity row
     // exists; otherwise left empty. This column is the preferred external
     // reference (see docs/notion-db-template.md §7 PII note).
-    "공개 ID": {
+    [NOTION_COLUMN.PUBLIC_ID]: {
       rich_text: [{ text: { content: data.publicCode ?? "" } }],
     },
     // Experiment protocol version label (migration 00042).
-    "버전넘버": {
+    [NOTION_COLUMN.PROTOCOL_VERSION]: {
       rich_text: [{ text: { content: data.protocolVersion ?? "" } }],
     },
   };
   // Optional Relation arrays (migration 00043). Only emit when we have an
   // id — Notion accepts empty [] but we'd rather not clutter the payload.
   if (data.researcherMemberPageId) {
-    properties["실험자"] = {
+    properties[NOTION_COLUMN.RESEARCHER] = {
       relation: [{ id: data.researcherMemberPageId }],
     };
   }
   if (data.projectPageId) {
-    properties["프로젝트 (관련)"] = {
+    properties[NOTION_COLUMN.PROJECT_RELATION] = {
       relation: [{ id: data.projectPageId }],
     };
   }
@@ -106,7 +118,9 @@ export async function updateBookingPage(
   await fetchNotion(`/v1/pages/${pageId}`, {
     method: "PATCH",
     body: JSON.stringify({
-      properties: { 상태: { select: { name: status } } },
+      properties: {
+        [NOTION_COLUMN.STATUS]: { select: { name: status } },
+      },
     }),
   });
 }
@@ -159,51 +173,67 @@ export async function createExperimentPage(
     .join("\n");
 
   const properties: Record<string, unknown> = {
-    실험명: {
+    [NOTION_COLUMN.TITLE]: {
       title: [{ text: { content: `[실험] ${data.experimentTitle}` } }],
     },
-    프로젝트: {
+    [NOTION_COLUMN.PROJECT]: {
       rich_text: [{ text: { content: data.projectName ?? "" } }],
     },
-    "버전넘버": {
+    [NOTION_COLUMN.PROTOCOL_VERSION]: {
       rich_text: [{ text: { content: data.protocolVersion ?? "" } }],
     },
-    실험날짜: { date: { start: data.startDate, end: data.endDate } },
-    시간: {
-      rich_text: [{ text: { content: `${data.startDate} ~ ${data.endDate}` } }],
+    [NOTION_COLUMN.DATE]: {
+      date: { start: data.startDate, end: data.endDate },
     },
-    "피험자 ID": { rich_text: [{ text: { content: "실험 마스터" } }] },
-    회차: { number: 0 },
+    [NOTION_COLUMN.TIME]: {
+      rich_text: [
+        { text: { content: `${data.startDate} ~ ${data.endDate}` } },
+      ],
+    },
+    [NOTION_COLUMN.SUBJECT_ID]: {
+      rich_text: [{ text: { content: "실험 마스터" } }],
+    },
+    [NOTION_COLUMN.SESSION_NUMBER]: { number: 0 },
     // 참여자 is blank on the experiment-master row — there's no specific
     // person tied to it. The researcher goes in the 실험자 Relation
     // column populated below (only when researcherMemberPageId is set).
-    참여자: { rich_text: [{ text: { content: "" } }] },
-    상태: { select: { name: data.status } },
+    [NOTION_COLUMN.PARTICIPANT]: {
+      rich_text: [{ text: { content: "" } }],
+    },
+    [NOTION_COLUMN.STATUS]: { select: { name: data.status } },
     // Notion Text column accepts both URLs and raw paths, so we standardise on
     // rich_text rather than branching on url/text. This matches the documented
     // schema in docs/notion-db-template.md: the column must be configured as
     // Text (not URL) so server-path strings don't 400.
-    "Code Directory": { rich_text: [{ text: { content: data.codeRepoUrl } }] },
-    "Data Directory": { rich_text: [{ text: { content: data.dataPath } }] },
-    Parameter: {
+    [NOTION_COLUMN.CODE_DIRECTORY]: {
+      rich_text: [{ text: { content: data.codeRepoUrl } }],
+    },
+    [NOTION_COLUMN.DATA_DIRECTORY]: {
+      rich_text: [{ text: { content: data.dataPath } }],
+    },
+    [NOTION_COLUMN.PARAMETER]: {
       rich_text: [{ text: { content: paramSummary || "(없음)" } }],
     },
-    Notes: {
+    [NOTION_COLUMN.NOTES]: {
       rich_text: [
         {
-          text: { content: checklistSummary ? `체크리스트:\n${checklistSummary}` : "" },
+          text: {
+            content: checklistSummary
+              ? `체크리스트:\n${checklistSummary}`
+              : "",
+          },
         },
       ],
     },
   };
   // Relations (migration 00043) — only emit when we have the id.
   if (data.researcherMemberPageId) {
-    properties["실험자"] = {
+    properties[NOTION_COLUMN.RESEARCHER] = {
       relation: [{ id: data.researcherMemberPageId }],
     };
   }
   if (data.projectPageId) {
-    properties["프로젝트 (관련)"] = {
+    properties[NOTION_COLUMN.PROJECT_RELATION] = {
       relation: [{ id: data.projectPageId }],
     };
   }
@@ -271,18 +301,18 @@ export async function upsertObservationPage(
   // the free-text 정보 / 특이사항 columns are rich_text so researchers can paste
   // multi-line notes.
   const observationProps: Record<string, unknown> = {
-    "공개 ID": {
+    [NOTION_COLUMN.PUBLIC_ID]: {
       rich_text: [{ text: { content: data.publicCode ?? "" } }],
     },
-    "Pre-Survey 완료": { checkbox: data.preSurveyDone },
-    "Pre-Survey 정보": {
+    [NOTION_COLUMN.PRE_SURVEY_DONE]: { checkbox: data.preSurveyDone },
+    [NOTION_COLUMN.PRE_SURVEY_INFO]: {
       rich_text: [{ text: { content: data.preSurveyInfo ?? "" } }],
     },
-    "Post-Survey 완료": { checkbox: data.postSurveyDone },
-    "Post-Survey 정보": {
+    [NOTION_COLUMN.POST_SURVEY_DONE]: { checkbox: data.postSurveyDone },
+    [NOTION_COLUMN.POST_SURVEY_INFO]: {
       rich_text: [{ text: { content: data.postSurveyInfo ?? "" } }],
     },
-    특이사항: {
+    [NOTION_COLUMN.NOTABLE_OBSERVATIONS]: {
       rich_text: [{ text: { content: data.notableObservations ?? "" } }],
     },
   };
@@ -302,13 +332,17 @@ export async function upsertObservationPage(
   const timeRange = `${formatTime(data.slotStartIso)} - ${formatTime(data.slotEndIso)}`;
 
   const properties: Record<string, unknown> = {
-    실험명: { title: [{ text: { content: data.experimentTitle } }] },
-    프로젝트: {
+    [NOTION_COLUMN.TITLE]: {
+      title: [{ text: { content: data.experimentTitle } }],
+    },
+    [NOTION_COLUMN.PROJECT]: {
       rich_text: [{ text: { content: data.projectName ?? "" } }],
     },
-    실험날짜: { date: { start: kstDate } },
-    시간: { rich_text: [{ text: { content: timeRange } }] },
-    "피험자 ID": {
+    [NOTION_COLUMN.DATE]: { date: { start: kstDate } },
+    [NOTION_COLUMN.TIME]: {
+      rich_text: [{ text: { content: timeRange } }],
+    },
+    [NOTION_COLUMN.SUBJECT_ID]: {
       rich_text: [
         {
           text: {
@@ -318,14 +352,16 @@ export async function upsertObservationPage(
         },
       ],
     },
-    회차: { number: data.sessionNumber },
+    [NOTION_COLUMN.SESSION_NUMBER]: { number: data.sessionNumber },
     // Fallback page: we don't have participant name handy here, and we must
     // avoid synthesising fake PII. Leave 참여자 blank; the 공개 ID below is
     // the canonical reference. Researchers can manually relink if needed.
-    참여자: { rich_text: [{ text: { content: "" } }] },
+    [NOTION_COLUMN.PARTICIPANT]: {
+      rich_text: [{ text: { content: "" } }],
+    },
     // 실험자 is a Relation column — we don't have a member page id in
     // this fallback path, so it stays empty.
-    상태: { select: { name: "완료" } },
+    [NOTION_COLUMN.STATUS]: { select: { name: "완료" } },
     ...observationProps,
   };
 

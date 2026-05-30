@@ -19,7 +19,40 @@ export type NotionPropertySpec =
   | { name: string; type: "title" }
   | { name: string; type: "relation"; relatedDbId: string };
 
-export const NOTION_TITLE_COLUMN = "실험명";
+// Canonical Korean column names indexed by semantic id. Single owner —
+// `client.ts`, `health` cron, and `notion-setup.mjs` all read from here
+// so a column rename in one place automatically updates the others.
+// Added iter 27 (2026-05-30) to replace the 25+ inline `"실험명"`
+// string literals that were scattered across the file.
+export const NOTION_COLUMN = {
+  TITLE: "실험명",
+  DATE: "실험날짜",
+  TIME: "시간",
+  PROJECT: "프로젝트",
+  PROTOCOL_VERSION: "버전넘버",
+  SUBJECT_ID: "피험자 ID",
+  SESSION_NUMBER: "회차",
+  PARTICIPANT: "참여자",
+  RESEARCHER: "실험자",
+  PROJECT_RELATION: "프로젝트 (관련)",
+  PUBLIC_ID: "공개 ID",
+  STATUS: "상태",
+  PRE_SURVEY_DONE: "Pre-Survey 완료",
+  PRE_SURVEY_INFO: "Pre-Survey 정보",
+  POST_SURVEY_DONE: "Post-Survey 완료",
+  POST_SURVEY_INFO: "Post-Survey 정보",
+  NOTABLE_OBSERVATIONS: "특이사항",
+  CODE_DIRECTORY: "Code Directory",
+  DATA_DIRECTORY: "Data Directory",
+  PARAMETER: "Parameter",
+  NOTES: "Notes",
+} as const;
+
+export type NotionColumnName =
+  (typeof NOTION_COLUMN)[keyof typeof NOTION_COLUMN];
+
+/** @deprecated since iter 27 — prefer `NOTION_COLUMN.TITLE`. */
+export const NOTION_TITLE_COLUMN = NOTION_COLUMN.TITLE;
 
 // Non-title columns, in the desired display order for the default view.
 // Researcher convenience: 실험명 → 실험날짜 → 시간 → 프로젝트 → 버전넘버 →
@@ -35,43 +68,43 @@ export const NOTION_MEMBERS_DB_ID = "94854705-c91d-4a35-a91e-803c5934745e";
 export const NOTION_PROJECTS_DB_ID = "76e7c392-127e-47f3-8b7e-212610db9376";
 
 export const NOTION_REQUIRED_PROPERTIES: NotionPropertySpec[] = [
-  { name: "실험명", type: "title" },
-  { name: "실험날짜", type: "date" },
-  { name: "시간", type: "rich_text" },
-  { name: "프로젝트", type: "rich_text" },
-  { name: "버전넘버", type: "rich_text" },
-  { name: "피험자 ID", type: "rich_text" },
-  { name: "회차", type: "number" },
-  { name: "참여자", type: "rich_text" },
+  { name: NOTION_COLUMN.TITLE, type: "title" },
+  { name: NOTION_COLUMN.DATE, type: "date" },
+  { name: NOTION_COLUMN.TIME, type: "rich_text" },
+  { name: NOTION_COLUMN.PROJECT, type: "rich_text" },
+  { name: NOTION_COLUMN.PROTOCOL_VERSION, type: "rich_text" },
+  { name: NOTION_COLUMN.SUBJECT_ID, type: "rich_text" },
+  { name: NOTION_COLUMN.SESSION_NUMBER, type: "number" },
+  { name: NOTION_COLUMN.PARTICIPANT, type: "rich_text" },
   // 실험자: Relation → CSNL Members. Populated from
   // profiles.notion_member_page_id; empty when unmapped.
   {
-    name: "실험자",
+    name: NOTION_COLUMN.RESEARCHER,
     type: "relation",
     relatedDbId: NOTION_MEMBERS_DB_ID,
   },
   // 프로젝트 (관련): Relation → Projects & Chores. Populated from
   // experiments.notion_project_page_id; empty when unmapped.
   {
-    name: "프로젝트 (관련)",
+    name: NOTION_COLUMN.PROJECT_RELATION,
     type: "relation",
     relatedDbId: NOTION_PROJECTS_DB_ID,
   },
-  { name: "공개 ID", type: "rich_text" },
+  { name: NOTION_COLUMN.PUBLIC_ID, type: "rich_text" },
   {
-    name: "상태",
+    name: NOTION_COLUMN.STATUS,
     type: "select",
     options: ["확정", "취소", "완료", "no_show"],
   },
-  { name: "Pre-Survey 완료", type: "checkbox" },
-  { name: "Pre-Survey 정보", type: "rich_text" },
-  { name: "Post-Survey 완료", type: "checkbox" },
-  { name: "Post-Survey 정보", type: "rich_text" },
-  { name: "특이사항", type: "rich_text" },
-  { name: "Code Directory", type: "rich_text" },
-  { name: "Data Directory", type: "rich_text" },
-  { name: "Parameter", type: "rich_text" },
-  { name: "Notes", type: "rich_text" },
+  { name: NOTION_COLUMN.PRE_SURVEY_DONE, type: "checkbox" },
+  { name: NOTION_COLUMN.PRE_SURVEY_INFO, type: "rich_text" },
+  { name: NOTION_COLUMN.POST_SURVEY_DONE, type: "checkbox" },
+  { name: NOTION_COLUMN.POST_SURVEY_INFO, type: "rich_text" },
+  { name: NOTION_COLUMN.NOTABLE_OBSERVATIONS, type: "rich_text" },
+  { name: NOTION_COLUMN.CODE_DIRECTORY, type: "rich_text" },
+  { name: NOTION_COLUMN.DATA_DIRECTORY, type: "rich_text" },
+  { name: NOTION_COLUMN.PARAMETER, type: "rich_text" },
+  { name: NOTION_COLUMN.NOTES, type: "rich_text" },
 ];
 
 export interface NotionLivePropertyType {
