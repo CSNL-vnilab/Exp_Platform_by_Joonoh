@@ -96,7 +96,9 @@ export async function syncObservationToNotion(
 
   if (error || !data) {
     const msg = error?.message ?? "booking not found";
-    await mark({ status: "failed", last_error: msg.slice(0, 500) });
+    // Supabase errors are schema-level, not PII, but scrub for
+    // consistency with the rest of the last_error write surface (A6).
+    await mark({ status: "failed", last_error: scrubPii(msg).slice(0, 500) });
     return { ok: false, error: msg };
   }
 

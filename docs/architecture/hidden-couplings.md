@@ -19,7 +19,8 @@
 - **What**: `cancelled`/`no_show` 으로 status PUT 하면 `notifyBookingStatusChange` (참여자 email + SMS + audit) 호출; `completed` 면 `notifyPaymentInfoIfReady` (정산 메일 가능).
 - **Caller view**: "status 만 바꾼다." Reader view: SMTP send, Solapi send, 2 booking_integrations audit row, 별도 참여자 email.
 - **Failure**: SMTP fail 은 swallow; DB 는 `cancelled` 이지만 참여자 모름. PII 가 `last_error` 로 누설 (일부 path 만 scrub).
-- **Partial fix (Phase A iter 0 + iter 3, 2026-05-29)**: PII 누설 부분은 A6 의 `@/lib/observability/pii` 중앙 helper 로 전 경로 통일됨. fan-out 자체는 outcome logging (iter 3: 구조화된 `[StatusNotify]`/`[PaymentInfoNotify]` info-level grep-able 로그) 으로 추적 가능. fan-out 의 동적 dispatch 자체는 여전히 silent — 완전 해결은 `notify/` subsystem 추출 (Phase B B1) 필요.
+- **PII 누설 ✅ 완전 해결 (A6 iter 1 + iter 37, 2026-05-29 ~ 06-01)**: A6 (iter 1) 가 4 retry service + 2 cancel path 를 `@/lib/observability/pii` 로 통일했지만, **runtime first-attempt 경로** (booking.service.ts 의 post-booking GCal/Notion/email/SMS + reschedule pipeline) 와 두 notify SEND service (booking-status-notify `writeStatusAudit`, payment-info-notify dispatch) 는 외부 API 에러를 raw 로 `last_error` 에 기록 중이었음 — iter 37 audit 에서 발견. 이제 11 write site 전부 `scrubPii()` 통과 (외부 GCal/Notion/SMTP/Solapi 에러가 참여자 email/phone echo 해도 redact). 내부 literal 문자열 ("experiment missing" 등) 은 의도적으로 미적용. `scripts/check-pii-scrub.mjs` 의 18 golden fixtures + drift check 가 regression 방지.
+- **Partial — fan-out 추적**: outcome logging (iter 3: 구조화된 `[StatusNotify]`/`[PaymentInfoNotify]` info-level grep-able 로그) 으로 추적 가능. fan-out 의 동적 dispatch 자체는 여전히 silent — 완전 해결은 `notify/` subsystem 추출 (Phase B B1) 필요.
 
 ### #2 ✅ `mark_group_completed` RPC bypasses notifyPaymentInfoIfReady — 최대 24h silent delay
 

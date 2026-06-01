@@ -31,6 +31,7 @@ import { issuePaymentToken } from "@/lib/payments/token";
 import { buildPaymentInfoEmail } from "@/lib/services/payment-info-email-template";
 import { bytesFromSupabase, decryptToken, encryptToken } from "@/lib/crypto/payment-info";
 import { getAppOrigin } from "@/lib/http/origin";
+import { scrubPii } from "@/lib/observability/pii";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -684,7 +685,7 @@ async function notifyPaymentInfoIfReadyImpl(
       .from("participant_payment_info")
       .update({
         payment_link_attempts: attemptsBase + 1,
-        payment_link_last_error: (sendResult.error ?? "unknown").slice(0, 500),
+        payment_link_last_error: scrubPii(sendResult.error ?? "unknown").slice(0, 500),
         payment_link_last_attempt_at: nowIso,
         payment_link_dispatch_lock_until: null,
       })

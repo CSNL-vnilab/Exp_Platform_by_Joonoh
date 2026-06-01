@@ -17,6 +17,7 @@ import { backfillIdentityForBooking } from "@/lib/services/participant-identity.
 import { buildConfirmationEmail } from "@/lib/services/booking-email-template";
 import { issueBookingEditToken } from "@/lib/booking-edit/token";
 import { getAppOrigin } from "@/lib/http/origin";
+import { scrubPii } from "@/lib/observability/pii";
 import {
   buildRescheduleEmail,
   buildRescheduleSMS,
@@ -377,7 +378,7 @@ async function runGCal(
       console.error(`[PostBooking] GCal failed for ${booking.id}:`, msg);
       await markIntegration(supabase, booking.id, "gcal", {
         status: "failed",
-        last_error: msg.slice(0, 500),
+        last_error: scrubPii(msg).slice(0, 500),
       });
     }
   }
@@ -476,7 +477,7 @@ async function runNotion(supabase: Supabase, rows: BookingRow[]) {
       console.error(`[PostBooking] Notion failed for ${booking.id}:`, msg);
       await markIntegration(supabase, booking.id, "notion", {
         status: "failed",
-        last_error: msg.slice(0, 500),
+        last_error: scrubPii(msg).slice(0, 500),
       });
     }
   }
@@ -575,7 +576,7 @@ async function runEmail(
     } else {
       await markIntegration(supabase, booking.id, "email", {
         status: "failed",
-        last_error: (result.error ?? "unknown").slice(0, 500),
+        last_error: scrubPii(result.error ?? "unknown").slice(0, 500),
       });
     }
   }
@@ -604,7 +605,7 @@ async function runSMS(supabase: Supabase, rows: BookingRow[]) {
     for (const b of rows) {
       await markIntegration(supabase, b.id, "sms", {
         status: "failed",
-        last_error: msg.slice(0, 500),
+        last_error: scrubPii(msg).slice(0, 500),
       });
     }
   }
@@ -794,7 +795,9 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
       status: "completed",
       external_id: params.newEventId,
       last_error: oldEventDeleteError
-        ? `new event created (${params.newEventId}); orphan old event ${params.oldEventId} on ${calendarId} not deleted: ${oldEventDeleteError.slice(0, 350)}`
+        ? scrubPii(
+            `new event created (${params.newEventId}); orphan old event ${params.oldEventId} on ${calendarId} not deleted: ${oldEventDeleteError}`,
+          ).slice(0, 500)
         : undefined,
     });
     if (calendarId) await invalidateCalendarCache(calendarId).catch(() => {});
@@ -819,7 +822,7 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
       const msg = err instanceof Error ? err.message : String(err);
       await markIntegration(supabase, row.id, "gcal", {
         status: "failed",
-        last_error: msg.slice(0, 500),
+        last_error: scrubPii(msg).slice(0, 500),
       });
     }
     await invalidateCalendarCache(calendarId).catch(() => {});
@@ -915,7 +918,9 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   await markIntegration(supabase, row.id, "email", {
     status: emailResult.success ? "completed" : "failed",
     external_id: emailResult.messageId,
-    last_error: emailResult.error?.slice(0, 500),
+    last_error: emailResult.error
+      ? scrubPii(emailResult.error).slice(0, 500)
+      : undefined,
   });
 
   if (process.env.SOLAPI_API_KEY && process.env.SOLAPI_API_SECRET) {
@@ -949,7 +954,7 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
       const msg = err instanceof Error ? err.message : String(err);
       await markIntegration(supabase, row.id, "sms", {
         status: "failed",
-        last_error: msg.slice(0, 500),
+        last_error: scrubPii(msg).slice(0, 500),
       });
     }
   }

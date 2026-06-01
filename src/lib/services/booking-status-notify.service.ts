@@ -17,6 +17,7 @@ import {
   type BookingStatusEmailInput,
 } from "@/lib/services/booking-status-email";
 import { getAppOriginOrNull } from "@/lib/http/origin";
+import { scrubPii } from "@/lib/observability/pii";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -314,7 +315,7 @@ async function writeStatusAudit(
           status: result.success ? "completed" : "failed",
           attempts: ((existing as { attempts?: number } | null)?.attempts ?? 0) + 1,
           external_id: result.externalId ?? null,
-          last_error: result.error?.slice(0, 500) ?? null,
+          last_error: result.error ? scrubPii(result.error).slice(0, 500) : null,
           processed_at: new Date().toISOString(),
         },
         { onConflict: "booking_id,integration_type" },
