@@ -276,9 +276,9 @@ graph TD
 
 ---
 
-## Auto-loop additions (2026-05-29 ~ 05-30, iter 1-21)
+## Auto-loop additions (2026-05-29 ~ 06-01, iter 1-32)
 
-위 main graph 가 도입 당시 "should exist" 청사진이었다면 아래 그래프는 자율 loop iter 1-21 에서 실제로 main 에 들어간 helper/endpoint 의 의존성. 음영 노드 = 신설.
+위 main graph 가 도입 당시 "should exist" 청사진이었다면 아래 그래프는 자율 loop iter 1-32 에서 실제로 main 에 들어간 helper/endpoint/const 의 의존성. 음영 노드 = 신설.
 
 ```mermaid
 graph LR
@@ -288,13 +288,13 @@ graph LR
     REE[Routes — booking-edit]
   end
 
-  subgraph "B4 family auth helpers (iter 7-17)"
+  subgraph "B4 family auth helpers (iter 7-17, 24)"
     EA["experiment-access.ts<br/>(13 routes)"]:::added
     BA["booking-access.ts<br/>(5 methods)"]:::added
-    BEA["booking-edit/access.ts<br/>(2 routes, token-credential)"]:::added
+    BEA["booking-edit/access.ts<br/>+ verifyBookingEditTokenOrError<br/>(3 routes inc. verify)"]:::added
   end
 
-  subgraph "Observability (iter 1, 4, 14)"
+  subgraph "Observability (iter 1, 4-5, 14)"
     PII["observability/pii.ts<br/>(scrubPii owner)"]:::added
     HSA["/api/health/secret-audit<br/>(iter 1)"]:::added
     HQ["/api/health/queue<br/>(iter 5)"]:::added
@@ -315,6 +315,20 @@ graph LR
 
   subgraph "Cron (iter 20-21)"
     GOR["/api/cron/gcal-orphan-reaper<br/>(grace_hours + batch_limit)"]:::added
+  end
+
+  subgraph "Calendar gateway pre-laying (iter 25, 30, 32)"
+    TH["google/title-helpers.ts<br/>creatorInitial + formatKrPhone<br/>+ calendarTitle + calendarDescription"]:::added
+  end
+
+  subgraph "Notify outcome const (iter 26, 29)"
+    NOX["payment-info-notify<br/>NOTIFY_OUTCOME (9 ids, 18 sites)"]:::added
+    SNOX["booking-status-notify<br/>STATUS_NOTIFY_OUTCOME (5 ids, 5 sites)"]:::added
+  end
+
+  subgraph "Notion column const (iter 27)"
+    NCC["notion/schema.ts<br/>NOTION_COLUMN (21 ids)"]:::added
+    NCL[notion/client.ts<br/>4 writers]
   end
 
   RE --> EA
@@ -342,10 +356,19 @@ graph LR
 
   Many["13+ call sites (booking/notify/email)"] --> ORI
 
+  BS["booking.service.ts"] --> TH
+  GR["gcal-retry.service.ts"] --> TH
+
+  NCL --> NCC
+  CRON_HEALTH["notion-health cron"] --> NCC
+
+  PINotify["payment-info-notify.service.ts"] --> NOX
+  BSNotify["booking-status-notify.service.ts"] --> SNOX
+
   classDef added fill:#dff,stroke:#06c,stroke-width:2px;
 ```
 
-**누적**: 6 신설 모듈 (3 auth helpers + secret-source + pii + origin) + 3 신설 endpoint (2 health + 1 cron) + 5 token 모듈 통합 (secret-source 로). `subsystems.md` 의 #2 Token kernel + #10 Auth + #5 Dispatch 영역의 cross-cutting 정리 큰 진척. 자세한 진행 표는 [`refactor-roadmap.md § B4 family helpers`](./refactor-roadmap.md) 참조.
+**누적 (iter 1-32)**: 7 신설 모듈 (3 auth helpers + secret-source + pii + origin + title-helpers) + 3 신설 endpoint (2 health + 1 cron) + 3 확장 const-object (NOTIFY_OUTCOME / STATUS_NOTIFY_OUTCOME / NOTION_COLUMN, ~28+18+5+5 = 56 inline literal 마이그레이션) + 5 token 모듈 통합 (secret-source 로) + 1 sub-helper (verifyBookingEditTokenOrError). `subsystems.md` 의 #2 Token kernel + #10 Auth + #5 Dispatch + #3 Calendar gateway pre-laying + #4 Notion mirror 영역의 cross-cutting 정리 사실상 완료. 자세한 진행 표는 [`refactor-roadmap.md § B4 family helpers`](./refactor-roadmap.md) 와 [`README.md § Cumulative commits`](./README.md) 참조.
 
 ---
 
