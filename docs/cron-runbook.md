@@ -156,6 +156,14 @@ curl -sS -H "x-cron-secret: $CRON_SECRET" \
   https://lab-reservation-seven.vercel.app/api/health/secret-audit | jq .
 curl -sS -H "x-cron-secret: $CRON_SECRET" \
   https://lab-reservation-seven.vercel.app/api/health/queue | jq .
+
+# Rate-limit (hidden-couplings #21 가시화, iter 35-36) — Per-Lambda
+# 스냅샷. 여러 번 호출 후 distinct pid 수를 세어 warm instance 수
+# 추정. cluster cap = configured cap × distinct pids.
+for i in 1 2 3 4 5; do
+  curl -sS -H "x-cron-secret: $CRON_SECRET" \
+    https://lab-reservation-seven.vercel.app/api/health/rate-limit | jq -c
+done | sort -u
 ```
 
 ---

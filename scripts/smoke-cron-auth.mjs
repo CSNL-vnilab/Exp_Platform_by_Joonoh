@@ -55,11 +55,14 @@ const CRON_PATHS = [
 ];
 
 // /api/health/* endpoints — same cron-secret auth, probed via GET.
-// Added Phase A iter 1/5: secret-audit checks token-secret fallback;
-// queue checks integration outbox backlog. Both must 401 without secret.
+// Added Phase A iter 1/5/36: secret-audit checks token-secret fallback;
+// queue checks integration outbox backlog; rate-limit exposes per-
+// Lambda bucket state (hidden-couplings #21). All must 401 without
+// secret.
 const HEALTH_PATHS = [
   "/api/health/secret-audit",
   "/api/health/queue",
+  "/api/health/rate-limit",
 ];
 
 const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
