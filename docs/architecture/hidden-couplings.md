@@ -146,10 +146,11 @@
 - **Where**: 모든 `invalidateCalendarCache` caller
 - **What**: invalidation site 한 곳 miss = public booking page 가 5 분 stale availability 보임. invalidation 이 `.catch(() => {})` 로 silent drop.
 
-### #21 🟡 In-memory rate-limit `buckets` Map 이 per-Lambda-instance
+### #21 🟡 In-memory rate-limit `buckets` Map 이 per-Lambda-instance (가시화)
 
 - **Where**: `utils/rate-limit.ts:40`
 - **What**: `payment-submit-ip`, `payment-submit-token`, `payment-touch-*` 가 모두 여기. Vercel 의 multiple warm Lambda instance 가 count split → real cap = cap × instance_count.
+- **Partial fix (iter 35, 2026-06-01)**: 구조적 해결은 Phase E2 의 KV-backed migration 이지만, 그 사이의 운영 가시성 추가. `rateLimit()` 첫 호출 시 process 당 1회 `[rate-limit] per-Lambda in-memory bucket (pid=…) — hidden-couplings #21` 경고 로그. 운영자는 Vercel 로그에서 distinct pid 수를 세어 실제 cap multiplier 추정 가능. `getRateLimitDiagnostics()` 도 export — 향후 `/api/health/rate-limit` 에서 instance 별 bucket 수 snapshot 노출 가능.
 
 ### #22 🟡 `nodemailer.transporter` 가 module-level singleton
 
