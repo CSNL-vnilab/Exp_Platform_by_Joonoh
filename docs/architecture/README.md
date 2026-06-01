@@ -47,7 +47,7 @@
 - **2026-05-29** — 최초 작성. codex×3 + opus×3 의 통합 결과. f957baa / 529f0ed / 2751af1 / 53d66c2 까지 반영.
 - **2026-05-29 ~ 30** — Phase A + 자율 loop iter 1-22 진행. 아래 "자율 loop 진행 요약" 절 참조.
 
-## 자율 loop 진행 요약 (Phase A + iter 1-32, 2026-05-29 ~ 30)
+## 자율 loop 진행 요약 (Phase A + iter 1-38, 2026-05-29 ~ 06-01)
 
 원본 청사진의 "broken/fragile" 영역과 hidden-couplings 의 🔴 8 항목 중 다수를 자율적으로 처리한 작업 누적. 인계인이 이 절만 읽고도 현 위치를 파악할 수 있도록 의도.
 
@@ -59,7 +59,7 @@
 | `src/lib/auth/experiment-access.ts` | requireExperimentAccess (extraColumns, ownerOnly) | iter 7 | 13 routes |
 | `src/lib/auth/booking-access.ts` | requireBookingAccess (extraBookingColumns, extraExperimentColumns, ownerOnly, `*` wildcard) | iter 12 | 5 methods |
 | `src/lib/booking-edit/access.ts` | requireBookingEditAccess + verifyBookingEditTokenOrError sub-helper (iter 24) | iter 17 / 24 | 3 routes (cancel, reschedule, verify) |
-| `src/lib/observability/pii.ts` | scrubPii / scrubLastError 단일 owner | A6 / iter 1 | 8+ caller |
+| `src/lib/observability/pii.ts` | scrubPii / scrubLastError 단일 owner | A6 / iter 1 | 13+ caller (retry×4 + cancel×2 + runtime-first-attempt×8 + notify SEND×2 + payment-claim email + reaper + observation) |
 | `src/lib/http/origin.ts` | getAppOrigin / getAppOriginOrNull (per-call, not module-cached) | B7-light / iter 1 | 13 call site |
 | `src/lib/google/title-helpers.ts` | creatorInitial + formatKrPhone + calendarTitle + calendarDescription (4 helper, drift fix 완전 — runtime/retry 의 모든 calendar title/description 차이 해소) | iter 25 + 30 + 32 | booking.service + gcal-retry.service |
 
@@ -71,13 +71,14 @@
 | `STATUS_NOTIFY_OUTCOME` const + `StatusNotifyOutcome` type | `booking-status-notify.service.ts` | iter 26 | 5 outcome 동일 패턴. |
 | `NOTION_COLUMN` const + `NotionColumnName` type | `notion/schema.ts` | iter 27 | 21 semantic id ↔ Korean column name. client.ts 의 ~28 inline string literal 제거. NOTION_REQUIRED_PROPERTIES 도 const 참조 (single owner). |
 
-### 신설 endpoint (3)
+### 신설 endpoint (4)
 
 | Endpoint | 역할 | 도입 |
 |---|---|---|
 | `GET /api/health/secret-audit` | 5 token 모듈 중 어느 것이 SUPABASE_SERVICE_ROLE_KEY 으로 fallback 됐는지 audit (cron-secret-gated) | iter 1 |
 | `GET /api/health/queue` | booking_integrations 의 pending/failed 큐 깊이 + 오래된 row age | iter 5 |
 | `POST/GET /api/cron/gcal-orphan-reaper` | status=cancelled/no_show + google_event_id 존재 row sweep (grace_hours + batch_limit param) | iter 20-21 |
+| `GET /api/health/rate-limit` | per-Lambda bucket snapshot (pid 기반 distinct-instance 카운트로 cap multiplier 추정) | iter 36 |
 
 ### 5 신설 smoke scripts
 
@@ -85,9 +86,9 @@
 
 ### Hidden-couplings 진척 (30 항목 중)
 
-- ✅ 완전 해결: **5** — #2 (mark_group_completed gap), #23 (token-secret fallback chain), #25 (partial-cancel payment_info stuck), #28 (observation Notion fork), 그리고 audit-row-vs-reality drift 일부.
-- 🟡 부분 해결: **5** — #1 (PII scrub centralize + outcome logging), #3 (GCal orphan side via reaper), #6 (lock + outcome logging + 5번째 entry 통합), #12 (long-tail orphan reaper), #14 (5번째 clearer = reaper).
-- ⏳ 미해결: **20** — refactor-roadmap.md 의 Phase B/C 에서 처리.
+- ✅ 완전 해결: **6** — #2 (mark_group_completed gap), #4 (title-helpers drift), #23 (token-secret fallback chain), #25 (partial-cancel payment_info stuck), #28 (observation Notion fork), 그리고 audit-row-vs-reality drift 일부.
+- 🟡 부분 해결: **6** — #1 (PII 누설 ✅ 완전 [iter 37-38] + fan-out dispatch visibility partial), #3 (GCal orphan side via reaper), #6 (lock + outcome logging + 6번째 entry 통합), #12 (long-tail orphan reaper), #14 (5번째 clearer = reaper), #21 (rate-limit per-Lambda 가시화 + /api/health/rate-limit).
+- ⏳ 미해결: **18** — refactor-roadmap.md 의 Phase B/C 에서 처리.
 
 ### 누적 통계
 
@@ -95,7 +96,8 @@
 - ~290 lines 중복 inline compute 제거 (origin / PII / secret-source)
 - ~28 inline Notion column string literal 제거 → 21 semantic id const (iter 27)
 - 23 outcome string literal 마이그레이션 → NOTIFY_OUTCOME.X / STATUS_NOTIFY_OUTCOME.X (iter 26 const + iter 29 fanout)
-- creatorInitial + formatKrPhone + calendarTitle drift fix (iter 25 + 30) — calendar title 일관성 완전 해소
+- creatorInitial + formatKrPhone + calendarTitle + calendarDescription drift fix (iter 25 + 30 + 32) — calendar title/description 일관성 완전 해소
+- **PII 누설 audit 완전 종료 (iter 37-38)** — `last_error` write surface 전체 (booking_integrations 11 site + payment_claims email_last_error chokepoint) 가 scrubPii 통과. 외부 GCal/Notion/SMTP/Solapi 에러의 참여자 email/phone echo redact.
 - migration 00066-00067 신규 (payment_status enum + 폐기 RPC drop)
 - 5 token 모듈 + 13 experiment routes + 5 booking methods + 3 booking-edit routes 의 auth 가 단일 helper-family 통과
 - subsystems.md cross-cutting helpers 5 항목 중 **4 ✅ 완전** (#1 PII, #2 origin, #4 title-helpers 완전 including calendarDescription, #5 token secret 부분) + #3 KST partial. cross-cutting 영역의 잔여 hold 없음.
@@ -107,7 +109,7 @@
 - **migration 00066/00067** prod 적용 (Supabase Dashboard 또는 `supabase db push`).
 - **Phase B 본격 진행 검토**: B1 (`notify/`), B2 (`outbox/`), B3 (`payment-info/`), B4 (token kernel HMAC body 통합), B5 (`calendar/`), B6 (`notion/`), B7 (`http/` 의 rate-limit + KV-backed), B8 (KST date helpers — partial done).
 
-### Cumulative commits (Phase A + iter 1-32)
+### Cumulative commits (Phase A + iter 1-38)
 
 | Iter | Commit | 주제 |
 |---|---|---|
@@ -144,3 +146,9 @@
 | 30 | `eb9dfb6` | calendarTitle extraction |
 | 31 | `bb1e4a9` | README iter 28-30 후속 정리 |
 | 32 | `775c755` | calendarDescription extraction + escapeHtml drift 해소 (cross-cutting #4 ✅ 완전) |
+| 33 | `bae2d12` | README iter 31-32 후속 정리 |
+| 34 | `0d21adf` | subsystems.md mermaid iter 22-32 확장 |
+| 35 | `c0ea1ae` | rate-limit 가시화 (warn-once + getRateLimitDiagnostics, #21 partial) |
+| 36 | `95d911b` | /api/health/rate-limit endpoint + smoke + cron-runbook |
+| 37 | `419a571` | PII scrub runtime-first-attempt + notify SEND (#1 PII ✅ 완전) |
+| 38 | `34c697d` | payment_claims.email_last_error scrub (PII audit 종료) |
