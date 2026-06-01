@@ -6,6 +6,7 @@ import { isValidUUID } from "@/lib/utils/validation";
 import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 import { buildPaymentClaimEmail } from "@/lib/services/payment-claim-email";
 import { sendEmail } from "@/lib/google/gmail";
+import { scrubPii } from "@/lib/observability/pii";
 
 // /api/experiments/:experimentId/payment-claim/:claimId/email
 //
@@ -103,7 +104,13 @@ async function stampError(
   claimId: string,
   message: string,
 ): Promise<void> {
-  const truncated = message.slice(0, 500);
+  // Scrub before persisting — callers pass SMTP / payload-build errors
+  // that can echo the recipient envelope (email) or decrypted RRN /
+  // bankbook detail. Single chokepoint so every caller inherits the
+  // redaction (A6 / hidden-couplings #1, extended to payment_claims in
+  // iter 38). Internal Zod-validation messages carry no PII but the
+  // scrub is a harmless no-op on them.
+  const truncated = scrubPii(message).slice(0, 500);
   const { error } = await admin
     .from("payment_claims")
     .update({
