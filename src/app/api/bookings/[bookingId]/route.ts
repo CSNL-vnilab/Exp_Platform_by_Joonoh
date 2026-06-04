@@ -3,7 +3,10 @@ import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
 import { normalizeToISO } from "@/lib/utils/validation";
 import { getFreeBusy, deleteEvent } from "@/lib/google/calendar";
-import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
+import {
+  invalidateCalendarCache,
+  excludeBookingOrphans,
+} from "@/lib/google/freebusy-cache";
 import { intervalsOverlap } from "@/lib/utils/date";
 import {
   createReschedGCalEvent,
@@ -364,7 +367,9 @@ export async function PATCH(
   const calendarId = (exp.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || "").trim() || null;
   if (calendarId) {
     try {
-      const busy = await getFreeBusy(calendarId, newStart, newEnd);
+      const busy = await excludeBookingOrphans(
+        await getFreeBusy(calendarId, newStart, newEnd),
+      );
       const conflict = busy.some((b) => {
         // Skip busy intervals that coincide with this booking's existing event
         // (we'll delete that event anyway)

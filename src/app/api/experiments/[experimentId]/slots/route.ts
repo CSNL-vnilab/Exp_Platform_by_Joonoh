@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { generateAvailableSlots, serializeSlot } from "@/lib/utils/slots";
 import type { BusyInterval } from "@/lib/utils/slots";
 import { getFreeBusy } from "@/lib/google/calendar";
+import { excludeBookingOrphans } from "@/lib/google/freebusy-cache";
 import { isValidUUID, normalizeToISO } from "@/lib/utils/validation";
 import { parseTimeOnDate } from "@/lib/utils/date";
 
@@ -78,10 +79,8 @@ export async function GET(
 
     if (calendarId) {
       try {
-        busyIntervals = await getFreeBusy(
-          calendarId,
-          new Date(dayStart),
-          new Date(dayEnd)
+        busyIntervals = await excludeBookingOrphans(
+          await getFreeBusy(calendarId, new Date(dayStart), new Date(dayEnd)),
         );
       } catch {
         // GCal is best-effort — continue with empty busy intervals

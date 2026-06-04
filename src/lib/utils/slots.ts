@@ -14,6 +14,13 @@ export interface BusyInterval {
    *  "busy"). Optional because the freebusy.query fallback path can't
    *  return titles. */
   summary?: string | null;
+  /** Google Calendar event id (from events.list). Lets the availability
+   *  layer recognise the lab's OWN booking events and drop the ones that
+   *  belong to cancelled/no_show bookings — stale "orphan" events whose
+   *  cancel-time delete failed. Without this an orphan keeps a slot
+   *  showing "busy" forever (see freebusy-cache.excludeBookingOrphans).
+   *  Null on the freebusy.query fallback path (no ids available). */
+  id?: string | null;
 }
 
 interface SlotGenerationParams {

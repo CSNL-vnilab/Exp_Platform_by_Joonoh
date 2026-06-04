@@ -3,7 +3,10 @@ import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
 import { normalizeToISO } from "@/lib/utils/validation";
 import { deleteEvent, getFreeBusy } from "@/lib/google/calendar";
-import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
+import {
+  invalidateCalendarCache,
+  excludeBookingOrphans,
+} from "@/lib/google/freebusy-cache";
 import { intervalsOverlap } from "@/lib/utils/date";
 import {
   createReschedGCalEvent,
@@ -168,7 +171,9 @@ export async function PATCH(
   ).trim() || null;
   if (calendarId) {
     try {
-      const busy = await getFreeBusy(calendarId, newStart, newEnd);
+      const busy = await excludeBookingOrphans(
+        await getFreeBusy(calendarId, newStart, newEnd),
+      );
       const conflict = busy.some((b) => {
         if (
           Math.abs(

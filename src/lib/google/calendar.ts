@@ -40,7 +40,7 @@ export async function getFreeBusy(
   calendarId: string,
   timeMin: Date,
   timeMax: Date,
-): Promise<Array<{ start: Date; end: Date; summary?: string | null }>> {
+): Promise<Array<{ start: Date; end: Date; summary?: string | null; id: string | null }>> {
   const trimmedId = calendarId.trim();
   // Use events.list (not freebusy.query) so we get event titles back —
   // the booking picker tooltip needs them ("정원 회의 시간과 겹침" beats
@@ -62,7 +62,7 @@ export async function getFreeBusy(
         showDeleted: false,
       });
       const items = response.data.items ?? [];
-      const out: Array<{ start: Date; end: Date; summary?: string | null }> = [];
+      const out: Array<{ start: Date; end: Date; summary?: string | null; id: string | null }> = [];
       for (const ev of items) {
         if (ev.status === "cancelled") continue;
         // skip events the service account explicitly declined
@@ -76,6 +76,10 @@ export async function getFreeBusy(
           start: new Date(sIso),
           end: new Date(eIso),
           summary: ev.summary ?? null,
+          // Event id lets the availability layer recognise the lab's own
+          // booking events and drop orphans (cancelled-booking events whose
+          // delete failed). events.list always returns an id.
+          id: ev.id ?? null,
         });
       }
       return out;
@@ -99,6 +103,10 @@ export async function getFreeBusy(
           start: new Date(b.start!),
           end: new Date(b.end!),
           summary: null,
+          // freebusy.query returns opaque intervals with no event ids, so
+          // the lab can't tell its own orphans apart here. This fallback
+          // only fires when the service account lacks reader scope (rare).
+          id: null,
         }));
       }
       throw err;
