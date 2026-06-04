@@ -39,3 +39,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           EXPERIMENT_ID: ${{ secrets.TIMEEXP_EXPERIMENT_ID }}
         run: node scripts/timeexp/check-data-integrity.mjs
+
+      - uses: ./.github/actions/notify-cron-failure
+        if: failure()
+        with:
+          cron-name: "TimeExpOnline data integrity (hourly)"
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

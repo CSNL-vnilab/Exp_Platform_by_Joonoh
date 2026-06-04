@@ -1,0 +1,42 @@
+name: GCal orphan reaper
+# Sweeps bookings whose status is cancelled/no_show but still carry a
+# google_event_id, deleting the stale calendar event + clearing the id.
+# Endpoint landed iter 20-21 (src/app/api/cron/gcal-orphan-reaper);
+# this workflow is the operator's follow-up (needs workflow-scope to
+# push). See docs/cron-runbook.md §2 + hidden-couplings #3/#12/#14.
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6h
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trigger gcal-orphan-reaper endpoint
+        env:
+          # grace_hours=12 keeps the reaper clear of the reschedule
+          # create→update→delete-old race window (real elapsed < 1s).
+          URL: https://lab-reservation-seven.vercel.app/api/cron/gcal-orphan-reaper?grace_hours=12
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is missing"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/resp -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $status"
+          cat /tmp/resp || true
+          echo
+          if [ "$status" != "200" ]; then
+            echo "::error::gcal-orphan-reaper returned HTTP $status"
+            exit 1
+          fi
+      - uses: ./.github/actions/notify-cron-failure
+        if: failure()
+        with:
+          cron-name: "GCal orphan reaper"
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -30,3 +30,9 @@ jobs:
         env:
           NEXT_PUBLIC_APP_URL: https://lab-reservation-seven.vercel.app
         run: node scripts/smoke-cron-auth.mjs
+
+      - uses: ./.github/actions/notify-cron-failure
+        if: failure()
+        with:
+          cron-name: "Prod smoke — cron auth regression"
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

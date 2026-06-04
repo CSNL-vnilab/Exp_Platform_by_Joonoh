@@ -28,3 +28,8 @@ jobs:
             echo "::error::notion-health returned HTTP $status"
             exit 1
           fi
+      - uses: ./.github/actions/notify-cron-failure
+        if: failure()
+        with:
+          cron-name: "Notion schema-drift health check"
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

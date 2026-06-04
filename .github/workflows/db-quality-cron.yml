@@ -32,3 +32,8 @@ jobs:
             echo "::error::db-quality-check returned HTTP $status"
             exit 1
           fi
+      - uses: ./.github/actions/notify-cron-failure
+        if: failure()
+        with:
+          cron-name: "DB quality check (daily)"
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

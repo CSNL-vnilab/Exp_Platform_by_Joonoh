@@ -38,3 +38,8 @@ jobs:
             echo "::error::reminders endpoint returned HTTP $status"
             exit 1
           fi
+      - uses: ./.github/actions/notify-cron-failure
+        if: failure()
+        with:
+          cron-name: "Reminders cron (every 15 min)"
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
