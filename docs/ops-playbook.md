@@ -218,8 +218,15 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00067_*` (frontier — two files share the 00067
-number: `00067_drop_legacy_notion_retry_rpcs.sql` +
+Last applied to prod: `00068_index_bookings_google_event_id.sql`
+(applied 2026-06-04 with explicit user authorization — partial index
+`idx_bookings_google_event_id ON bookings(google_event_id) WHERE NOT
+NULL`, backing the orphan-availability filter `excludeBookingOrphans`
+and the gcal-orphan-reaper scan. Verified present via `SELECT indexname
+FROM pg_indexes WHERE indexname='idx_bookings_google_event_id'`).
+
+Prior frontier `00067_*` — two files share the 00067 number
+(`00067_drop_legacy_notion_retry_rpcs.sql` +
 `00067_reminder_day_of_default_07.sql`, both applied).
 Confirmed 2026-06-04 by the lab researcher during the post-auto-loop
 review — the marker had been frozen at `00057` (2026-05-04) and never
