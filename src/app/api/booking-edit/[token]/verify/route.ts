@@ -103,6 +103,20 @@ export async function POST(
   // HttpOnly so JS can't read it. SameSite=Lax so links from the email
   // client work (Strict would break first navigation). Secure only when
   // we're on https — preview deployments and prod both are.
+  //
+  // One cookie at the ROOT path, deliberately. The page lives at
+  // /booking-edit/<token> and the cancel/reschedule APIs at
+  // /api/booking-edit/<token>/... — those two share no common path prefix
+  // except "/". Next's ResponseCookies.set() keys its internal map by
+  // cookie NAME only (node_modules/next/.../@edge-runtime/cookies), so two
+  // set() calls with the same name but different paths collapse to a single
+  // Set-Cookie header — whichever was set LAST. The previous two-cookie
+  // form therefore only ever emitted the /api/... path, so a post-verify
+  // `location.reload()` of the page (at /booking-edit/<token>) never
+  // received the cookie and the verify form re-prompted forever. A single
+  // root-path cookie reaches both surfaces. Security is unchanged: it comes
+  // from the signed, group-bound value (readVerifySession rejects on
+  // bookingGroupId mismatch), not from path scoping.
   const secure = process.env.NODE_ENV === "production";
   res.cookies.set({
     name: BOOKING_EDIT_SESSION_COOKIE,
@@ -110,18 +124,7 @@ export async function POST(
     httpOnly: true,
     sameSite: "lax",
     secure,
-    path: `/booking-edit/${token}`,
-    maxAge: Math.floor(BOOKING_EDIT_SESSION_TTL_MS / 1000),
-  });
-  // Also expose under /api/booking-edit/<token> so cancel/reschedule
-  // see the cookie. Path-scoping prevents bleed to other surfaces.
-  res.cookies.set({
-    name: BOOKING_EDIT_SESSION_COOKIE,
-    value: session.value,
-    httpOnly: true,
-    sameSite: "lax",
-    secure,
-    path: `/api/booking-edit/${token}`,
+    path: "/",
     maxAge: Math.floor(BOOKING_EDIT_SESSION_TTL_MS / 1000),
   });
   return res;

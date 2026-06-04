@@ -286,9 +286,28 @@ export const observationSchema = z
     }
   });
 
-// Normalize phone number: remove dashes
+// Normalize a phone number to a canonical comparable form.
+//
+// Used both when STORING a participant's phone at booking time and when
+// COMPARING typed input against the stored value (booking-edit identity
+// gate, payment-info submit). Both sides must run through the same rules
+// or an honest participant gets a false "본인 확인 실패".
+//
+//  - Strip every non-digit (dashes, spaces, dots, parentheses, the "+").
+//  - Fold the Korean country code to the domestic trunk form:
+//    "+82 10-1234-5678" → "821012345678" → "01012345678", which is what
+//    participants normally type. No domestic Korean number begins with the
+//    digits "82" after stripping (they all start with a "0" trunk), so this
+//    only ever rewrites a leading country code.
+//
+// NOTE: participants/identity.ts intentionally keeps its OWN normalizer for
+// roster de-duplication; this function is not on that path.
 export function normalizePhone(phone: string): string {
-  return phone.replace(/-/g, "");
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("82")) {
+    digits = "0" + digits.slice(2);
+  }
+  return digits;
 }
 
 // HTML-escape user content before embedding in email templates
