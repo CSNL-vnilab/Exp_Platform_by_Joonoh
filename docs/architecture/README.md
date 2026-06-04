@@ -104,9 +104,11 @@
 
 ### 다음 단계 (사용자 작업 필요)
 
-- **`#68` D1-followup**: 9 cron workflow YAML 에 composite action wiring + 새 `gcal-orphan-reaper-cron.yml` 추가. PAT `workflow` scope 필요. 또는 사람이 직접 push.
+> **→ 실행 체크리스트: [`PENDING-OPERATOR-ACTIONS.md`](./PENDING-OPERATOR-ACTIONS.md)** (2026-06-04 리뷰 핸드오프 — patch + 명령어 준비됨).
+
+- **`#68` D1-followup**: cron workflow YAML wiring — 패치 준비됨 ([`../ops/cron-slack-wiring.patch`](../ops/cron-slack-wiring.patch), 9 workflow notify-step + 새 `gcal-orphan-reaper-cron.yml`). `git apply` 후 `workflow`-scope push 필요.
 - **`SLACK_WEBHOOK_URL`** GH secret 등록 → 실패 알림 즉시 활성화.
-- **migration 00066/00067** prod 적용 (Supabase Dashboard 또는 `supabase db push`).
+- **migration 00066/00067** — ✅ 2026-06-04 리뷰에서 prod 적용 확인됨. ops-playbook 마커 갱신 완료.
 - **Phase B 본격 진행 검토**: B1 (`notify/`), B2 (`outbox/`), B3 (`payment-info/`), B4 (token kernel HMAC body 통합), B5 (`calendar/`), B6 (`notion/`), B7 (`http/` 의 rate-limit + KV-backed), B8 (KST date helpers — partial done).
 
 ### Cumulative commits (Phase A + iter 1-38)

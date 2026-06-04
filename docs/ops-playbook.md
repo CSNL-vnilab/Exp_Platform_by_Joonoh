@@ -218,11 +218,27 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00057_paid_offline_constraints.sql`
-on 2026-05-04.
+Last applied to prod: `00067_*` (frontier — two files share the 00067
+number: `00067_drop_legacy_notion_retry_rpcs.sql` +
+`00067_reminder_day_of_default_07.sql`, both applied).
+Confirmed 2026-06-04 by the lab researcher during the post-auto-loop
+review — the marker had been frozen at `00057` (2026-05-04) and never
+advanced as 00058-00067 shipped across concurrent sessions
+(payment_claim_email, blacklist, recruitment_target, is_project flag,
+amount_override, lab_irb_base_url, payment_info_cancelled_status,
+drop_legacy_notion_retry_rpcs, reminder_day_of_default).
+
+> ⚠️ If you later find any of 00058-00067 was NOT actually applied,
+> the most consequential is `00066_payment_info_cancelled_status.sql`:
+> the Phase A2 partial-cancel path
+> (`notifyPaymentInfoIfReady` → `status='cancelled'`) silently no-ops
+> the row transition without it (no crash, but the payment_info row
+> stays `pending_participant`). Verify with
+> `SELECT enum_range(NULL::payment_status);` — `'cancelled'` must be
+> present.
 
 Staged for next deploy (apply after push):
-- (none — all on-disk migrations applied as of 2026-05-04)
+- (none — all on-disk migrations applied as of 2026-06-04)
 
 Full list: `ls supabase/migrations/`.
 
