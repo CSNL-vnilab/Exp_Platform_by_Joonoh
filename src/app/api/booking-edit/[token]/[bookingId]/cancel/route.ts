@@ -6,14 +6,15 @@ import { notifyBookingStatusChange } from "@/lib/services/booking-status-notify.
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 import { scrubPii } from "@/lib/observability/pii";
 import { requireBookingEditAccess } from "@/lib/booking-edit/access";
+import { BOOKING_EDIT_CUTOFF_HOURS } from "@/lib/utils/constants";
 
 // Participant-facing cancellation. Mirrors admin PUT
 // /api/bookings/[bookingId] {status:'cancelled'} but the auth gate is
 // the signed booking-edit token. The token scopes to a single
 // booking_group_id so a participant can't cancel someone else's row.
 //
-// Same EDIT_CUTOFF_HOURS guard as the reschedule path.
-const EDIT_CUTOFF_HOURS = 24;
+// Same edit cutoff as the reschedule path (BOOKING_EDIT_CUTOFF_HOURS).
+const EDIT_CUTOFF_HOURS = BOOKING_EDIT_CUTOFF_HOURS;
 
 export async function POST(
   _request: NextRequest,
@@ -43,7 +44,7 @@ export async function POST(
     );
   }
 
-  // 24h cutoff — same as reschedule.
+  // Edit cutoff — same as reschedule.
   const oldStartMs = new Date(booking.slot_start).getTime();
   if (oldStartMs - Date.now() < EDIT_CUTOFF_HOURS * 60 * 60 * 1000) {
     return NextResponse.json(

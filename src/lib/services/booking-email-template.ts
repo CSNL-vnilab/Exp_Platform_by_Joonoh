@@ -11,6 +11,7 @@
 
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
+import { BOOKING_EDIT_CUTOFF_HOURS } from "@/lib/utils/constants";
 import { BRAND_NAME, BRAND_CONTACT_EMAIL } from "@/lib/branding";
 import { wrapEmailHtml } from "@/lib/services/email-shell";
 import type { ExperimentMode } from "@/types/database";
@@ -196,7 +197,7 @@ export function buildConfirmationEmail(
       <div style="margin:20px 0;padding:14px 16px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;">
         <p style="margin:0 0 8px 0;font-weight:600;color:#9a3412;">✏️ 일정 변경 / 참여 취소</p>
         <p style="margin:0 0 10px 0;font-size:13px;color:#7c2d12;">
-          예약하신 회차의 일정을 변경하거나 참여를 취소하시려면 아래 링크에서 직접 처리하실 수 있습니다. 각 회차 시작 24시간 전까지 변경 가능하며, 링크는 60일간 유효합니다.
+          예약하신 회차의 일정을 변경하거나 참여를 취소하시려면 아래 링크에서 직접 처리하실 수 있습니다. 각 회차 시작 ${BOOKING_EDIT_CUTOFF_HOURS}시간 전까지 변경 가능하며, 링크는 60일간 유효합니다.
         </p>
         <p style="margin:0;">
           <a href="${editLink.url}" style="display:inline-block;padding:8px 14px;background:#c2410c;color:#ffffff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">실험 일정 수정하기 →</a>

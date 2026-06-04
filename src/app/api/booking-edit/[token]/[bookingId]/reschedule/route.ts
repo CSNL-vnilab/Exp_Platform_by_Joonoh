@@ -14,6 +14,7 @@ import {
   runReschedulePipeline,
 } from "@/lib/services/booking.service";
 import { requireBookingEditAccess } from "@/lib/booking-edit/access";
+import { BOOKING_EDIT_CUTOFF_HOURS } from "@/lib/utils/constants";
 
 // Participant-facing reschedule. Same validation logic as admin PATCH
 // /api/bookings/[bookingId] but the authorization gate is the
@@ -21,9 +22,11 @@ import { requireBookingEditAccess } from "@/lib/booking-edit/access";
 // scopes the action to a single booking_group_id, so the participant
 // can only reschedule their OWN sessions.
 //
-// Hard limit: must be ≥ EDIT_CUTOFF_HOURS before slot_start. The 24h
-// cutoff matches the historic email guidance ("실험 시작 24시간 전까지").
-const EDIT_CUTOFF_HOURS = 24;
+// Hard limit: must be ≥ EDIT_CUTOFF_HOURS before slot_start. Single source
+// of truth is BOOKING_EDIT_CUTOFF_HOURS — the booking-edit page and the
+// edit-link emails read the same constant so the stated and enforced
+// cutoffs never drift.
+const EDIT_CUTOFF_HOURS = BOOKING_EDIT_CUTOFF_HOURS;
 
 const rescheduleSchema = z.object({
   slot_start: z.string().datetime(),

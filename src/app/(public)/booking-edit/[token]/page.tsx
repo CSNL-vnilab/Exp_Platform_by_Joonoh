@@ -10,6 +10,7 @@ import {
   BOOKING_EDIT_SESSION_COOKIE,
 } from "@/lib/booking-edit/session";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
+import { BOOKING_EDIT_CUTOFF_HOURS } from "@/lib/utils/constants";
 import { BRAND_NAME } from "@/lib/branding";
 import { BookingEditForm } from "./edit-form";
 import { VerifyForm } from "./verify-form";
@@ -162,8 +163,9 @@ export default async function BookingEditPage({ params }: PageProps) {
   const sessionDuration = first.experiments.session_duration_minutes;
   const weekdays = first.experiments.weekdays;
 
-  // 24h cutoff matches the historic email guidance and the API gates.
-  const editCutoffHours = 24;
+  // Shared with the API gates and the edit-link emails — one constant so the
+  // displayed and enforced cutoffs never drift.
+  const editCutoffHours = BOOKING_EDIT_CUTOFF_HOURS;
 
   const formRows = rows.map((r) => ({
     id: r.id,

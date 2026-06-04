@@ -278,7 +278,7 @@
 - **`calendar_freebusy_cache`** (DB-backed) — 5-min TTL; 9 invalidation site
 - **`creatorInitial` derivation** 이 `booking.service.ts:324` (3-4 char, "???" fallback) 와 `gcal-retry.service.ts:40` (4 char) 가 다름. 같은 연구원에 대해 다른 initial 이 calendar 에 등장 가능 (first attempt 실패 + retry).
 - **`APP_ORIGIN` constant** 이 `booking-status-notify.service.ts:46-49` 에서 module load 시 1번 compute — env var swap 안 들어옴
-- **`MAX_AGE_MS = 60 days`** for booking-edit token — `EDIT_CUTOFF_HOURS=24` 가 BOTH cancel + reschedule route 에 duplicate. 2 상수가 3 곳에.
+- **`MAX_AGE_MS = 60 days`** for booking-edit token — still inline in `token.ts`. (✅ 2026-06-04 해소: `EDIT_CUTOFF_HOURS` 중복은 이제 단일 상수 `BOOKING_EDIT_CUTOFF_HOURS`(constants.ts) = **2h** 로 통합 — cancel/reschedule route + booking-edit page + 3개 edit-link 이메일이 모두 이 상수를 참조하므로 표시값과 강제값이 더 이상 drift 하지 않음.)
 
 ---
 

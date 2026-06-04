@@ -27,6 +27,14 @@ export const BOOKING_RETRY = {
   BACKOFF_MS: 200,
 } as const;
 
+// Single source of truth for the participant self-service edit/cancel
+// cutoff: a participant may reschedule or cancel their own booking only up
+// to this many hours before the session starts (after that they contact the
+// researcher; the admin API has no time guard). Referenced by the cancel +
+// reschedule API routes, the booking-edit page, and every email that links
+// to the edit flow — change it HERE only.
+export const BOOKING_EDIT_CUTOFF_HOURS = 2;
+
 export const SESSION_DURATIONS = [
   { label: "30분", value: 30 },
   { label: "45분", value: 45 },
