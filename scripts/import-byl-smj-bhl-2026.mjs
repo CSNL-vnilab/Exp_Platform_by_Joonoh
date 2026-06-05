@@ -162,13 +162,24 @@ for (const e of events) {
 const ownerIds = [...profileByInitial.values()].map((p) => p.id);
 const { data: existingExps } = await sb
   .from("experiments")
-  .select("id, title, project_name, created_by, start_date, end_date, status")
+  .select("id, title, project_name, created_by, start_date, end_date, status, is_project")
   .in("created_by", ownerIds);
 // Lookup key: ${created_by}::${canonProject(project_name||title)}
 const existingExpKey = new Map();
+// Opt-out tombstone set (2026-06-05): when a researcher previously
+// marked an (owner, canonical project) row as is_project=false via
+// /metadata-fill "프로젝트 아님 (면제)", future re-imports must NOT
+// re-classify those calendar events as experiments. We collect the
+// keys here and skip-plan those (init, project) groups below.
+const optedOutKeys = new Set();
 for (const e of existingExps ?? []) {
   const canon = canonProject(e.project_name ?? e.title);
-  existingExpKey.set(`${e.created_by}::${canon}`, e);
+  const key = `${e.created_by}::${canon}`;
+  if (e.is_project === false) {
+    optedOutKeys.add(key);
+    continue; // don't reuse — leave the tombstone alone
+  }
+  existingExpKey.set(key, e);
 }
 
 const { data: existingBks } = await sb
@@ -182,9 +193,18 @@ const plannedExperiments = []; // {init, profile, canon, displayName, events, ac
 const plannedBookings = [];    // {expKey, event, person}
 const plannedParticipants = new Set(); // names
 
+let skippedOptOutGroups = 0;
+let skippedOptOutEvents = 0;
 for (const [init, projects] of byOwner) {
   const profile = profileByInitial.get(init);
   for (const [canon, info] of projects) {
+    // Respect prior opt-out tombstone — do not re-register events for
+    // (owner, project) combos the researcher has already de-classified.
+    if (optedOutKeys.has(`${profile.id}::${canon}`)) {
+      skippedOptOutGroups += 1;
+      skippedOptOutEvents += info.events.length;
+      continue;
+    }
     const evs = info.events;
     const minStart = evs.reduce((a, e) => (a < e.start ? a : e.start), evs[0].start);
     const maxStart = evs.reduce((a, e) => (a > e.start ? a : e.start), evs[0].start);
@@ -251,6 +271,15 @@ const partByName = new Map(existingPart.map((p) => [p.name, p]));
 const newParticipants = partNames.filter((n) => !partByName.has(n));
 
 // ── 7. report ─────────────────────────────────────────────────────
+if (skippedOptOutGroups > 0) {
+  console.log(
+    `\n── OPT-OUT TOMBSTONES (skipped ${skippedOptOutGroups} group${skippedOptOutGroups === 1 ? "" : "s"} / ${skippedOptOutEvents} event${skippedOptOutEvents === 1 ? "" : "s"}) ──`,
+  );
+  console.log(
+    `  Researcher previously marked these (owner, project) combos as`,
+    `is_project=false via /metadata-fill. Re-import suppressed.`,
+  );
+}
 console.log(`\n── EXPERIMENTS (${plannedExperiments.length}) ──`);
 for (const x of plannedExperiments) {
   const tag = x.action === "create" ? "+" : "=";

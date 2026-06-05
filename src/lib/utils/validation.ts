@@ -45,6 +45,13 @@ const experimentObjectSchema = z.object({
   // not auto-dispatched on completion; the researcher triggers it
   // manually from payment-panel after reviewing/adjusting amount_krw.
   payment_link_auto_send: z.boolean().default(true),
+  // Migration 00063: false = pilot / 장비 테스트 / one-off — opted out
+  // of the project surfaces (metadata-fill list, /experiments admin
+  // list, dashboard, metadata-reminder cron, backfill re-import).
+  // Toggled from /metadata-fill "프로젝트 아님 (면제)" button via the
+  // generic PUT — must appear in the partial-safe schema or the API
+  // silently strips it (2026-06-05 bug report).
+  is_project: z.boolean().optional(),
   session_type: z.enum(["single", "multi"]).default("single"),
   required_sessions: z.number().min(1).default(1),
   daily_start_time: z.string().min(1, "시작 시간을 선택해주세요"),

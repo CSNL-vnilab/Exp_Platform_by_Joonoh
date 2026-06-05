@@ -38,6 +38,9 @@ export default async function DashboardPage() {
       "id, title, status, start_date, end_date, session_type, required_sessions, code_repo_url, data_path, pre_experiment_checklist",
     )
     .eq("created_by", user.id)
+    // Hide opted-out rows (is_project=false) — pilots / 장비 테스트 등.
+    // Same filter as /experiments + /metadata-fill + metadata-reminder cron.
+    .eq("is_project", true)
     .order("created_at", { ascending: false });
 
   const expIds = (myExperiments ?? []).map((e) => e.id);
@@ -49,6 +52,7 @@ export default async function DashboardPage() {
         "id, slot_start, slot_end, session_number, subject_number, experiments!inner(id, title, project_name, created_by), participants(name)",
       )
       .eq("experiments.created_by", user.id)
+      .eq("experiments.is_project", true)
       .eq("status", "confirmed")
       .gte("slot_start", nowIso)
       .lte("slot_start", in7d)
@@ -60,6 +64,7 @@ export default async function DashboardPage() {
         "id, status, updated_at, created_at, experiments!inner(id, title, created_by), participants(name)",
       )
       .eq("experiments.created_by", user.id)
+      .eq("experiments.is_project", true)
       .order("updated_at", { ascending: false, nullsFirst: false })
       .limit(6),
     expIds.length > 0

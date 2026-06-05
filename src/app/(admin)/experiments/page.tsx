@@ -23,6 +23,10 @@ export default async function ExperimentsPage() {
       "id, title, project_name, status, session_duration_minutes, session_type, required_sessions, participation_fee, start_date, end_date, created_at, notion_project_page_id, description, protocol_version, recruitment_target",
     )
     .eq("created_by", user.id)
+    // is_project=false = researcher opted out from /metadata-fill
+    // ("프로젝트 아님 (면제)"). Such rows are pilots / 장비 테스트 /
+    // one-offs and must not pollute the main project list.
+    .eq("is_project", true)
     .order("created_at", { ascending: false });
 
   const experimentIds = experiments?.map((e) => e.id) ?? [];
