@@ -5,12 +5,16 @@ description: |
   loudly (red ✕ in the Actions tab) without erroring on the notify step
   itself.
 
-  Usage:
+  Usage — pass the SLACK_WEBHOOK_URL repo secret through the with: input.
+  NOTE: written WITHOUT GitHub expression braces below on purpose. A
+  composite-action manifest's description is itself template-evaluated, so
+  a literal secrets-expression here fails to load the action ("Unrecognized
+  named-value: 'secrets'") the moment any failing cron invokes it.
     - uses: ./.github/actions/notify-cron-failure
       if: failure()
       with:
         cron-name: "Outbox retry sweep"
-        slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        slack-webhook-url: SLACK_WEBHOOK_URL   # the repo secret, wrapped in GitHub expr braces
 
   Setting up the webhook:
     1. Slack → Apps → Incoming Webhooks → Add to workspace
