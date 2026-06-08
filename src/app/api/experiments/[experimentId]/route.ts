@@ -124,9 +124,46 @@ export async function PUT(
       );
     }
 
+    // CRITICAL — zod v4's .partial() does NOT strip .default() semantics:
+    // a `{ is_project: false }` body parses to `{ is_project: false,
+    // participation_fee: 0, weekdays: [0..6], reminder_day_of_time:
+    // "07:00", session_type: "single", required_sessions: 1, … }` —
+    // every field with a default gets materialised. Feeding that into
+    // UPDATE clobbers the researcher's configured values.
+    //
+    // This was the actual cause of the 2026-06-08 bug report
+    // ("프로젝트 아님 면제 버튼 클릭시 오류 / 전반적으로 버튼 작동
+    // 올바르지 않음"): clicking opt-out reset participation_fee,
+    // session_type, weekdays, and tripped the experiments_enforce_online_config
+    // trigger when the defaulted experiment_mode mismatched the stored
+    // online_runtime_config.
+    //
+    // Filter to keys actually present in the request body so the
+    // UPDATE touches only fields the client explicitly asked to change.
+    // Parsed (and possibly normalised — e.g. notion_project_page_id) is
+    // used for value; body presence is used as the key gate.
+    const requestedKeys =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? new Set(Object.keys(body as Record<string, unknown>))
+        : new Set<string>();
+    const updatePayload: Partial<typeof result.data> = {};
+    for (const k of Object.keys(result.data) as Array<keyof typeof result.data>) {
+      if (requestedKeys.has(k as string)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (updatePayload as any)[k] = result.data[k];
+      }
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      return NextResponse.json(
+        { error: "변경할 항목이 없습니다" },
+        { status: 400 }
+      );
+    }
+
     const { data, error } = await supabase
       .from("experiments")
-      .update(result.data)
+      .update(updatePayload)
       .eq("id", experimentId)
       .select()
       .single();

@@ -24,6 +24,15 @@ export const participantSchema = z.object({
 // "cannot be used on object schemas containing refinements" error.
 // Field-level .refine() chains inside individual properties are fine —
 // only object-level refinements block .partial().
+//
+// IMPORTANT trap (2026-06-08): zod v4's .partial() does NOT remove
+// .default() — `experimentObjectSchema.partial().parse({ is_project: false })`
+// returns { is_project: false, participation_fee: 0, weekdays: [0..6],
+// session_type: "single", reminder_day_of_time: "07:00", … }, materialising
+// every default. PUT routes MUST intersect the parsed output with
+// request-body keys before UPDATE, otherwise a partial patch clobbers
+// the row's configured values. See src/app/api/experiments/[experimentId]/route.ts
+// for the canonical filter.
 const experimentObjectSchema = z.object({
   title: z.string().min(1, "실험 제목을 입력해주세요"),
   description: z.string().optional(),
@@ -49,8 +58,9 @@ const experimentObjectSchema = z.object({
   // of the project surfaces (metadata-fill list, /experiments admin
   // list, dashboard, metadata-reminder cron, backfill re-import).
   // Toggled from /metadata-fill "프로젝트 아님 (면제)" button via the
-  // generic PUT — must appear in the partial-safe schema or the API
-  // silently strips it (2026-06-05 bug report).
+  // generic PUT. Must appear in this schema or zod strips the key
+  // (initial 2026-06-05 fix); paired with the partial-defaults filter
+  // in /api/experiments/[id] (2026-06-08 fix).
   is_project: z.boolean().optional(),
   session_type: z.enum(["single", "multi"]).default("single"),
   required_sessions: z.number().min(1).default(1),
