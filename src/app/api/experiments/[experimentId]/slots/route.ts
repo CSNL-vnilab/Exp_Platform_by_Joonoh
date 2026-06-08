@@ -96,6 +96,7 @@ export async function GET(
       busyIntervals,
       maxParticipantsPerSlot: experiment.max_participants_per_slot,
       bookedCountPerSlot,
+      slotIncrementMinutes: experiment.slot_increment_minutes,
     });
 
     return NextResponse.json({ slots: slots.map(serializeSlot) });

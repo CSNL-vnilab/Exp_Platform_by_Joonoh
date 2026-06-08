@@ -157,8 +157,10 @@ export async function PATCH(
     .select("id")
     .eq("experiment_id", booking.experiment_id)
     .eq("status", "confirmed")
-    .eq("slot_start", newStart.toISOString())
-    .eq("slot_end", newEnd.toISOString())
+    // Time-overlap (00069), not exact-match — an overlapping slot at a finer
+    // increment must count as taken or a reschedule could double-book.
+    .lt("slot_start", newEnd.toISOString())
+    .gt("slot_end", newStart.toISOString())
     .neq("id", bookingId);
 
   if ((conflicts?.length ?? 0) >= exp.max_participants_per_slot) {

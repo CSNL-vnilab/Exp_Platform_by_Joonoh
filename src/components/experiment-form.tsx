@@ -68,6 +68,9 @@ export function ExperimentForm({
   const [dailyEndTime, setDailyEndTime] = useState(experiment?.daily_end_time ?? "18:00");
   const [sessionDuration, setSessionDuration] = useState(experiment?.session_duration_minutes ?? 60);
   const [breakMinutes, setBreakMinutes] = useState(experiment?.break_between_slots_minutes ?? 0);
+  const [slotIncrementMinutes, setSlotIncrementMinutes] = useState<number | null>(
+    experiment?.slot_increment_minutes ?? null,
+  );
   const [maxParticipants, setMaxParticipants] = useState(experiment?.max_participants_per_slot ?? 1);
   // 모집 인원 — researcher-set total recruitment quota (distinct participants).
   // Empty string means "unlimited"; submit-time it's coerced to null.
@@ -482,6 +485,7 @@ export function ExperimentForm({
       daily_end_time: dailyEndTime,
       session_duration_minutes: sessionDuration,
       break_between_slots_minutes: breakMinutes,
+      slot_increment_minutes: slotIncrementMinutes,
       max_participants_per_slot: maxParticipants,
       recruitment_target:
         recruitmentTarget.trim() === "" ? null : Number(recruitmentTarget),
@@ -682,6 +686,7 @@ export function ExperimentForm({
       daily_end_time: dailyEndTime,
       session_duration_minutes: sessionDuration,
       break_between_slots_minutes: breakMinutes,
+      slot_increment_minutes: slotIncrementMinutes,
       max_participants_per_slot: maxParticipants,
       recruitment_target:
         recruitmentTarget.trim() === "" ? null : Number(recruitmentTarget),
@@ -839,6 +844,20 @@ export function ExperimentForm({
                 value={breakMinutes}
                 onChange={(e) => setBreakMinutes(Number(e.target.value))}
                 error={errors.break_between_slots_minutes}
+              />
+
+              <Input
+                id="slot_increment_minutes"
+                label="예약 슬롯 간격 (분) — 비우면 세션 길이 기준"
+                type="number"
+                min={5}
+                value={slotIncrementMinutes ?? ""}
+                onChange={(e) =>
+                  setSlotIncrementMinutes(
+                    e.target.value === "" ? null : Number(e.target.value),
+                  )
+                }
+                error={errors.slot_increment_minutes}
               />
 
               <Input

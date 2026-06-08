@@ -34,6 +34,7 @@ const DEMO_EXPERIMENT: Experiment = {
   daily_end_time: "18:00",
   session_duration_minutes: 60,
   break_between_slots_minutes: 15,
+  slot_increment_minutes: null,
   max_participants_per_slot: 2,
   recruitment_target: null,
   is_project: true,

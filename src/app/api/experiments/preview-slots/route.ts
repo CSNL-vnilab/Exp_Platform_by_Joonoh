@@ -22,6 +22,7 @@ const bodySchema = z.object({
   daily_end_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   session_duration_minutes: z.number().int().min(5).max(480),
   break_between_slots_minutes: z.number().int().min(0).max(240).default(0),
+  slot_increment_minutes: z.number().int().min(5).max(480).nullable().optional(),
   max_participants_per_slot: z.number().int().min(1).default(1),
   weekdays: z.array(z.number().int().min(0).max(6)).min(1).default([0, 1, 2, 3, 4, 5, 6]),
   google_calendar_id: z.string().optional().nullable(),
@@ -106,6 +107,7 @@ export async function POST(request: NextRequest) {
       breakBetweenSlotsMinutes: cfg.break_between_slots_minutes,
       busyIntervals,
       maxParticipantsPerSlot: cfg.max_participants_per_slot,
+      slotIncrementMinutes: cfg.slot_increment_minutes,
     });
     for (const s of classified) {
       out.push({

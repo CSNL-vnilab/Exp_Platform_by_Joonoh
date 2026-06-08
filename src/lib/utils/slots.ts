@@ -32,6 +32,12 @@ interface SlotGenerationParams {
   busyIntervals: BusyInterval[]; // from Google Calendar
   maxParticipantsPerSlot: number;
   bookedCountPerSlot?: Map<string, number>; // key: "startISO-endISO", value: count
+  /** Grid step between slot START times, in minutes. When set (and > 0) it
+   *  overrides the default `sessionDuration + break` increment so an
+   *  experiment can offer e.g. 30-min start steps for a 60-min session —
+   *  the resulting slots OVERLAP, which book_slot's overlap-conflict check
+   *  (migration 00069) handles. Null/undefined = legacy increment. */
+  slotIncrementMinutes?: number | null;
 }
 
 /**
@@ -57,7 +63,10 @@ export function generateAvailableSlots(
 
   const dayStart = parseTimeOnDate(date, dailyStartTime);
   const dayEnd = parseTimeOnDate(date, dailyEndTime);
-  const incrementMinutes = sessionDurationMinutes + breakBetweenSlotsMinutes;
+  const incrementMinutes =
+    params.slotIncrementMinutes && params.slotIncrementMinutes > 0
+      ? params.slotIncrementMinutes
+      : sessionDurationMinutes + breakBetweenSlotsMinutes;
 
   const available: TimeSlot[] = [];
   let current = dayStart;
@@ -142,7 +151,10 @@ export function generateClassifiedSlots(
 
   const dayStart = parseTimeOnDate(date, dailyStartTime);
   const dayEnd = parseTimeOnDate(date, dailyEndTime);
-  const incrementMinutes = sessionDurationMinutes + breakBetweenSlotsMinutes;
+  const incrementMinutes =
+    params.slotIncrementMinutes && params.slotIncrementMinutes > 0
+      ? params.slotIncrementMinutes
+      : sessionDurationMinutes + breakBetweenSlotsMinutes;
 
   const result: ClassifiedSlot[] = [];
   let current = dayStart;

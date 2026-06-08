@@ -218,12 +218,18 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00068_index_bookings_google_event_id.sql`
-(applied 2026-06-04 with explicit user authorization — partial index
-`idx_bookings_google_event_id ON bookings(google_event_id) WHERE NOT
-NULL`, backing the orphan-availability filter `excludeBookingOrphans`
-and the gcal-orphan-reaper scan. Verified present via `SELECT indexname
-FROM pg_indexes WHERE indexname='idx_bookings_google_event_id'`).
+Last applied to prod: `00069_slot_increment_and_overlap_conflict.sql`
+(applied 2026-06-08 — adds `experiments.slot_increment_minutes` (per-
+experiment booking-grid step; NULL = session+break) and rebuilds
+`book_slot` so the slot-conflict check is TIME-OVERLAP instead of
+exact-match (lets a finer increment produce overlapping slots without
+double-booking; backward-compatible for non-overlapping experiments).
+Verified: `book_slot` def contains `slot_start < (v_slot…` and no longer
+`slot_start = (v_slot…`. TimeExp1 set to `slot_increment_minutes=30`.
+
+Prior: `00068_index_bookings_google_event_id.sql` (2026-06-04) — partial
+index `idx_bookings_google_event_id ON bookings(google_event_id) WHERE
+NOT NULL`, backing `excludeBookingOrphans` + the gcal-orphan-reaper scan.
 
 Prior frontier `00067_*` — two files share the 00067 number
 (`00067_drop_legacy_notion_retry_rpcs.sql` +

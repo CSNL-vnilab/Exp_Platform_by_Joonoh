@@ -57,6 +57,10 @@ const experimentObjectSchema = z.object({
   daily_start_time: z.string().min(1, "시작 시간을 선택해주세요"),
   daily_end_time: z.string().min(1, "종료 시간을 선택해주세요"),
   break_between_slots_minutes: z.number().min(0).default(0),
+  // Grid step between slot START times (min). null/omitted = session+break
+  // (legacy). Smaller than the session → overlapping slots; book_slot's
+  // overlap-conflict check (00069) keeps them from double-booking.
+  slot_increment_minutes: z.number().int().min(5).nullable().optional(),
   google_calendar_id: z.string().optional(),
   // Scheme allowlist — value flows to <a href={...}> in booking-flow /
   // precaution-check / run-shell / demo. Without the http(s) refine,
