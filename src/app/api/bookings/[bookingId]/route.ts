@@ -223,6 +223,51 @@ export async function PUT(
       booking.booking_group_id
         ? booking.booking_group_id
         : null;
+    if (paymentInfoGroupId && status === "completed") {
+      // 2026-06-09: when the researcher marks any session 'completed' via
+      // the observation modal, sweep sibling sessions in the same group
+      // whose slot_end is already past but status is still 'confirmed'.
+      // These are stale rows that the auto-complete cron will eventually
+      // pick up (after a 7d grace), but for multi-session experiments
+      // (e.g. TimeExp1 Sbj16) the researcher typically only marks THE
+      // LAST session manually and expects the payment-info email to fire
+      // immediately — without this sweep, sessions 3/4 stay 'confirmed'
+      // and notifyPaymentInfoIfReady bails on NOT_ALL_COMPLETED until
+      // the cron sweep days later.
+      //
+      // Scope: only sibling rows in the same booking_group where
+      // slot_end < now AND status='confirmed'. Future-scheduled and
+      // already-terminal (cancelled/no_show) rows are left alone.
+      try {
+        const { error: sweepErr, count: sweptCount } = await admin
+          .from("bookings")
+          .update(
+            {
+              status: "completed",
+              auto_completed_at: new Date().toISOString(),
+            } as never,
+            { count: "exact" },
+          )
+          .eq("booking_group_id", paymentInfoGroupId)
+          .eq("status", "confirmed")
+          .lt("slot_end", new Date().toISOString())
+          .neq("id", bookingId);
+        if (sweepErr) {
+          console.warn(
+            `[BookingPUT] stale-sibling sweep failed for group ${paymentInfoGroupId}: ${sweepErr.message}`,
+          );
+        } else if ((sweptCount ?? 0) > 0) {
+          console.info(
+            `[BookingPUT] swept ${sweptCount} past-confirmed sibling(s) in group ${paymentInfoGroupId} to 'completed'`,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          "[BookingPUT] stale-sibling sweep crashed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
     if (paymentInfoGroupId) {
       try {
         const result = await notifyPaymentInfoIfReady(

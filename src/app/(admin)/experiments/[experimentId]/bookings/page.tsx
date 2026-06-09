@@ -209,9 +209,17 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
     }
     for (const gid of groupIds) {
       const statuses = byGroup.get(gid) ?? [];
+      // Match notifyPaymentInfoIfReady's gate exactly (service line 286):
+      // exclude 'cancelled' rows from the "all must be completed" check.
+      // Previously the page required EVERY booking to be 'completed',
+      // which meant a group with mixed completed+cancelled sessions
+      // never satisfied the page-side gate and the "안내 메일 발송"
+      // button never appeared — even though the helper would accept the
+      // send. 2026-06-09 fix.
+      const nonCancelled = statuses.filter((s) => s !== "cancelled");
       allCompleted.set(
         gid,
-        statuses.length > 0 && statuses.every((s) => s === "completed"),
+        nonCancelled.length > 0 && nonCancelled.every((s) => s === "completed"),
       );
     }
   }
