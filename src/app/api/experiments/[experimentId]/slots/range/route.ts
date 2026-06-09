@@ -8,7 +8,7 @@ import {
 } from "@/lib/utils/slots";
 import type { BusyInterval } from "@/lib/utils/slots";
 import { getCachedFreeBusy } from "@/lib/google/freebusy-cache";
-import { isValidUUID, normalizeToISO } from "@/lib/utils/validation";
+import { isValidUUID } from "@/lib/utils/validation";
 import { parseTimeOnDate } from "@/lib/utils/date";
 
 export const runtime = "nodejs";
@@ -162,11 +162,15 @@ export async function GET(
     );
   }
 
-  const bookedCountPerSlot = new Map<string, number>();
-  for (const b of bookings ?? []) {
-    const key = `${normalizeToISO(b.slot_start)}-${normalizeToISO(b.slot_end)}`;
-    bookedCountPerSlot.set(key, (bookedCountPerSlot.get(key) ?? 0) + 1);
-  }
+  // Pass raw intervals to the generator so it can count OVERLAPPING
+  // confirmed bookings (matches book_slot's overlap-conflict gate from
+  // migration 00069). Previously this was an exact-key Map which let a
+  // fine slot_increment paint phantom-available cells the RPC then
+  // rejected at submit — see 2026-06-09 "버튼 클릭 후 차단" report.
+  const bookedIntervals = (bookings ?? []).map((b) => ({
+    start: new Date(b.slot_start),
+    end: new Date(b.slot_end),
+  }));
 
   // Single freebusy call across the whole range (best-effort)
   let busyIntervals: BusyInterval[] = [];
@@ -227,7 +231,7 @@ export async function GET(
       breakBetweenSlotsMinutes: experiment.break_between_slots_minutes,
       busyIntervals,
       maxParticipantsPerSlot: experiment.max_participants_per_slot,
-      bookedCountPerSlot,
+      bookedIntervals,
       slotIncrementMinutes: experiment.slot_increment_minutes,
     });
     for (const s of classified) {

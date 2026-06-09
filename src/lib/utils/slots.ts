@@ -31,13 +31,37 @@ interface SlotGenerationParams {
   breakBetweenSlotsMinutes: number;
   busyIntervals: BusyInterval[]; // from Google Calendar
   maxParticipantsPerSlot: number;
-  bookedCountPerSlot?: Map<string, number>; // key: "startISO-endISO", value: count
+  /** Confirmed bookings as raw intervals. A candidate slot is "full" when
+   *  the count of intervals OVERLAPPING it (slot_start < int.end AND
+   *  slot_end > int.start) reaches maxParticipantsPerSlot. This mirrors
+   *  book_slot's overlap-conflict gate (migration 00069) — without it, a
+   *  fine slotIncrementMinutes painted phantom-available cells that the
+   *  RPC then rejected at submit ("버튼 클릭 후 차단", 2026-06-09 report).
+   *  For non-overlapping experiments the answer is identical to the old
+   *  exact-key map (each booking's interval only overlaps the exact slot
+   *  it's on). */
+  bookedIntervals?: Array<{ start: Date; end: Date }>;
   /** Grid step between slot START times, in minutes. When set (and > 0) it
    *  overrides the default `sessionDuration + break` increment so an
    *  experiment can offer e.g. 30-min start steps for a 60-min session —
    *  the resulting slots OVERLAP, which book_slot's overlap-conflict check
    *  (migration 00069) handles. Null/undefined = legacy increment. */
   slotIncrementMinutes?: number | null;
+}
+
+function countOverlappingBookings(
+  slotStart: Date,
+  slotEnd: Date,
+  intervals: Array<{ start: Date; end: Date }> | undefined,
+): number {
+  if (!intervals || intervals.length === 0) return 0;
+  let count = 0;
+  const slotStartMs = slotStart.getTime();
+  const slotEndMs = slotEnd.getTime();
+  for (const b of intervals) {
+    if (slotStartMs < b.end.getTime() && slotEndMs > b.start.getTime()) count += 1;
+  }
+  return count;
 }
 
 /**
@@ -58,7 +82,7 @@ export function generateAvailableSlots(
     breakBetweenSlotsMinutes,
     busyIntervals,
     maxParticipantsPerSlot,
-    bookedCountPerSlot,
+    bookedIntervals,
   } = params;
 
   const dayStart = parseTimeOnDate(date, dailyStartTime);
@@ -85,9 +109,8 @@ export function generateAvailableSlots(
       intervalsOverlap(slot, busy)
     );
 
-    // Check if fully booked
-    const slotKey = `${current.toISOString()}-${slotEnd.toISOString()}`;
-    const bookedCount = bookedCountPerSlot?.get(slotKey) ?? 0;
+    // Capacity check — overlap-aware so it matches book_slot's RPC gate.
+    const bookedCount = countOverlappingBookings(current, slotEnd, bookedIntervals);
     const isFullyBooked = bookedCount >= maxParticipantsPerSlot;
 
     // Past slots cannot be booked — DB-layer guard returns 400 ("이미 지난
@@ -146,7 +169,7 @@ export function generateClassifiedSlots(
     breakBetweenSlotsMinutes,
     busyIntervals,
     maxParticipantsPerSlot,
-    bookedCountPerSlot,
+    bookedIntervals,
   } = params;
 
   const dayStart = parseTimeOnDate(date, dailyStartTime);
@@ -169,8 +192,8 @@ export function generateClassifiedSlots(
     );
     const isBusy = !!overlapping;
 
-    const slotKey = `${current.toISOString()}-${slotEnd.toISOString()}`;
-    const bookedCount = bookedCountPerSlot?.get(slotKey) ?? 0;
+    // Capacity check — overlap-aware so it matches book_slot's RPC gate.
+    const bookedCount = countOverlappingBookings(current, slotEnd, bookedIntervals);
     const isFullyBooked = bookedCount >= maxParticipantsPerSlot;
 
     // A slot whose start is in the past is unbookable — keep "full" status

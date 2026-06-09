@@ -5,7 +5,7 @@ import { generateAvailableSlots, serializeSlot } from "@/lib/utils/slots";
 import type { BusyInterval } from "@/lib/utils/slots";
 import { getFreeBusy } from "@/lib/google/calendar";
 import { excludeBookingOrphans } from "@/lib/google/freebusy-cache";
-import { isValidUUID, normalizeToISO } from "@/lib/utils/validation";
+import { isValidUUID } from "@/lib/utils/validation";
 import { parseTimeOnDate } from "@/lib/utils/date";
 
 export async function GET(
@@ -65,12 +65,11 @@ export async function GET(
       return NextResponse.json({ error: "슬롯 조회 중 오류가 발생했습니다" }, { status: 500 });
     }
 
-    // Build bookedCountPerSlot map with normalized ISO keys for consistent matching
-    const bookedCountPerSlot = new Map<string, number>();
-    for (const booking of bookings ?? []) {
-      const key = `${normalizeToISO(booking.slot_start)}-${normalizeToISO(booking.slot_end)}`;
-      bookedCountPerSlot.set(key, (bookedCountPerSlot.get(key) ?? 0) + 1);
-    }
+    // Overlap-aware capacity input (see range/route.ts for rationale).
+    const bookedIntervals = (bookings ?? []).map((b) => ({
+      start: new Date(b.slot_start),
+      end: new Date(b.slot_end),
+    }));
 
     // Fetch Google Calendar busy intervals
     let busyIntervals: BusyInterval[] = [];
@@ -95,7 +94,7 @@ export async function GET(
       breakBetweenSlotsMinutes: experiment.break_between_slots_minutes,
       busyIntervals,
       maxParticipantsPerSlot: experiment.max_participants_per_slot,
-      bookedCountPerSlot,
+      bookedIntervals,
       slotIncrementMinutes: experiment.slot_increment_minutes,
     });
 
