@@ -48,6 +48,10 @@ export async function loadUploadTemplate(): Promise<Buffer> {
   return loadTemplate("upload-template.xlsx");
 }
 
+export async function loadResearchPaymentRequestTemplate(): Promise<Buffer> {
+  return loadTemplate("research-payment-request-template.docx");
+}
+
 // ── XML helpers ────────────────────────────────────────────────────────
 
 function escapeXml(s: string): string {
@@ -149,11 +153,18 @@ export interface IndividualFormData {
   // Period covered (for "활용일자" row 10) — preformatted by caller, e.g.
   // "2026.03.06~03.12".
   activityDateSpan: string;
-  // First-session start/end as HH:MM in KST. The template renders these
-  // as Excel time values via numFmt h:mm.
-  firstSessionStart: { hours: number; minutes: number } | null;
-  firstSessionEnd: { hours: number; minutes: number } | null;
-  participationHours: number; // total across all sessions (rounded 0.1h)
+  // 방문 시간 (visit time) — 2026-06-10 user directive switched this from
+  // FIRST session to the participant's LAST attended session, so the form
+  // reflects when they actually finished the study.
+  lastSessionStart: { hours: number; minutes: number } | null;
+  lastSessionEnd: { hours: number; minutes: number } | null;
+  // Session count for B11 (and English mirror AB10). 2026-06-10 directive:
+  // the "시간/회당/장" cell now shows N회 (sessions) instead of total hours
+  // — paired with the D11 unit toggle flipping from "시간" to "회".
+  sessionCount: number;
+  // 목적 / 활용내용 (row 13 B-side). Auto-set per user directive to
+  // "지각적 의사결정 오프라인 실험 참여"; caller may override.
+  purpose: string;
   // Location name (e.g. "649호"). Overrides the template default at L11
   // when the experiment runs in a different room.
   locationName?: string | null;
@@ -179,23 +190,31 @@ export async function fillIndividualForm(
   const updates: Record<string, CellValue> = {
     // 활용일자 — period span
     C10: { kind: "str", value: data.activityDateSpan },
-    // 활용시간 — start/end (template numFmt: h:mm)
-    ...(data.firstSessionStart && {
+    // 활용시간 — start/end (template numFmt: h:mm). 2026-06-10: LAST session.
+    ...(data.lastSessionStart && {
       G10: {
         kind: "time",
-        hours: data.firstSessionStart.hours,
-        minutes: data.firstSessionStart.minutes,
+        hours: data.lastSessionStart.hours,
+        minutes: data.lastSessionStart.minutes,
       } satisfies CellValue,
     }),
-    ...(data.firstSessionEnd && {
+    ...(data.lastSessionEnd && {
       I10: {
         kind: "time",
-        hours: data.firstSessionEnd.hours,
-        minutes: data.firstSessionEnd.minutes,
+        hours: data.lastSessionEnd.hours,
+        minutes: data.lastSessionEnd.minutes,
       } satisfies CellValue,
     }),
-    // 시간/회당/장 — total participation hours
-    B11: { kind: "num", value: data.participationHours },
+    // 시간/회당/장 — session count (dropdown D11 flipped from "시간" → "회").
+    B11: { kind: "num", value: data.sessionCount },
+    // D11 unit dropdown options: "시간,회,장,words" — set to "회".
+    D11: { kind: "str", value: "회" },
+    // 구분 (K9:L9 merged dropdown, options "내국인, 외국인") — recipient
+    // is a domestic experiment participant (default 내국인 per 2026-06-10
+    // directive; foreign-national overrides handled by the researcher).
+    K9: { kind: "str", value: "내국인" },
+    // 목적 / 활용내용 (row 13, merged B13:L13). Auto-fill per directive.
+    B13: { kind: "str", value: data.purpose },
     // 장소 — override template's "649호" when the experiment ran elsewhere
     ...(data.locationName && {
       L11: { kind: "str", value: data.locationName } satisfies CellValue,
@@ -222,21 +241,24 @@ export async function fillIndividualForm(
   // Korean side at the same row.
   Object.assign(updates, {
     U10: { kind: "str", value: data.activityDateSpan },
-    ...(data.firstSessionStart && {
+    ...(data.lastSessionStart && {
       W10: {
         kind: "time",
-        hours: data.firstSessionStart.hours,
-        minutes: data.firstSessionStart.minutes,
+        hours: data.lastSessionStart.hours,
+        minutes: data.lastSessionStart.minutes,
       } satisfies CellValue,
     }),
-    ...(data.firstSessionEnd && {
+    ...(data.lastSessionEnd && {
       Z10: {
         kind: "time",
-        hours: data.firstSessionEnd.hours,
-        minutes: data.firstSessionEnd.minutes,
+        hours: data.lastSessionEnd.hours,
+        minutes: data.lastSessionEnd.minutes,
       } satisfies CellValue,
     }),
-    AB10: { kind: "num", value: data.participationHours },
+    AB10: { kind: "num", value: data.sessionCount },
+    // English unit toggle (W11 dropdown: "hour(s),time(s),sheet(s),words")
+    // mirrors the Korean "회" selection.
+    W11: { kind: "str", value: "time(s)" },
     U16: { kind: "str", value: data.name },
     W16: { kind: "str", value: data.institution },
     Y16: { kind: "str", value: data.email ?? "" },
@@ -510,6 +532,230 @@ export async function fillUploadForm(
   xml = xml.slice(0, insertionPoint) + newRowsBlob + xml.slice(insertionPoint);
 
   zip.file("xl/worksheets/sheet1.xml", xml);
+
+  return Buffer.from(
+    await zip.generateAsync({
+      type: "nodebuffer",
+      compression: "DEFLATE",
+      compressionOptions: { level: 6 },
+    }),
+  );
+}
+
+// ── 연구참여비 지급신청서 (docx) ───────────────────────────────────────
+//
+// The 행정실 accepts an extra dispatch document — `연구참여비_지급신청서.docx`
+// — alongside the SNU R&D xlsx forms. It is a Word table where each row
+// describes one session attended by the participant; the bottom row sums
+// the per-session payments. User-supplied template (2026-06-10) ships
+// with sample values ("Psychophysics" / "05/02" / "1.5만") — we mutate the
+// document.xml inside the docx zip the same way we mutate sheet1.xml in
+// the xlsx flow: surgical text-node replacement so the document's
+// formatting / themes / fonts pass through untouched.
+
+export interface ResearchPaymentRequestData {
+  /** Researcher display name (실험자) — resolved from
+   *  experiments.created_by → profiles.display_name. */
+  researcherName: string;
+  /** Participant display name (참여자). */
+  participantName: string;
+  /** YYYY-MM-DD; null when the participant row has no birthdate. */
+  participantBirthdate: string | null;
+  /** Used as the per-row "실험내용" cell (single value, repeated per row
+   *  because every session is the same study). */
+  experimentTitle: string;
+  /** Chronological session list. The table has 10 data rows; sessions
+   *  beyond the 10th overflow into a follow-up "..." line in the last
+   *  row's 실험내용 cell. */
+  sessions: Array<{ slot_start: string; slot_end: string }>;
+  /** Total amount in KRW. Per-session amount is `totalAmountKrw /
+   *  sessions.length` (display rounded to 0.1 만원). */
+  totalAmountKrw: number;
+}
+
+const RPR_TABLE_DATA_ROW_COUNT = 10; // template ships with 10 data rows
+
+function formatDateMMDD(iso: string): string {
+  // KST month/day; envelope-style "06/09".
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Seoul",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+  // en-GB gives "DD/MM"; flip to "MM/DD" to match the template sample.
+  const [d, m] = fmt.split("/");
+  return `${m}/${d}`;
+}
+
+function sessionDurationHoursLabel(slot_start: string, slot_end: string): string {
+  const minutes =
+    (new Date(slot_end).getTime() - new Date(slot_start).getTime()) / 60_000;
+  // Whole hours stay as integer ("1"), partials carry one decimal ("1.5").
+  const hours = minutes / 60;
+  return Number.isInteger(hours)
+    ? `${hours}`
+    : (Math.round(hours * 10) / 10).toString();
+}
+
+function formatManwon(krw: number): string {
+  // 만원 with at most 2 decimals, trailing-zero stripped ("1.8", "3", "0.5").
+  const manwon = krw / 10_000;
+  if (Number.isInteger(manwon)) return `${manwon}`;
+  return (Math.round(manwon * 100) / 100).toString();
+}
+
+/** Replace the FIRST occurrence of `<w:t>oldText</w:t>` (with any attrs)
+ *  in `xml` with the same wrapper but `newText` inside. xml:space=preserve
+ *  is added so leading/trailing spaces survive Word's whitespace
+ *  normalisation. */
+function replaceFirstWT(
+  xml: string,
+  oldText: string,
+  newText: string,
+): string {
+  // Build a regex that matches the SPECIFIC inner text. The text is
+  // escaped for regex; attribute-list is wildcarded.
+  const esc = oldText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`<w:t(\\s[^>]*)?>${esc}</w:t>`);
+  return xml.replace(
+    re,
+    `<w:t xml:space="preserve">${escapeXml(newText)}</w:t>`,
+  );
+}
+
+/** Replace the FIRST `<w:t>oldText</w:t>` that appears AFTER `anchor`
+ *  (a text fragment occurring earlier in the XML). Lets us safely target
+ *  the total-row "3" by anchoring on "연구참여비 지급 총액" — without
+ *  this, naive global replace would also match any data-row amount that
+ *  happens to equal "3". */
+function replaceFirstWTAfter(
+  xml: string,
+  anchor: string,
+  oldText: string,
+  newText: string,
+): string {
+  const anchorIdx = xml.indexOf(anchor);
+  if (anchorIdx < 0) return xml;
+  const esc = oldText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`<w:t(\\s[^>]*)?>${esc}</w:t>`);
+  const tail = xml.slice(anchorIdx);
+  const replaced = tail.replace(
+    re,
+    `<w:t xml:space="preserve">${escapeXml(newText)}</w:t>`,
+  );
+  if (replaced === tail) return xml;
+  return xml.slice(0, anchorIdx) + replaced;
+}
+
+export async function fillResearchPaymentRequest(
+  data: ResearchPaymentRequestData,
+): Promise<Buffer> {
+  const templateBuf = await loadResearchPaymentRequestTemplate();
+  const zip = await JSZip.loadAsync(templateBuf);
+
+  const docEntry = zip.file("word/document.xml");
+  if (!docEntry) {
+    throw new Error(
+      "research-payment-request-template: word/document.xml missing",
+    );
+  }
+  let xml = await docEntry.async("text");
+
+  // 1) Header fields — append the actual values to the labels in place.
+  //    Word's run-splitting puts "실험자" and ":" in separate `<w:t>`
+  //    elements (verified on the live template); 참여자: + 생년월일: are
+  //    each one combined run. So the 실험자 path anchors on the label
+  //    and rewrites the FOLLOWING ":" run; the other two collapse into a
+  //    single `<w:t>` rewrite.
+  const birthDisplay = data.participantBirthdate
+    ? data.participantBirthdate.slice(0, 10)
+    : "-";
+  xml = replaceFirstWTAfter(xml, "실험자", ":", `: ${data.researcherName}`);
+  xml = replaceFirstWT(xml, "참여자:", `참여자: ${data.participantName}`);
+  xml = replaceFirstWT(xml, "생년월일:", `생년월일: ${birthDisplay}`);
+
+  // 2) Table data rows. The template ships with 2 sample rows + 8 empty.
+  //    Row layout per cell:
+  //      Col 1 (실험내용): one `<w:t>Psychophysics</w:t>` per filled row
+  //      Col 2 (방문일):   one `<w:t>MM/DD</w:t>`
+  //      Col 3 (실험 시간): `<w:t>N</w:t><w:t>시간</w:t>`
+  //      Col 4 (연구참여비): `<w:t>X.Y</w:t><w:t>만</w:t>`
+  //    The two sample rows have unique date strings ("05/02", "05/07")
+  //    which lets us target them precisely. For sessions beyond the
+  //    2 sample rows we splice plain-text replacements into the rest of
+  //    the empty-row scaffold.
+  const N = data.sessions.length;
+  const perSession =
+    N > 0 ? Math.round((data.totalAmountKrw / N) * 100) / 100 : 0;
+
+  // Sample row mutations (rows 1 + 2 of the data table).
+  const sample = [
+    { dateAnchor: "05/02", amountAnchor: "1.5" },
+    { dateAnchor: "05/07", amountAnchor: "1.5" },
+  ];
+  for (let i = 0; i < Math.min(2, sample.length); i++) {
+    const s = data.sessions[i];
+    const a = sample[i];
+    if (s) {
+      xml = replaceFirstWT(xml, a.dateAnchor, formatDateMMDD(s.slot_start));
+      const hrsLabel = sessionDurationHoursLabel(s.slot_start, s.slot_end);
+      // Both sample rows share the literal "1" before "시간"; replace
+      // the FIRST surviving occurrence each iteration. To keep targeting
+      // stable, only replace when the duration differs from the template
+      // default — otherwise leave the "1" alone.
+      if (hrsLabel !== "1") {
+        xml = replaceFirstWT(xml, "1", hrsLabel);
+      }
+      // Replace the FIRST surviving "1.5" anchor with this row's amount.
+      xml = replaceFirstWT(xml, a.amountAnchor, formatManwon(perSession));
+    } else {
+      // No session for this template row — blank out the sample content.
+      xml = replaceFirstWT(xml, a.dateAnchor, "");
+      xml = replaceFirstWT(xml, a.amountAnchor, "");
+    }
+    // Always rename the per-row 실험내용 if we have a session; for the
+    // first row the anchor is "Psychophysics" (sample), reused as anchor
+    // for the second row too.
+    if (s) {
+      xml = replaceFirstWT(xml, "Psychophysics", data.experimentTitle);
+    } else {
+      xml = replaceFirstWT(xml, "Psychophysics", "");
+    }
+  }
+
+  // Sessions 3..min(N, 10) get appended to the document body as additional
+  // plain paragraphs after the table. This is a fallback because the
+  // empty template rows lack `<w:t>` anchors we can target without a full
+  // OOXML row builder. The visual effect is the data still ships; the
+  // researcher / 행정 선생님 can copy the lines into a fresh row if they
+  // want pixel-perfect layout. For typical 2-3 session experiments this
+  // path doesn't trigger.
+  const overflow = data.sessions.slice(2, RPR_TABLE_DATA_ROW_COUNT);
+  if (overflow.length > 0) {
+    const lines = overflow
+      .map((s, idx) => {
+        const visit = formatDateMMDD(s.slot_start);
+        const hrs = sessionDurationHoursLabel(s.slot_start, s.slot_end);
+        return `  ${idx + 3}회차 · ${data.experimentTitle} · ${visit} · ${hrs}시간 · ${formatManwon(perSession)}만`;
+      })
+      .join("\n");
+    const overflowPara = [
+      `<w:p><w:pPr><w:rPr><w:lang w:eastAsia="ko-KR"/></w:rPr></w:pPr>`,
+      `<w:r><w:rPr><w:lang w:eastAsia="ko-KR"/></w:rPr>`,
+      `<w:t xml:space="preserve">${escapeXml(`(추가 회차: ${overflow.length}건)\n${lines}`)}</w:t>`,
+      `</w:r></w:p>`,
+    ].join("");
+    xml = xml.replace("</w:body>", `${overflowPara}</w:body>`);
+  }
+
+  // 3) Total line: literal "3" sits immediately after the "연구참여비
+  //    지급 총액" label in the bottom row. Anchor on that label so we
+  //    don't accidentally rewrite a data-row amount that happened to
+  //    equal "3" (e.g. 9만 / 3sess = 3만/session).
+  const totalManwon = formatManwon(data.totalAmountKrw);
+  xml = replaceFirstWTAfter(xml, "지급 총액", "3", totalManwon);
+
+  zip.file("word/document.xml", xml);
 
   return Buffer.from(
     await zip.generateAsync({

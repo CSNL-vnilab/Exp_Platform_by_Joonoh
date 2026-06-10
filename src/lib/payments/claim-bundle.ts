@@ -22,6 +22,13 @@ import {
   formatDateSpan,
   type ExportParticipant,
 } from "@/lib/payments/excel";
+import { fillResearchPaymentRequest } from "@/lib/payments/template-filler";
+
+// 2026-06-10 user directive — auto-fill the 목적 (B13) cell with this
+// standing description for every offline experiment participating in
+// 지각적 의사결정 studies. Overrides only when the experiment ships its
+// own purpose later (none today).
+const DEFAULT_PURPOSE = "지각적 의사결정 오프라인 실험 참여";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -53,6 +60,10 @@ export interface BundleRow {
   // study + room instead of template defaults.
   experimentTitle: string | null;
   locationName: string | null;
+  // 2026-06-10 — surface into the 연구참여비 지급신청서 docx (실험자 /
+  // 참여자 / 생년월일 header fields).
+  researcherName: string;
+  participantBirthdate: string | null;
 }
 
 export interface ClaimReuseAssets {
@@ -163,8 +174,9 @@ async function runConcurrent(
 // ── Supabase fetch helpers ─────────────────────────────────────────────
 
 // name_override / email_override / phone come from migration 00050.
+// participants.birthdate added 2026-06-10 for the 연구참여비 지급신청서 docx.
 const PAYMENT_INFO_SELECT =
-  "participant_id, booking_group_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, bankbook_path, bankbook_mime_type, period_start, period_end, amount_krw, status, name_override, email_override, phone, participants(name, email, phone)";
+  "participant_id, booking_group_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, bankbook_path, bankbook_mime_type, period_start, period_end, amount_krw, status, name_override, email_override, phone, participants(name, email, phone, birthdate)";
 
 interface RawPaymentInfoRow {
   participant_id: string;
@@ -190,12 +202,16 @@ interface RawPaymentInfoRow {
     name: string;
     email: string | null;
     phone: string | null;
+    birthdate: string | null;
   } | null;
 }
 
 interface ExperimentContext {
   experimentTitle: string | null;
   locationName: string | null;
+  /** Resolved from experiments.created_by → profiles.display_name. Used
+   *  by the 연구참여비 지급신청서 docx as the 실험자 field. */
+  researcherName: string;
 }
 
 async function loadExperimentContext(
@@ -204,20 +220,36 @@ async function loadExperimentContext(
 ): Promise<ExperimentContext> {
   const { data: expRow } = await supabase
     .from("experiments")
-    .select("title, location_id")
+    .select("title, location_id, created_by")
     .eq("id", experimentId)
     .single();
-  const experimentTitle =
-    (expRow as { title: string } | null)?.title ?? null;
-  const locId = (expRow as { location_id: string | null } | null)?.location_id;
-  if (!locId) return { experimentTitle, locationName: null };
-  const { data: locRow } = await supabase
-    .from("experiment_locations")
-    .select("name")
-    .eq("id", locId)
-    .maybeSingle();
-  const locationName = (locRow as { name: string } | null)?.name ?? null;
-  return { experimentTitle, locationName };
+  const exp = expRow as {
+    title: string;
+    location_id: string | null;
+    created_by: string | null;
+  } | null;
+  const experimentTitle = exp?.title ?? null;
+  let locationName: string | null = null;
+  if (exp?.location_id) {
+    const { data: locRow } = await supabase
+      .from("experiment_locations")
+      .select("name")
+      .eq("id", exp.location_id)
+      .maybeSingle();
+    locationName = (locRow as { name: string } | null)?.name ?? null;
+  }
+  let researcherName = "-";
+  if (exp?.created_by) {
+    const { data: profRow } = await supabase
+      .from("profiles")
+      .select("display_name, email")
+      .eq("id", exp.created_by)
+      .maybeSingle();
+    const prof = profRow as { display_name: string | null; email: string | null } | null;
+    researcherName =
+      prof?.display_name?.trim() || prof?.email?.trim() || "-";
+  }
+  return { experimentTitle, locationName, researcherName };
 }
 
 async function loadSessionsByBgId(
@@ -274,6 +306,8 @@ function mapRowToBundleRow(
     sessions: sessionsBy.get(r.booking_group_id) ?? [],
     experimentTitle: ctx.experimentTitle,
     locationName: ctx.locationName,
+    researcherName: ctx.researcherName,
+    participantBirthdate: r.participants?.birthdate ?? null,
   };
 }
 
@@ -281,7 +315,7 @@ function mapToExportParticipant(
   r: BundleRow,
   signaturePng: Buffer | null,
 ): ExportParticipant {
-  const first = r.sessions[0];
+  const last = r.sessions[r.sessions.length - 1];
   return {
     participantId: r.participantId,
     bookingGroupId: r.bookingGroupId,
@@ -299,13 +333,17 @@ function mapToExportParticipant(
     periodStart: r.periodStart,
     periodEnd: r.periodEnd,
     amountKrw: r.amountKrw,
-    participationHours: totalHours(r.sessions),
+    sessionCount: r.sessions.length,
     institution: r.institution ?? "서울대학교",
     experimentTitle: r.experimentTitle,
     locationName: r.locationName,
     activityDateSpan: formatDateSpan(r.periodStart, r.periodEnd),
-    firstSessionStart: first ? isoToHHMM(first.slot_start) : null,
-    firstSessionEnd: first ? isoToHHMM(first.slot_end) : null,
+    // 방문 시간 — LAST attended session (2026-06-10 directive).
+    lastSessionStart: last ? isoToHHMM(last.slot_start) : null,
+    lastSessionEnd: last ? isoToHHMM(last.slot_end) : null,
+    purpose: DEFAULT_PURPOSE,
+    researcherName: r.researcherName,
+    participantBirthdate: r.participantBirthdate,
   };
 }
 
@@ -487,14 +525,18 @@ export async function buildClaimBundle(
 
   // Outer ZIP layout (참여자별 파일 + 전체 청구 파일 + 통장사본 zip):
   //   실험참여자비 양식_{이름}.xlsx × N      (signature embedded at B17:C17)
+  //   연구참여비_지급신청서_{이름}.docx × N   (2026-06-10 — per-row session breakdown)
   //   일회성경비지급자_업로드양식_작성.xlsx
   //   통장사본.zip                          (nested)
-  //   README.txt
+  //
+  // README.txt removed 2026-06-10 per user directive — the bundle now
+  // ships data-only, no descriptive sidecar.
   //
   // Signatures are embedded inside each xlsx via XML drawing manipulation
   // (template-filler.ts:embedSignatureImage). Dedup per category so two
   // participants sharing a 이름 still get distinct filenames.
   const formNames = new Map<string, number>();
+  const docxNames = new Map<string, number>();
   const bankbookNames = new Map<string, number>();
   const zip = new JSZip();
 
@@ -505,12 +547,37 @@ export async function buildClaimBundle(
     uploadBuf as unknown as ArrayBuffer,
   );
 
-  // 2. Per-participant forms.
-  for (const p of exportParticipants) {
+  // 2. Per-participant forms (xlsx) + 지급신청서 (docx).
+  for (let i = 0; i < exportParticipants.length; i++) {
+    const p = exportParticipants[i];
+    const r = rows[i];
     const safe = safeFilename(p.name || p.bookingGroupId);
     const indivBuf = await buildIndividualFormWorkbook(p);
     const indivName = dedupeName(`실험참여자비 양식_${safe}.xlsx`, formNames);
     zip.file(indivName, indivBuf as unknown as ArrayBuffer);
+
+    // 연구참여비 지급신청서 docx — 행정실에 함께 발송하는 보조 신청서.
+    // 참여비/세션 = 1회당 지급액으로 자동 계산.
+    try {
+      const docxBuf = await fillResearchPaymentRequest({
+        researcherName: p.researcherName,
+        participantName: p.name,
+        participantBirthdate: p.participantBirthdate,
+        experimentTitle: p.experimentTitle ?? "-",
+        sessions: r.sessions,
+        totalAmountKrw: p.amountKrw,
+      });
+      const docxName = dedupeName(
+        `연구참여비_지급신청서_${safe}.docx`,
+        docxNames,
+      );
+      zip.file(docxName, docxBuf as unknown as ArrayBuffer);
+    } catch (err) {
+      console.error(
+        `[ClaimBundle] 연구참여비 지급신청서 fill failed for ${p.bookingGroupId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   // 3. Bankbook scans bundled into a nested zip — single attachment for
@@ -533,9 +600,6 @@ export async function buildClaimBundle(
     zip.file("통장사본.zip", innerZipBuffer);
   }
 
-  // 4. Summary README.
-  zip.file("README.txt", buildReadme(exportParticipants));
-
   const zipBuffer = await zip.generateAsync({
     type: "nodebuffer",
     compression: "DEFLATE",
@@ -548,27 +612,6 @@ export async function buildClaimBundle(
     totalKrw: exportParticipants.reduce((a, p) => a + p.amountKrw, 0),
     includedBookingGroupIds: rows.map((r) => r.bookingGroupId),
   };
-}
-
-function buildReadme(participants: ExportParticipant[]): string {
-  const totalKrw = participants.reduce((a, p) => a + p.amountKrw, 0);
-  return [
-    `실험참여자비 청구 번들`,
-    `생성 시각: ${new Date().toISOString()}`,
-    `참가자 수: ${participants.length}명`,
-    `총 청구액: ${totalKrw.toLocaleString()}원`,
-    ``,
-    `포함된 파일:`,
-    `  ① 일회성경비지급자_업로드양식_작성.xlsx — 행정 제출용 통합 파일`,
-    `  ② 실험참여자비 양식_*.xlsx — 참가자별 청구서 (원본 양식 + 서명 임베드)`,
-    `  ③ 통장사본.zip — 참가자별 통장 사본 모음`,
-    ``,
-    `참가자 목록:`,
-    ...participants.map(
-      (p) =>
-        `  - ${p.name.padEnd(8, " ")}  ${p.amountKrw.toLocaleString().padStart(10, " ")}원  ${p.bankName ?? "-"}`,
-    ),
-  ].join("\n");
 }
 
 // Re-export the SupabaseClient type signature for tests / scripts that

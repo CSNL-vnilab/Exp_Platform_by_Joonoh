@@ -121,7 +121,7 @@ async function fetchAllPaymentRows(
   let query = sb
     .from("participant_payment_info")
     .select(
-      "participant_id, booking_group_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, bankbook_path, bankbook_mime_type, period_start, period_end, amount_krw, status, name_override, email_override, phone, submitted_at, participants(name, email, phone)",
+      "participant_id, booking_group_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, bankbook_path, bankbook_mime_type, period_start, period_end, amount_krw, status, name_override, email_override, phone, submitted_at, participants(name, email, phone, birthdate)",
     )
     .eq("experiment_id", experimentId)
     .order("submitted_at", { ascending: true });
@@ -295,11 +295,16 @@ async function main() {
       // level even when the relationship is many-to-one. Coerce via
       // unknown above; here we describe the runtime shape we actually
       // get for one-to-one joins.
-      participants: { name: string; email: string | null; phone: string | null } | null;
+      participants: {
+        name: string;
+        email: string | null;
+        phone: string | null;
+        birthdate: string | null;
+      } | null;
     }>
   ).map((r) => {
     const sessions = sessionsBy.get(r.booking_group_id) ?? [];
-    const first = sessions[0];
+    const last = sessions[sessions.length - 1];
     return {
       participantId: r.participant_id,
       bookingGroupId: r.booking_group_id,
@@ -317,13 +322,16 @@ async function main() {
       periodStart: r.period_start,
       periodEnd: r.period_end,
       amountKrw: r.amount_krw,
-      participationHours: totalHours(sessions),
+      sessionCount: sessions.length,
       institution: r.institution ?? "서울대학교",
       experimentTitle: exp.title,
       locationName,
       activityDateSpan: formatDateSpan(r.period_start, r.period_end),
-      firstSessionStart: first ? isoToHHMM(first.slot_start) : null,
-      firstSessionEnd: first ? isoToHHMM(first.slot_end) : null,
+      lastSessionStart: last ? isoToHHMM(last.slot_start) : null,
+      lastSessionEnd: last ? isoToHHMM(last.slot_end) : null,
+      purpose: "지각적 의사결정 오프라인 실험 참여",
+      researcherName: "-",
+      participantBirthdate: r.participants?.birthdate ?? null,
     };
   });
 

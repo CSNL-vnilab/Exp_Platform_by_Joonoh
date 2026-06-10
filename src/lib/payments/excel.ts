@@ -34,7 +34,12 @@ export interface ExportParticipant {
   periodStart: string | null;
   periodEnd: string | null;
   amountKrw: number;
-  participationHours: number;
+  // Number of attended sessions in this booking_group. Drives B11 +
+  // English-mirror AB10 (paired with the D11/W11 unit dropdowns flipped
+  // to "회" / "time(s)"). Replaces the prior participationHours (total
+  // hours) which the 행정 office found confusing for multi-session
+  // experiments — 2026-06-10 directive.
+  sessionCount: number;
   institution: string;
   // Experiment title — overrides the template's pre-filled "인지행동실험"
   // at B12 so the form names the actual study.
@@ -42,8 +47,18 @@ export interface ExportParticipant {
   // Location name (e.g. "649호") — overrides template default at L11.
   locationName?: string | null;
   activityDateSpan: string;
-  firstSessionStart: string | null; // "HH:MM"
-  firstSessionEnd: string | null;
+  // Used by the per-participant form's "방문 시간" cells (G10/I10 and
+  // English-mirror W10/Z10). 2026-06-10 directive switched from FIRST
+  // session to the LAST attended session so the form reflects the
+  // participant's final visit time.
+  lastSessionStart: string | null; // "HH:MM" in KST
+  lastSessionEnd: string | null;
+  // 목적 / 활용내용 cell (B13). Defaults to the lab's standing description.
+  purpose: string;
+  // 연구참여비 지급신청서 (docx) inputs — researcher display name +
+  // participant birthdate. Both pulled in claim-bundle's row mapper.
+  researcherName: string;
+  participantBirthdate: string | null;
 }
 
 const DEFAULT_NATIONALITY = "대한민국";
@@ -96,9 +111,10 @@ export async function buildIndividualFormWorkbook(
       : null,
     locationName: p.locationName ?? null,
     activityDateSpan: p.activityDateSpan,
-    firstSessionStart: parseHHMM(p.firstSessionStart),
-    firstSessionEnd: parseHHMM(p.firstSessionEnd),
-    participationHours: p.participationHours,
+    lastSessionStart: parseHHMM(p.lastSessionStart),
+    lastSessionEnd: parseHHMM(p.lastSessionEnd),
+    sessionCount: p.sessionCount,
+    purpose: safeCellText(p.purpose),
     signaturePng: p.signaturePng,
   };
   return fillIndividualForm(data);

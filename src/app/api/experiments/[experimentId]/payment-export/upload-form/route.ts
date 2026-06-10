@@ -105,18 +105,17 @@ export async function GET(
     sessionsBy.set(b.booking_group_id, list);
   }
 
-  // Build ExportParticipant list. Hours/date-span come from bookings.
+  // Build ExportParticipant list. The upload form only reads
+  // name/institution/rrn/amount/account fields — sessionCount/lastSession/
+  // purpose/researcherName/participantBirthdate are required by the
+  // ExportParticipant type for the individual form + 지급신청서 docx code
+  // paths but are no-ops here. Stubbed accordingly.
   const participants: ExportParticipant[] = [];
   for (const r of rows) {
     const sessions = sessionsBy.get(r.booking_group_id) ?? [];
-    const totalMs = sessions.reduce((acc, b) => {
-      return acc + (new Date(b.slot_end).getTime() - new Date(b.slot_start).getTime());
-    }, 0);
-    const hours = totalMs > 0 ? totalMs / (1000 * 60 * 60) : 0;
-
-    const first = sessions[0];
-    const firstStart = first ? isoToHHMM(first.slot_start) : null;
-    const firstEnd = first ? isoToHHMM(first.slot_end) : null;
+    const last = sessions[sessions.length - 1];
+    const lastStart = last ? isoToHHMM(last.slot_start) : null;
+    const lastEnd = last ? isoToHHMM(last.slot_end) : null;
 
     // Signature is embedded in individual forms only; the combined upload
     // form doesn't include signatures per the admin's template.
@@ -144,11 +143,14 @@ export async function GET(
       periodStart: r.period_start,
       periodEnd: r.period_end,
       amountKrw: r.amount_krw,
-      participationHours: Math.round(hours * 10) / 10,
+      sessionCount: sessions.length,
       institution: info.institution ?? "서울대학교",
       activityDateSpan: formatDateSpan(r.period_start, r.period_end),
-      firstSessionStart: firstStart,
-      firstSessionEnd: firstEnd,
+      lastSessionStart: lastStart,
+      lastSessionEnd: lastEnd,
+      purpose: "지각적 의사결정 오프라인 실험 참여",
+      researcherName: "-",
+      participantBirthdate: null,
     });
   }
 

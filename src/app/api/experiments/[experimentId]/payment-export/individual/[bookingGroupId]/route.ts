@@ -61,8 +61,9 @@ export async function GET(
     .from("participant_payment_info")
     .select(
       // name_override / email_override / phone are columns added by
-      // migration 00050 to capture participant-confirmed contact info.
-      "id, booking_group_id, participant_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, period_start, period_end, amount_krw, status, name_override, email_override, phone, participants(name, email, phone)",
+      // migration 00050. participants.birthdate added 2026-06-10 for
+      // the 연구참여비 지급신청서 docx (생년월일 field).
+      "id, booking_group_id, participant_id, rrn_cipher, rrn_iv, rrn_tag, rrn_key_version, bank_name, account_number, account_holder, institution, signature_path, period_start, period_end, amount_krw, status, name_override, email_override, phone, participants(name, email, phone, birthdate)",
     )
     .eq("experiment_id", experimentId)
     .eq("booking_group_id", bookingGroupId)
@@ -114,12 +115,53 @@ export async function GET(
     name_override: string | null;
     email_override: string | null;
     phone: string | null;
-    participants: { name: string; email: string | null; phone: string | null } | null;
+    participants: {
+      name: string;
+      email: string | null;
+      phone: string | null;
+      birthdate: string | null;
+    } | null;
   };
   const participantName = info.name_override ?? info.participants?.name ?? "";
   const participantEmail = info.email_override ?? info.participants?.email ?? null;
   const participantPhone = info.phone ?? info.participants?.phone ?? null;
 
+  // Resolve experiment context (title, location, researcher name) — same
+  // info claim-bundle's mapper assembles, so the individual-export route
+  // surfaces identical 실험자 / 장소 / 제목 values in the xlsx.
+  const { data: expRow } = await admin
+    .from("experiments")
+    .select("title, location_id, created_by")
+    .eq("id", experimentId)
+    .maybeSingle();
+  const exp = expRow as {
+    title: string | null;
+    location_id: string | null;
+    created_by: string | null;
+  } | null;
+  let locationName: string | null = null;
+  if (exp?.location_id) {
+    const { data: locRow } = await admin
+      .from("experiment_locations")
+      .select("name")
+      .eq("id", exp.location_id)
+      .maybeSingle();
+    locationName = (locRow as { name: string } | null)?.name ?? null;
+  }
+  let researcherName = "-";
+  if (exp?.created_by) {
+    const { data: profRow } = await admin
+      .from("profiles")
+      .select("display_name, email")
+      .eq("id", exp.created_by)
+      .maybeSingle();
+    const prof = profRow as { display_name: string | null; email: string | null } | null;
+    researcherName = prof?.display_name?.trim() || prof?.email?.trim() || "-";
+  }
+
+  const last = sessions[sessions.length - 1];
+  void hours; // retained for log / audit context if reintroduced later
+  void first;
   const participant: ExportParticipant = {
     participantId: row.participant_id,
     bookingGroupId: row.booking_group_id,
@@ -137,11 +179,16 @@ export async function GET(
     periodStart: row.period_start,
     periodEnd: row.period_end,
     amountKrw: row.amount_krw,
-    participationHours: Math.round(hours * 10) / 10,
+    sessionCount: sessions.length,
     institution: info.institution ?? "서울대학교",
+    experimentTitle: exp?.title ?? null,
+    locationName,
     activityDateSpan: formatDateSpan(row.period_start, row.period_end),
-    firstSessionStart: first ? isoToHHMM(first.slot_start) : null,
-    firstSessionEnd: first ? isoToHHMM(first.slot_end) : null,
+    lastSessionStart: last ? isoToHHMM(last.slot_start) : null,
+    lastSessionEnd: last ? isoToHHMM(last.slot_end) : null,
+    purpose: "지각적 의사결정 오프라인 실험 참여",
+    researcherName,
+    participantBirthdate: info.participants?.birthdate ?? null,
   };
 
   const buffer = await buildIndividualFormWorkbook(participant);
