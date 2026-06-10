@@ -34,6 +34,17 @@ interface PaymentRow {
   // resend is meaningful right now (auto-dispatch triggers off the same
   // condition). Computed server-side off the bookings list.
   allBookingsCompleted: boolean;
+  // Amount-recommendation context (computed server-side via
+  // recommendAmount() in bookings/page.tsx — the panel never re-queries
+  // bookings or invents a formula). `recommendedKrw` is a pro-rated
+  // suggestion over the planned session count; `recommendedAdjusted` is
+  // true only when it differs from the posted full fee. Used to render a
+  // small "추천 N원 (x/y회 완료)" affordance next to the amount that
+  // prefills the edit input on click. NEVER auto-applied.
+  completedSessions: number;
+  plannedSessions: number | null;
+  recommendedKrw: number;
+  recommendedAdjusted: boolean;
 }
 
 interface Props {
@@ -440,6 +451,14 @@ export function PaymentPanel({
     setEditValue(String(r.amountKrw));
   }
 
+  // Open the amount editor pre-filled with the server-computed
+  // recommendation (partial-attendance pro-rate). Researcher still has to
+  // press 저장 — recommendAmount() is a hint, never an auto-apply.
+  function startEditWithRecommended(r: PaymentRow) {
+    setEditing(r.bookingGroupId);
+    setEditValue(String(r.recommendedKrw));
+  }
+
   async function saveEdit(bookingGroupId: string) {
     const amount = Number(editValue.replace(/[,\s]/g, ""));
     if (!Number.isInteger(amount) || amount < 0) {
@@ -607,24 +626,31 @@ export function PaymentPanel({
                             </button>
                           </div>
                         ) : (
-                          <span
-                            className={`inline-flex items-center gap-1 ${
-                              isEditable
-                                ? "cursor-pointer hover:underline"
-                                : ""
-                            }`}
-                            onClick={() => isEditable && startEdit(r)}
-                            title={isEditable ? "클릭하여 수정" : undefined}
-                          >
-                            <span className="text-foreground">
-                              {r.amountKrw.toLocaleString()}원
-                            </span>
-                            {r.amountOverridden && (
-                              <span className="text-[10px] text-amber-600">
-                                (수동)
+                          <div className="flex flex-col gap-0.5">
+                            <span
+                              className={`inline-flex items-center gap-1 ${
+                                isEditable
+                                  ? "cursor-pointer hover:underline"
+                                  : ""
+                              }`}
+                              onClick={() => isEditable && startEdit(r)}
+                              title={isEditable ? "클릭하여 수정" : undefined}
+                            >
+                              <span className="text-foreground">
+                                {r.amountKrw.toLocaleString()}원
                               </span>
-                            )}
-                          </span>
+                              {r.amountOverridden && (
+                                <span className="text-[10px] text-amber-600">
+                                  (수동)
+                                </span>
+                              )}
+                            </span>
+                            <AmountRecommendation
+                              row={r}
+                              editable={isEditable}
+                              onApply={() => startEditWithRecommended(r)}
+                            />
+                          </div>
                         )}
                       </td>
                       <td className="py-2 pr-3 text-muted">
@@ -936,6 +962,35 @@ function DispatchCell({
     );
   }
 
+  // Backfilled rows are seeded with payment_link_attempts at the sweep
+  // ceiling + a "백필 …" marker in last_error to keep the nightly auto-
+  // dispatch from mass-emailing participants whose experiments ended
+  // months ago (see src/lib/payments/backfill.ts). That is NOT a send
+  // failure — render it in a neutral tone with a plain manual-send
+  // button instead of the red "발송 실패 (N회)", which misleads. The
+  // researcher's explicit send is the only intended dispatch door here.
+  if (row.paymentLinkLastError?.startsWith("백필")) {
+    return (
+      <div className="flex items-center gap-2">
+        <span
+          className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600"
+          title={row.paymentLinkLastError}
+        >
+          자동발송 억제됨 (백필)
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onResend}
+          className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+        >
+          {busy ? "발송 중…" : "수동 발송"}
+        </button>
+        {previewLink}
+      </div>
+    );
+  }
+
   if (row.paymentLinkLastError) {
     return (
       <div className="flex items-center gap-2">
@@ -970,6 +1025,47 @@ function DispatchCell({
       </button>
       {previewLink}
     </div>
+  );
+}
+
+// Small "추천 N원 (x/y회 완료)" affordance under the amount. Renders only
+// when the server-computed recommendation diverges from the stored amount
+// (partial attendance / extended run) AND the row is still editable.
+// Clicking opens the editor pre-filled with the recommended value —
+// recommendAmount() is a hint, the researcher confirms with 저장.
+function AmountRecommendation({
+  row,
+  editable,
+  onApply,
+}: {
+  row: PaymentRow;
+  editable: boolean;
+  onApply: () => void;
+}) {
+  // Gate: editable row, helper flagged it as adjusted vs. the posted fee,
+  // a positive recommendation, and it actually differs from what's stored
+  // now. Otherwise stay silent — no nag when the amount already matches.
+  if (
+    !editable ||
+    !row.recommendedAdjusted ||
+    row.recommendedKrw <= 0 ||
+    row.recommendedKrw === row.amountKrw
+  ) {
+    return null;
+  }
+  const sessionSuffix =
+    row.plannedSessions && row.plannedSessions > 0
+      ? ` (${row.completedSessions}/${row.plannedSessions}회 완료)`
+      : "";
+  return (
+    <button
+      type="button"
+      onClick={onApply}
+      title="클릭하면 이 금액으로 편집 입력을 채웁니다 (저장 전까지 적용 안 됨)"
+      className="inline-flex w-fit items-center gap-1 rounded text-[10px] text-sky-700 hover:text-sky-900 hover:underline"
+    >
+      추천 {row.recommendedKrw.toLocaleString()}원{sessionSuffix}
+    </button>
   );
 }
 

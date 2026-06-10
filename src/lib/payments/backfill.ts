@@ -120,9 +120,14 @@ export async function backfillPaymentInfoForExperiment(
   for (const [groupId, rows] of candidateGroups) {
     if (existing.has(groupId)) continue;
 
-    // Period from non-cancelled rows only — a half-cancelled group
-    // shouldn't get a stretched period from the cancelled tails.
-    const liveRows = rows.filter((r) => r.status !== "cancelled");
+    // Period from attended sessions only — a half-cancelled group
+    // shouldn't get a stretched period from terminal-non-payable tails.
+    // 살아있는 세션 규약 (propagate_payment_period, 00055): cancelled +
+    // no_show 둘 다 terminal-non-payable. no_show 를 빠뜨리면 불참 회차의
+    // slot 이 period_start/end 와 sessionCount 를 부풀려 정산서류에 들어간다
+    // (backlog [17]; claim-bundle.loadSessionsByBgId 의 status 필터와 정합).
+    const LIVE_STATUSES = new Set(["confirmed", "running", "completed"]);
+    const liveRows = rows.filter((r) => LIVE_STATUSES.has(r.status));
     if (liveRows.length === 0) continue;
     const starts = liveRows.map((r) => new Date(r.slot_start).getTime());
     const ends = liveRows.map((r) => new Date(r.slot_end).getTime());

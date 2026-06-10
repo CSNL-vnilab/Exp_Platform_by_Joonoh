@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent } from "@/components/ui/card";
 import { BookingsManager, type BookingRowView } from "@/components/bookings-manager";
 import { PaymentPanel } from "@/components/payment-panel";
+import { recommendAmount } from "@/lib/payments/amount";
 import type { PaymentStatus } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -176,16 +177,35 @@ export default async function BookingsPage({
 async function PaymentSection({ experimentId }: { experimentId: string }) {
   const admin = createAdminClient();
 
-  const { data: paymentRows } = await admin
-    .from("participant_payment_info")
-    .select(
-      // payment_link_* columns added in migration 00051 — surface dispatch
-      // state in the panel so researchers can see who got the email and
-      // resend on failure.
-      "id, booking_group_id, bank_name, status, amount_krw, amount_overridden, submitted_at, claimed_at, period_start, period_end, payment_link_sent_at, payment_link_attempts, payment_link_last_error, name_override, participants(name)",
-    )
-    .eq("experiment_id", experimentId)
-    .order("created_at", { ascending: true });
+  // Payment rows + the experiment's fee/session basis (drives the
+  // recommendAmount() hint in the panel). Both independent → one
+  // Promise.all keeps SSR latency flat.
+  const [paymentRowsResult, feeResult] = await Promise.all([
+    admin
+      .from("participant_payment_info")
+      .select(
+        // payment_link_* columns added in migration 00051 — surface dispatch
+        // state in the panel so researchers can see who got the email and
+        // resend on failure.
+        "id, booking_group_id, bank_name, status, amount_krw, amount_overridden, submitted_at, claimed_at, period_start, period_end, payment_link_sent_at, payment_link_attempts, payment_link_last_error, name_override, participants(name)",
+      )
+      .eq("experiment_id", experimentId)
+      .order("created_at", { ascending: true }),
+    admin
+      .from("experiments")
+      .select("participation_fee, required_sessions")
+      .eq("id", experimentId)
+      .maybeSingle(),
+  ]);
+  const { data: paymentRows } = paymentRowsResult;
+  // experiments.participation_fee = TOTAL fee for the planned run;
+  // required_sessions = the session count that fee was scoped to. Feeds
+  // recommendAmount() as totalFeeKrw / plannedSessions. Defaults keep a
+  // missing experiment row from poisoning the recommendation (helper
+  // treats fee<=0 / sessions<=1 as "no adjustment").
+  const experimentFee = (feeResult.data?.participation_fee as number | undefined) ?? 0;
+  const plannedSessions =
+    (feeResult.data?.required_sessions as number | undefined) ?? null;
 
   // Compute "all bookings in this group are completed" once for every
   // group surfaced. Used by the panel to disable the resend button when
@@ -194,6 +214,16 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
     (r) => (r as unknown as { booking_group_id: string }).booking_group_id,
   );
   const allCompleted = new Map<string, boolean>();
+  // Per-group session-status tally. completedSessions feeds
+  // recommendAmount() (server-side — the panel never re-queries bookings);
+  // the rest are carried so the panel can show "4/5회 완료" context.
+  type SessionCounts = {
+    completed: number;
+    no_show: number;
+    cancelled: number;
+    planned: number;
+  };
+  const countsByGroup = new Map<string, SessionCounts>();
   if (groupIds.length > 0) {
     const { data: groupBookings } = await admin
       .from("bookings")
@@ -221,6 +251,23 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
         gid,
         nonCancelled.length > 0 && nonCancelled.every((s) => s === "completed"),
       );
+      // Tally the four buckets the amount hint cares about. Any status
+      // that isn't completed/no_show/cancelled (e.g. confirmed/running)
+      // counts as "planned/in-flight" — surfaced only for context, the
+      // recommendation keys off `completed`.
+      const counts: SessionCounts = {
+        completed: 0,
+        no_show: 0,
+        cancelled: 0,
+        planned: 0,
+      };
+      for (const s of statuses) {
+        if (s === "completed") counts.completed += 1;
+        else if (s === "no_show") counts.no_show += 1;
+        else if (s === "cancelled") counts.cancelled += 1;
+        else counts.planned += 1;
+      }
+      countsByGroup.set(gid, counts);
     }
   }
 
@@ -242,6 +289,21 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
       name_override: string | null;
       participants: { name: string } | null;
     };
+    const counts = countsByGroup.get(row.booking_group_id);
+    const completedSessions = counts?.completed ?? 0;
+    // Recommended amount is a *hint* — recommendAmount() never auto-
+    // applies (see src/lib/payments/amount.ts). Computed here in the
+    // server component so the client panel doesn't re-query bookings.
+    // We only surface it when (a) the helper says it's adjusted vs. the
+    // posted fee AND (b) it actually differs from what's stored now AND
+    // (c) the row hasn't been manually overridden (researcher already
+    // decided) — the panel decides final visibility, but we pass the
+    // raw numbers so the gate stays in one place.
+    const rec = recommendAmount({
+      totalFeeKrw: experimentFee,
+      plannedSessions,
+      completedSessions,
+    });
     return {
       id: row.id,
       bookingGroupId: row.booking_group_id,
@@ -258,6 +320,12 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
       paymentLinkAttempts: row.payment_link_attempts ?? 0,
       paymentLinkLastError: row.payment_link_last_error,
       allBookingsCompleted: allCompleted.get(row.booking_group_id) ?? false,
+      // Session tally + amount recommendation (carried as props; the
+      // panel renders the "추천 N원 (x/y회 완료)" affordance off these).
+      completedSessions,
+      plannedSessions,
+      recommendedKrw: rec.recommendedKrw,
+      recommendedAdjusted: rec.adjusted,
     };
   });
 
