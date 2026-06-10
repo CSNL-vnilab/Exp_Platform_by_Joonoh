@@ -238,6 +238,10 @@ export async function fillIndividualForm(
     // is a domestic experiment participant (default 내국인 per 2026-06-10
     // directive; foreign-national overrides handled by the researcher).
     K9: { kind: "str", value: "내국인" },
+    // 대면/비대면 (G9 dropdown, options "대면, 비대면") — default 대면
+    // for offline experiments (2026-06-10 follow-up). The 비대면 case
+    // applies to online-runtime experiments which don't use this form.
+    G9: { kind: "str", value: "대면" },
     // 직급/직위 (G11:I11 merged dropdown, options "연구책임자 급,연구자 급")
     // — set to "연구자 급" per 2026-06-10 directive. Picking a value that
     // matches one of the formula1 options keeps Excel's data-validation
@@ -293,6 +297,9 @@ export async function fillIndividualForm(
     // "Superior(Senior),Junior(Assistant)") mirrors Korean G11 "연구자 급"
     // → "Junior(Assistant)".
     Z11: { kind: "str", value: "Junior(Assistant)" },
+    // English 대면/비대면 mirror (Z9 dropdown: "contact,untact") →
+    // "contact" for offline experiments.
+    Z9: { kind: "str", value: "contact" },
     U16: { kind: "str", value: data.name },
     W16: { kind: "str", value: data.institution },
     Y16: { kind: "str", value: data.email ?? "" },
@@ -819,24 +826,44 @@ export async function fillResearchPaymentRequest(
   );
 }
 
-// ── 연구참여비 지급신청서 — PDF parallel renderer ────────────────────
+// ── 연구참여비 지급신청서 — PDF overlay on the locked template ──────
 //
-// pdfkit-based PDF that mirrors the data carried by the same-named docx,
-// so the 행정 office can either keep the editable docx or send the PDF
-// directly. Layout aims for parity with the docx (centered title,
-// labelled header lines, a session table, total row) but the rendering
-// engine is different — alignment is pixel-equivalent, font is
-// NanumGothic Regular (bundled at src/lib/payments/templates/fonts/).
+// Earlier iteration (pdfkit, removed 2026-06-10) built the PDF from
+// scratch; the result diverged visibly from the user-supplied docx
+// layout (".PDF에서 기존 양식이 지나치게 파괴됨" feedback). The current
+// approach instead:
 //
-// Why pdfkit (not libreoffice or puppeteer): libreoffice is too large
-// for Vercel functions; puppeteer + @sparticuz/chromium adds ~50MB
-// compressed and a cold-start hit. pdfkit is pure JS + a 2MB font, no
-// native deps, no headless browser.
+//   1. ONE-TIME locally: take the blank-data docx, run it through
+//      LibreOffice (`soffice --headless --convert-to pdf`), check the
+//      resulting PDF into the repo as
+//      `research-payment-request-template.pdf`. The PDF carries every
+//      visual detail of the original docx — title font, table borders,
+//      colored header, footer text, page header — because LibreOffice
+//      renders it exactly the way Word would.
+//
+//   2. RUNTIME on Vercel: pdf-lib + fontkit load that template PDF,
+//      embed NanumGothic, and draw the variable text (실험자 /
+//      참여자 / 생년월일 / 실험내용 / 방문일 / 시간 / 참여비 / 총액)
+//      at the coordinates extracted from the template via pdf2json.
+//
+// Vercel runtime never needs LibreOffice. The template PDF is a fixed
+// asset (~60 KB); pdf-lib + fontkit + NanumGothic add ~3 MB to the
+// bundle, far cheaper than chromium-min (~50 MB) or libreoffice
+// (~700 MB).
+//
+// Coordinate system note: pdf2json emits page units = (PDF point /
+// 16). The template PDF is US Letter (612 × 792 pt) → pdf2json units
+// 38.25 × 49.5. The `px` / `py` helpers below scale by 16 and flip Y
+// (pdf-lib origin = bottom-left, pdf2json origin = top-left).
 
 const RPR_PDF_FONT_PATH = path.join(
   TEMPLATE_DIR,
   "fonts",
   "NanumGothic-Regular.ttf",
+);
+const RPR_PDF_TEMPLATE_PATH = path.join(
+  TEMPLATE_DIR,
+  "research-payment-request-template.pdf",
 );
 
 let cachedFontBuffer: Buffer | null = null;
@@ -846,133 +873,171 @@ async function loadKoreanFont(): Promise<Buffer> {
   return cachedFontBuffer;
 }
 
+let cachedTemplatePdfBuffer: Buffer | null = null;
+async function loadTemplatePdf(): Promise<Buffer> {
+  if (cachedTemplatePdfBuffer) return cachedTemplatePdfBuffer;
+  cachedTemplatePdfBuffer = await readFile(RPR_PDF_TEMPLATE_PATH);
+  return cachedTemplatePdfBuffer;
+}
+
+// pdf2json-extracted coordinates from the clean blank template (units:
+// pdf2json scaled, where the template page is 38.25 × 49.5). The blank
+// template carries only labels — every data row + total cell is empty,
+// so we derive row Y values from a header offset + measured row step
+// (sample-filled docx confirmed row1 y=20.21 → row2 y=21.51 = step 1.30).
+const TEMPLATE_COORDS = {
+  // Header value positions: right of each ":" label.
+  researcherValueX: 7.5, // just past 실험자 ":"
+  participantValueX: 7.5, // just past 참여자 ":"
+  birthdateValueX: 17.2, // just past 생년월일 ":"
+  headerLine1Y: 13.39, // 실험자 row
+  headerLine2Y: 15.27, // 참여자 + 생년월일 row (shared)
+  // Table column left edges (centered text drawn at column-center -
+  // text-width/2 at draw time for the narrower columns).
+  colExperimentTitleX: 4.4, // "실험내용" column left
+  colExperimentTitleCenter: 9.99, // header label center
+  colVisitDateCenter: 20.20, // 방문일 column center
+  colDurationCenter: 24.90 + 1.0, // 실험 시간 column center (header +1 for cell drift)
+  colAmountCenter: 29.65 + 1.5, // 연구참여비 column center
+  // Row baselines. Row 1 = 20.21, row 2 = 21.51, step = 1.30.
+  rowYStart: 20.21,
+  rowYStep: 1.30,
+  rowCount: 10,
+  // Total row anchored on the docx total label position.
+  totalAmountCenter: 29.65 + 1.5,
+  totalAmountY: 34.29,
+};
+
+const SCALE = 16;
+function px(x: number): number {
+  return x * SCALE;
+}
+function py(yTopDown: number, pageHeight: number): number {
+  return pageHeight - yTopDown * SCALE;
+}
+
 export async function generateResearchPaymentRequestPdf(
   data: ResearchPaymentRequestData,
 ): Promise<Buffer> {
-  // Dynamic import keeps pdfkit out of the cold-path bundle when callers
-  // don't need PDF — only the bundle builder + admin export pull it in.
-  const PDFDocument = (await import("pdfkit")).default;
-  const fontBuf = await loadKoreanFont();
+  const [{ PDFDocument, rgb }, { default: fontkit }] = await Promise.all([
+    import("pdf-lib"),
+    import("@pdf-lib/fontkit"),
+  ]);
+  const [templateBuf, fontBuf] = await Promise.all([
+    loadTemplatePdf(),
+    loadKoreanFont(),
+  ]);
 
-  const doc = new PDFDocument({
-    size: "A4",
-    margins: { top: 56, bottom: 56, left: 56, right: 56 },
-    info: {
-      Title: "연구참여비 지급신청서",
-      Author: data.researcherName,
-      Subject: `${data.experimentTitle} — ${data.participantName}`,
-    },
-  });
+  const doc = await PDFDocument.load(templateBuf);
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(fontBuf, { subset: true });
 
-  const chunks: Buffer[] = [];
-  const done = new Promise<Buffer>((resolve) => {
-    doc.on("data", (c: Buffer) => chunks.push(c));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-  });
+  doc.setTitle("연구참여비 지급신청서");
+  doc.setAuthor(data.researcherName);
+  doc.setSubject(`${data.experimentTitle} — ${data.participantName}`);
+  doc.setCreator("CSNL lab-reservation");
 
-  doc.registerFont("KR", fontBuf);
-  doc.font("KR");
+  const page = doc.getPages()[0];
+  const H = page.getHeight();
 
-  // Title.
-  doc.fontSize(20).text("연구참여비 지급신청서", { align: "center" });
-  doc.moveDown(1.5);
+  // Vertical visual-center offset: the template baselines in pdf2json
+  // sit roughly at the row's text TOP edge; pdf-lib draws text from
+  // baseline. Empirical −13 pt offset puts text inside the row band
+  // for the 10-pt body font; header lines use −10 pt (11 pt font).
+  const HEADER_Y_OFFSET = -10;
+  const ROW_Y_OFFSET = -13;
 
-  // Header lines (실험자 / 참여자 / 생년월일).
+  // Header lines — 실험자 / 참여자 / 생년월일 values painted just to
+  // the right of the existing ":" anchor.
+  const fontSizeHeader = 11;
+  const drawHeader = (xUnits: number, yUnits: number, text: string) => {
+    page.drawText(text, {
+      x: px(xUnits),
+      y: py(yUnits, H) + HEADER_Y_OFFSET,
+      font,
+      size: fontSizeHeader,
+    });
+  };
   const birth = data.participantBirthdate
     ? data.participantBirthdate.slice(0, 10)
     : "-";
-  doc.fontSize(12);
-  doc.text(`실험자: ${data.researcherName}`);
-  doc.moveDown(0.3);
-  doc.text(`참여자: ${data.participantName}`);
-  doc.moveDown(0.3);
-  doc.text(`생년월일: ${birth}`);
-  doc.moveDown(1);
+  drawHeader(
+    TEMPLATE_COORDS.researcherValueX,
+    TEMPLATE_COORDS.headerLine1Y,
+    data.researcherName,
+  );
+  drawHeader(
+    TEMPLATE_COORDS.participantValueX,
+    TEMPLATE_COORDS.headerLine2Y,
+    data.participantName,
+  );
+  drawHeader(
+    TEMPLATE_COORDS.birthdateValueX,
+    TEMPLATE_COORDS.headerLine2Y,
+    birth,
+  );
 
-  // Session table.
-  const tableX = doc.page.margins.left;
-  const tableWidth =
-    doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  // Column widths: content (44%), date (16%), duration (18%), amount (22%).
-  const colW = [
-    Math.floor(tableWidth * 0.44),
-    Math.floor(tableWidth * 0.16),
-    Math.floor(tableWidth * 0.18),
-    tableWidth -
-      Math.floor(tableWidth * 0.44) -
-      Math.floor(tableWidth * 0.16) -
-      Math.floor(tableWidth * 0.18),
-  ];
-  const headerRowH = 28;
-  const dataRowH = 26;
-
-  function drawRow(
-    yPos: number,
-    cells: string[],
-    opts: { headerRow?: boolean } = {},
-  ): void {
-    const h = opts.headerRow ? headerRowH : dataRowH;
-    if (opts.headerRow) {
-      doc.save();
-      doc.rect(tableX, yPos, tableWidth, h).fillAndStroke("#EAF3FB", "#9FC9EB");
-      doc.restore();
-      doc.fillColor("black");
-    } else {
-      doc.rect(tableX, yPos, tableWidth, h).stroke("#9FC9EB");
-    }
-    let x = tableX;
-    for (let i = 0; i < cells.length; i++) {
-      const w = colW[i];
-      doc
-        .fontSize(opts.headerRow ? 11 : 10)
-        .text(cells[i], x + 4, yPos + (opts.headerRow ? 8 : 7), {
-          width: w - 8,
-          align: "center",
-        });
-      x += w;
-    }
-  }
-
-  let y = doc.y;
-  drawRow(y, ["실험내용", "방문일", "실험 시간", "연구참여비"], {
-    headerRow: true,
-  });
-  y += headerRowH;
+  // Table data rows — left-aligned for the 실험내용 column (long
+  // strings), center-aligned for the 3 narrower columns. The blank
+  // template has empty data rows so we draw the FULL unit-suffixed
+  // strings ("1시간", "1.8만"), keeping every row visually identical.
+  const fontSizeRow = 10;
+  const drawCenter = (xCenterUnits: number, yUnits: number, text: string) => {
+    const textWidth = font.widthOfTextAtSize(text, fontSizeRow);
+    page.drawText(text, {
+      x: px(xCenterUnits) - textWidth / 2,
+      y: py(yUnits, H) + ROW_Y_OFFSET,
+      font,
+      size: fontSizeRow,
+    });
+  };
+  const drawLeft = (xLeftUnits: number, yUnits: number, text: string) => {
+    page.drawText(text, {
+      x: px(xLeftUnits),
+      y: py(yUnits, H) + ROW_Y_OFFSET,
+      font,
+      size: fontSizeRow,
+    });
+  };
 
   const N = data.sessions.length;
   const perSession = N > 0 ? data.totalAmountKrw / N : 0;
-  for (let i = 0; i < N; i++) {
+  const filledRows = Math.min(N, TEMPLATE_COORDS.rowCount);
+  for (let i = 0; i < filledRows; i++) {
+    const ry =
+      TEMPLATE_COORDS.rowYStart + i * TEMPLATE_COORDS.rowYStep;
     const s = data.sessions[i];
-    drawRow(y, [
-      data.experimentTitle,
+    drawLeft(TEMPLATE_COORDS.colExperimentTitleX, ry, data.experimentTitle);
+    drawCenter(
+      TEMPLATE_COORDS.colVisitDateCenter,
+      ry,
       formatDateMMDD(s.slot_start),
+    );
+    drawCenter(
+      TEMPLATE_COORDS.colDurationCenter,
+      ry,
       `${sessionDurationHoursLabel(s.slot_start, s.slot_end)}시간`,
+    );
+    drawCenter(
+      TEMPLATE_COORDS.colAmountCenter,
+      ry,
       `${formatManwon(perSession)}만`,
-    ]);
-    y += dataRowH;
-  }
-  // Pad to at least 5 visible rows so the table feels balanced.
-  const minRows = 5;
-  for (let i = N; i < minRows; i++) {
-    drawRow(y, ["", "", "", ""]);
-    y += dataRowH;
+    );
   }
 
-  // Total row — span first two columns with the label, sum on the right.
-  const totalLabelW = colW[0] + colW[1];
-  const totalValueW = colW[2] + colW[3];
-  doc.rect(tableX, y, tableWidth, headerRowH).stroke("#9FC9EB");
-  doc
-    .fontSize(11)
-    .text("연구참여비 지급 총액", tableX + 4, y + 8, {
-      width: totalLabelW - 8,
-      align: "center",
-    });
-  doc.text(`${formatManwon(data.totalAmountKrw)}만`, tableX + totalLabelW, y + 8, {
-    width: totalValueW - 4,
-    align: "center",
+  // Total — centered in the right-half of the total row.
+  const totalText = `${formatManwon(data.totalAmountKrw)}만`;
+  const totalSize = fontSizeRow + 1;
+  const totalWidth = font.widthOfTextAtSize(totalText, totalSize);
+  page.drawText(totalText, {
+    x: px(TEMPLATE_COORDS.totalAmountCenter) - totalWidth / 2,
+    y: py(TEMPLATE_COORDS.totalAmountY, H) + ROW_Y_OFFSET,
+    font,
+    size: totalSize,
   });
 
-  doc.end();
-  return done;
+  // Silence unused-var lint for rgb (kept for future white-out reuse).
+  void rgb;
+
+  return Buffer.from(await doc.save());
 }
