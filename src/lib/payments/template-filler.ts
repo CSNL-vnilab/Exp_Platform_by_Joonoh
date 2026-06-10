@@ -818,3 +818,161 @@ export async function fillResearchPaymentRequest(
     }),
   );
 }
+
+// ── 연구참여비 지급신청서 — PDF parallel renderer ────────────────────
+//
+// pdfkit-based PDF that mirrors the data carried by the same-named docx,
+// so the 행정 office can either keep the editable docx or send the PDF
+// directly. Layout aims for parity with the docx (centered title,
+// labelled header lines, a session table, total row) but the rendering
+// engine is different — alignment is pixel-equivalent, font is
+// NanumGothic Regular (bundled at src/lib/payments/templates/fonts/).
+//
+// Why pdfkit (not libreoffice or puppeteer): libreoffice is too large
+// for Vercel functions; puppeteer + @sparticuz/chromium adds ~50MB
+// compressed and a cold-start hit. pdfkit is pure JS + a 2MB font, no
+// native deps, no headless browser.
+
+const RPR_PDF_FONT_PATH = path.join(
+  TEMPLATE_DIR,
+  "fonts",
+  "NanumGothic-Regular.ttf",
+);
+
+let cachedFontBuffer: Buffer | null = null;
+async function loadKoreanFont(): Promise<Buffer> {
+  if (cachedFontBuffer) return cachedFontBuffer;
+  cachedFontBuffer = await readFile(RPR_PDF_FONT_PATH);
+  return cachedFontBuffer;
+}
+
+export async function generateResearchPaymentRequestPdf(
+  data: ResearchPaymentRequestData,
+): Promise<Buffer> {
+  // Dynamic import keeps pdfkit out of the cold-path bundle when callers
+  // don't need PDF — only the bundle builder + admin export pull it in.
+  const PDFDocument = (await import("pdfkit")).default;
+  const fontBuf = await loadKoreanFont();
+
+  const doc = new PDFDocument({
+    size: "A4",
+    margins: { top: 56, bottom: 56, left: 56, right: 56 },
+    info: {
+      Title: "연구참여비 지급신청서",
+      Author: data.researcherName,
+      Subject: `${data.experimentTitle} — ${data.participantName}`,
+    },
+  });
+
+  const chunks: Buffer[] = [];
+  const done = new Promise<Buffer>((resolve) => {
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+
+  doc.registerFont("KR", fontBuf);
+  doc.font("KR");
+
+  // Title.
+  doc.fontSize(20).text("연구참여비 지급신청서", { align: "center" });
+  doc.moveDown(1.5);
+
+  // Header lines (실험자 / 참여자 / 생년월일).
+  const birth = data.participantBirthdate
+    ? data.participantBirthdate.slice(0, 10)
+    : "-";
+  doc.fontSize(12);
+  doc.text(`실험자: ${data.researcherName}`);
+  doc.moveDown(0.3);
+  doc.text(`참여자: ${data.participantName}`);
+  doc.moveDown(0.3);
+  doc.text(`생년월일: ${birth}`);
+  doc.moveDown(1);
+
+  // Session table.
+  const tableX = doc.page.margins.left;
+  const tableWidth =
+    doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  // Column widths: content (44%), date (16%), duration (18%), amount (22%).
+  const colW = [
+    Math.floor(tableWidth * 0.44),
+    Math.floor(tableWidth * 0.16),
+    Math.floor(tableWidth * 0.18),
+    tableWidth -
+      Math.floor(tableWidth * 0.44) -
+      Math.floor(tableWidth * 0.16) -
+      Math.floor(tableWidth * 0.18),
+  ];
+  const headerRowH = 28;
+  const dataRowH = 26;
+
+  function drawRow(
+    yPos: number,
+    cells: string[],
+    opts: { headerRow?: boolean } = {},
+  ): void {
+    const h = opts.headerRow ? headerRowH : dataRowH;
+    if (opts.headerRow) {
+      doc.save();
+      doc.rect(tableX, yPos, tableWidth, h).fillAndStroke("#EAF3FB", "#9FC9EB");
+      doc.restore();
+      doc.fillColor("black");
+    } else {
+      doc.rect(tableX, yPos, tableWidth, h).stroke("#9FC9EB");
+    }
+    let x = tableX;
+    for (let i = 0; i < cells.length; i++) {
+      const w = colW[i];
+      doc
+        .fontSize(opts.headerRow ? 11 : 10)
+        .text(cells[i], x + 4, yPos + (opts.headerRow ? 8 : 7), {
+          width: w - 8,
+          align: "center",
+        });
+      x += w;
+    }
+  }
+
+  let y = doc.y;
+  drawRow(y, ["실험내용", "방문일", "실험 시간", "연구참여비"], {
+    headerRow: true,
+  });
+  y += headerRowH;
+
+  const N = data.sessions.length;
+  const perSession = N > 0 ? data.totalAmountKrw / N : 0;
+  for (let i = 0; i < N; i++) {
+    const s = data.sessions[i];
+    drawRow(y, [
+      data.experimentTitle,
+      formatDateMMDD(s.slot_start),
+      `${sessionDurationHoursLabel(s.slot_start, s.slot_end)}시간`,
+      `${formatManwon(perSession)}만`,
+    ]);
+    y += dataRowH;
+  }
+  // Pad to at least 5 visible rows so the table feels balanced.
+  const minRows = 5;
+  for (let i = N; i < minRows; i++) {
+    drawRow(y, ["", "", "", ""]);
+    y += dataRowH;
+  }
+
+  // Total row — span first two columns with the label, sum on the right.
+  const totalLabelW = colW[0] + colW[1];
+  const totalValueW = colW[2] + colW[3];
+  doc.rect(tableX, y, tableWidth, headerRowH).stroke("#9FC9EB");
+  doc
+    .fontSize(11)
+    .text("연구참여비 지급 총액", tableX + 4, y + 8, {
+      width: totalLabelW - 8,
+      align: "center",
+    });
+  doc.text(`${formatManwon(data.totalAmountKrw)}만`, tableX + totalLabelW, y + 8, {
+    width: totalValueW - 4,
+    align: "center",
+  });
+
+  doc.end();
+  return done;
+}

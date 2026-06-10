@@ -22,7 +22,10 @@ import {
   formatDateSpan,
   type ExportParticipant,
 } from "@/lib/payments/excel";
-import { fillResearchPaymentRequest } from "@/lib/payments/template-filler";
+import {
+  fillResearchPaymentRequest,
+  generateResearchPaymentRequestPdf,
+} from "@/lib/payments/template-filler";
 
 // 2026-06-10 user directive — auto-fill the 목적 (B13) cell with this
 // standing description for every offline experiment participating in
@@ -537,6 +540,7 @@ export async function buildClaimBundle(
   // participants sharing a 이름 still get distinct filenames.
   const formNames = new Map<string, number>();
   const docxNames = new Map<string, number>();
+  const pdfNames = new Map<string, number>();
   const bankbookNames = new Map<string, number>();
   const zip = new JSZip();
 
@@ -556,17 +560,20 @@ export async function buildClaimBundle(
     const indivName = dedupeName(`실험참여자비 양식_${safe}.xlsx`, formNames);
     zip.file(indivName, indivBuf as unknown as ArrayBuffer);
 
-    // 연구참여비 지급신청서 docx — 행정실에 함께 발송하는 보조 신청서.
-    // 참여비/세션 = 1회당 지급액으로 자동 계산.
+    // 연구참여비 지급신청서 — docx (editable) + PDF (send-ready)
+    // pair. The 행정 office receives both; PDF is auto-generated from
+    // the same source data via pdfkit + bundled NanumGothic so we don't
+    // depend on LibreOffice/Word being available server-side.
+    const reqData = {
+      researcherName: p.researcherName,
+      participantName: p.name,
+      participantBirthdate: p.participantBirthdate,
+      experimentTitle: p.experimentTitle ?? "-",
+      sessions: r.sessions,
+      totalAmountKrw: p.amountKrw,
+    };
     try {
-      const docxBuf = await fillResearchPaymentRequest({
-        researcherName: p.researcherName,
-        participantName: p.name,
-        participantBirthdate: p.participantBirthdate,
-        experimentTitle: p.experimentTitle ?? "-",
-        sessions: r.sessions,
-        totalAmountKrw: p.amountKrw,
-      });
+      const docxBuf = await fillResearchPaymentRequest(reqData);
       const docxName = dedupeName(
         `연구참여비_지급신청서_${safe}.docx`,
         docxNames,
@@ -574,7 +581,22 @@ export async function buildClaimBundle(
       zip.file(docxName, docxBuf as unknown as ArrayBuffer);
     } catch (err) {
       console.error(
-        `[ClaimBundle] 연구참여비 지급신청서 fill failed for ${p.bookingGroupId}:`,
+        `[ClaimBundle] 연구참여비 지급신청서 docx fill failed for ${p.bookingGroupId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+    try {
+      const pdfBuf = await generateResearchPaymentRequestPdf(reqData);
+      // Sibling-named PDF — dedupe map shared with docx names so a
+      // participant who shows up twice gets "(2)" on both files.
+      const pdfName = dedupeName(
+        `연구참여비_지급신청서_${safe}.pdf`,
+        pdfNames,
+      );
+      zip.file(pdfName, pdfBuf as unknown as ArrayBuffer);
+    } catch (err) {
+      console.error(
+        `[ClaimBundle] 연구참여비 지급신청서 pdf gen failed for ${p.bookingGroupId}:`,
         err instanceof Error ? err.message : err,
       );
     }
