@@ -47,3 +47,7 @@ supabase/schema-combined.sql
 # Local test artifacts
 .test-artifacts/
 .claude/scheduled_tasks.lock
+
+# Harness workspace (intermediate agent artifacts)
+_workspace/
+_workspace_prev/

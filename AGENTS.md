@@ -88,3 +88,14 @@ Multiple Claude sessions work on this repo concurrently — all pushing to
    only your own paths first (see above) or commit on the current
    branch.
 <!-- END:multi-session-rules -->
+
+## 하네스: 연구DB & 웹 UI 설계자 (lab-architect)
+
+**목표:** 유지보수 가능하고 이용이 편리하며 최적화된 Vercel & Supabase 플랫폼 — DB 설계·UI/UX·성능·플로우 QA 를 전문 에이전트 팀으로 수행.
+
+**트리거:** 플랫폼 설계/개선/최적화/검증이 얽힌 작업(예: "플랫폼 개선", "blueprint 보완", "설계 리뷰", "최적화하고 검증까지") 요청 시 `lab-architect` 스킬을 사용하라. 단일 영역 소작업은 도메인 스킬(lab-db-design / lab-ui-design / lab-vercel-optimize / lab-flow-qa) 직접 사용 가능. 단순 질문은 직접 응답.
+
+**변경 이력:**
+| 날짜 | 변경 내용 | 대상 | 사유 |
+|------|----------|------|------|
+| 2026-06-10 | 초기 구성 (에이전트 4 + 도메인 스킬 4 + 오케스트레이터) | 전체 | 사용자 지시: 전문 설계자 하네스 구축 |
