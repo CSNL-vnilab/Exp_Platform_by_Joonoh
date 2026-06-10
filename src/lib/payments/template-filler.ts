@@ -930,7 +930,13 @@ export async function generateResearchPaymentRequestPdf(
 
   const doc = await PDFDocument.load(templateBuf);
   doc.registerFontkit(fontkit);
-  const font = await doc.embedFont(fontBuf, { subset: true });
+  // subset:false (full embed) — subset:true was dropping every glyph the
+  // template-PDF didn't already reference, leaving us with only "만" /
+  // partial "길동" visible while pdf2json still SAW the full text in the
+  // content stream (2026-06-10 user-reported "글씨가 누락" bug). Full
+  // embed adds ~2 MB per generated PDF but renders correctly in every
+  // viewer.
+  const font = await doc.embedFont(fontBuf, { subset: false });
 
   doc.setTitle("연구참여비 지급신청서");
   doc.setAuthor(data.researcherName);
