@@ -120,6 +120,31 @@ function replaceCells(
   return out;
 }
 
+// Update ONLY the cached `<v>` of an existing formula cell, leaving the
+// `<f>` and `s=` attribute intact. Needed because the individual-form
+// template ships formula cells (K10 = I10 - G10; AD10 = AB10 - Z10) with
+// stale cached values (0.125 and 0, the template defaults). Excel's
+// calcPr usually recomputes on open, but when calcOnLoad is unset some
+// older Excel/Numbers builds display the stale cache instead — the
+// 행정 office reported "활용시간 계산이 1시간이 아닌 다른 값으로 보이는"
+// case (2026-06-10). Updating the cache here makes the displayed value
+// correct regardless of the consumer's calc settings, while preserving
+// the formula so manual edits to G10/I10 still recompute downstream.
+function updateFormulaCacheValue(
+  xml: string,
+  ref: string,
+  newValue: number,
+): string {
+  // Match `<c r="REF" s="..." ...><f...>...</f><v>...</v></c>` and replace
+  // the `<v>` portion only.
+  const re = new RegExp(
+    `(<c\\s+r="${ref}"[^>]*?>\\s*<f[^>]*>[^<]*</f>\\s*<v>)([^<]*)(</v>\\s*</c>)`,
+  );
+  const m = re.exec(xml);
+  if (!m) return xml;
+  return xml.replace(re, `$1${newValue}$3`);
+}
+
 // Replace whole <row r="N" …>…</row> elements wholesale. Used for the
 // upload form where we rewrite each data row from scratch (cells include
 // formulas + styles inferred from the template's row 3 sample).
@@ -213,6 +238,11 @@ export async function fillIndividualForm(
     // is a domestic experiment participant (default 내국인 per 2026-06-10
     // directive; foreign-national overrides handled by the researcher).
     K9: { kind: "str", value: "내국인" },
+    // 직급/직위 (G11:I11 merged dropdown, options "연구책임자 급,연구자 급")
+    // — set to "연구자 급" per 2026-06-10 directive. Picking a value that
+    // matches one of the formula1 options keeps Excel's data-validation
+    // green-tick intact.
+    G11: { kind: "str", value: "연구자 급" },
     // 목적 / 활용내용 (row 13, merged B13:L13). Auto-fill per directive.
     B13: { kind: "str", value: data.purpose },
     // 장소 — override template's "649호" when the experiment ran elsewhere
@@ -259,6 +289,10 @@ export async function fillIndividualForm(
     // English unit toggle (W11 dropdown: "hour(s),time(s),sheet(s),words")
     // mirrors the Korean "회" selection.
     W11: { kind: "str", value: "time(s)" },
+    // English Position toggle (Z11:AB11 dropdown:
+    // "Superior(Senior),Junior(Assistant)") mirrors Korean G11 "연구자 급"
+    // → "Junior(Assistant)".
+    Z11: { kind: "str", value: "Junior(Assistant)" },
     U16: { kind: "str", value: data.name },
     W16: { kind: "str", value: data.institution },
     Y16: { kind: "str", value: data.email ?? "" },
@@ -269,6 +303,25 @@ export async function fillIndividualForm(
   });
 
   xml = replaceCells(xml, updates);
+
+  // Refresh the cached values of the duration formulas (K10 = I10-G10
+  // on the Korean side, AD10 = AB10-Z10 on the English mirror). Without
+  // this, Excel/Numbers consumers that honour cached values over
+  // calcChain show 3:00 (template default 9–12) for every form regardless
+  // of the actual session window. See updateFormulaCacheValue comment.
+  if (data.lastSessionStart && data.lastSessionEnd) {
+    const startFraction =
+      (data.lastSessionStart.hours * 3600 +
+        data.lastSessionStart.minutes * 60) /
+      86400;
+    const endFraction =
+      (data.lastSessionEnd.hours * 3600 + data.lastSessionEnd.minutes * 60) /
+      86400;
+    const durationFraction = endFraction - startFraction;
+    xml = updateFormulaCacheValue(xml, "K10", durationFraction);
+    xml = updateFormulaCacheValue(xml, "AD10", durationFraction);
+  }
+
   zip.file("xl/worksheets/sheet1.xml", xml);
 
   if (data.signaturePng && data.signaturePng.length > 0) {
