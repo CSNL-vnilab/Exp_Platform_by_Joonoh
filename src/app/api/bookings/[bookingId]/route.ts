@@ -13,7 +13,10 @@ import {
   renumberSessionsInGroup,
   runReschedulePipeline,
 } from "@/lib/services/booking.service";
-import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
+import {
+  notifyPaymentInfoIfReady,
+  sweepStalePastSiblings,
+} from "@/lib/services/payment-info-notify.service";
 import { notifyBookingStatusChange } from "@/lib/services/booking-status-notify.service";
 import { scrubPii } from "@/lib/observability/pii";
 import { requireBookingAccess } from "@/lib/auth/booking-access";
@@ -238,32 +241,24 @@ export async function PUT(
       // Scope: only sibling rows in the same booking_group where
       // slot_end < now AND status='confirmed'. Future-scheduled and
       // already-terminal (cancelled/no_show) rows are left alone.
+      // (2026-06-10: extracted to sweepStalePastSiblings so the
+      // observation-modal door shares identical semantics.)
+      await sweepStalePastSiblings(admin, paymentInfoGroupId, bookingId);
+    }
+    if (paymentInfoGroupId && status === "cancelled") {
+      // Re-derive 활용일자 after a cancel (2026-06-10 review [16/21]) —
+      // without this the claim documents kept a period stretching to
+      // the cancelled session's date. The RPC only touches rows still
+      // pending_participant and recomputes period from live
+      // (confirmed/running/completed) bookings; amount is preserved
+      // for overridden rows.
       try {
-        const { error: sweepErr, count: sweptCount } = await admin
-          .from("bookings")
-          .update(
-            {
-              status: "completed",
-              auto_completed_at: new Date().toISOString(),
-            } as never,
-            { count: "exact" },
-          )
-          .eq("booking_group_id", paymentInfoGroupId)
-          .eq("status", "confirmed")
-          .lt("slot_end", new Date().toISOString())
-          .neq("id", bookingId);
-        if (sweepErr) {
-          console.warn(
-            `[BookingPUT] stale-sibling sweep failed for group ${paymentInfoGroupId}: ${sweepErr.message}`,
-          );
-        } else if ((sweptCount ?? 0) > 0) {
-          console.info(
-            `[BookingPUT] swept ${sweptCount} past-confirmed sibling(s) in group ${paymentInfoGroupId} to 'completed'`,
-          );
-        }
+        await admin.rpc("propagate_payment_period", {
+          p_booking_group_id: paymentInfoGroupId,
+        });
       } catch (err) {
         console.warn(
-          "[BookingPUT] stale-sibling sweep crashed:",
+          "[BookingPUT] propagate_payment_period failed:",
           err instanceof Error ? err.message : err,
         );
       }
@@ -485,7 +480,21 @@ export async function PATCH(
     update.google_event_id = newEventId;
   }
 
-  const { error: updateErr } = await admin.from("bookings").update(update).eq("id", bookingId);
+  // CAS on status (2026-06-10 blind review [28]): the status gate at the
+  // top of this handler ran BEFORE the GCal round-trip above — during
+  // that window a concurrent writer (e.g. the sibling auto-complete
+  // sweep in the status PUT, which targets past-confirmed rows) can flip
+  // this booking to 'completed'. Without the .eq("status","confirmed")
+  // guard the slot write landed on the completed row, producing a
+  // 'completed' booking scheduled in the FUTURE plus a premature
+  // payment email. Zero affected rows → undo the GCal pre-create and
+  // 409 so the researcher re-loads and retries.
+  const { data: updatedRows, error: updateErr } = await admin
+    .from("bookings")
+    .update(update)
+    .eq("id", bookingId)
+    .eq("status", "confirmed")
+    .select("id");
   if (updateErr) {
     // DB update failed AFTER new GCal event created. Best we can do is log
     // the orphan id and return the error — next outbox sweep or a manual
@@ -496,6 +505,29 @@ export async function PATCH(
       newEventId,
     );
     return NextResponse.json({ error: "예약 변경에 실패했습니다" }, { status: 500 });
+  }
+  if (!updatedRows || updatedRows.length === 0) {
+    // Status changed mid-flight — clean up the just-created GCal event
+    // and bail. Best-effort delete; on failure the orphan-reaper cron
+    // collects it.
+    if (newEventId) {
+      try {
+        const calId = (
+          exp.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || ""
+        ).trim();
+        if (calId) await deleteEvent(calId, newEventId);
+      } catch (err) {
+        console.error(
+          "[Reschedule] CAS-conflict GCal cleanup failed, orphan event:",
+          newEventId,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+    return NextResponse.json(
+      { error: "예약 상태가 변경되어(완료/취소) 일정을 변경할 수 없습니다. 새로고침 후 다시 확인해 주세요." },
+      { status: 409 },
+    );
   }
 
   // Renumber sessions in the participant's group by date order. Multi-

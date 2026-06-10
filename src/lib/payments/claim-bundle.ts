@@ -259,10 +259,17 @@ async function loadSessionsByBgId(
   supabase: Supabase,
   bgIds: string[],
 ): Promise<Map<string, Array<{ slot_start: string; slot_end: string }>>> {
+  // Status filter matches the DB convention (propagate_payment_period,
+  // migration 00055: status IN confirmed/running/completed). Without it
+  // (2026-06-10 blind review [12]) cancelled/no_show sessions leaked
+  // into the claim documents — phantom 방문일 rows on the 지급신청서,
+  // inflated B11 회수, and a per-session amount divided by booked count
+  // instead of attended count.
   const { data: bookings } = await supabase
     .from("bookings")
     .select("booking_group_id, slot_start, slot_end")
     .in("booking_group_id", bgIds)
+    .in("status", ["confirmed", "running", "completed"])
     .order("slot_start", { ascending: true });
   const sessionsBy = new Map<
     string,

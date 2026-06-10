@@ -657,6 +657,19 @@ function sessionDurationHoursLabel(slot_start: string, slot_end: string): string
     : (Math.round(hours * 10) / 10).toString();
 }
 
+// Per-session display amounts that SUM to the total (2026-06-10 review
+// [14]): naive total/N rounding made rows that didn't add up to the
+// printed 총액 (e.g. 90,000/7). First N-1 rows get the rounded
+// per-session figure; the LAST row absorbs the remainder so
+// sum(rows) === total exactly.
+function perSessionAmounts(totalKrw: number, n: number): number[] {
+  if (n <= 0) return [];
+  const per = Math.round(totalKrw / n);
+  const head = Array.from({ length: n - 1 }, () => per);
+  const last = totalKrw - per * (n - 1);
+  return [...head, last];
+}
+
 function formatManwon(krw: number): string {
   // 만원 with at most 2 decimals, trailing-zero stripped ("1.8", "3", "0.5").
   const manwon = krw / 10_000;
@@ -745,8 +758,7 @@ export async function fillResearchPaymentRequest(
   //    2 sample rows we splice plain-text replacements into the rest of
   //    the empty-row scaffold.
   const N = data.sessions.length;
-  const perSession =
-    N > 0 ? Math.round((data.totalAmountKrw / N) * 100) / 100 : 0;
+  const rowAmounts = perSessionAmounts(data.totalAmountKrw, N);
 
   // Sample row mutations (rows 1 + 2 of the data table).
   const sample = [
@@ -767,7 +779,7 @@ export async function fillResearchPaymentRequest(
         xml = replaceFirstWT(xml, "1", hrsLabel);
       }
       // Replace the FIRST surviving "1.5" anchor with this row's amount.
-      xml = replaceFirstWT(xml, a.amountAnchor, formatManwon(perSession));
+      xml = replaceFirstWT(xml, a.amountAnchor, formatManwon(rowAmounts[i] ?? 0));
     } else {
       // No session for this template row — blank out the sample content.
       xml = replaceFirstWT(xml, a.dateAnchor, "");
@@ -796,7 +808,7 @@ export async function fillResearchPaymentRequest(
       .map((s, idx) => {
         const visit = formatDateMMDD(s.slot_start);
         const hrs = sessionDurationHoursLabel(s.slot_start, s.slot_end);
-        return `  ${idx + 3}회차 · ${data.experimentTitle} · ${visit} · ${hrs}시간 · ${formatManwon(perSession)}만`;
+        return `  ${idx + 3}회차 · ${data.experimentTitle} · ${visit} · ${hrs}시간 · ${formatManwon(rowAmounts[idx + 2] ?? 0)}만`;
       })
       .join("\n");
     const overflowPara = [
@@ -1007,7 +1019,7 @@ export async function generateResearchPaymentRequestPdf(
   };
 
   const N = data.sessions.length;
-  const perSession = N > 0 ? data.totalAmountKrw / N : 0;
+  const rowAmounts = perSessionAmounts(data.totalAmountKrw, N);
   const filledRows = Math.min(N, TEMPLATE_COORDS.rowCount);
   for (let i = 0; i < filledRows; i++) {
     const ry =
@@ -1027,7 +1039,7 @@ export async function generateResearchPaymentRequestPdf(
     drawCenter(
       TEMPLATE_COORDS.colAmountCenter,
       ry,
-      `${formatManwon(perSession)}만`,
+      `${formatManwon(rowAmounts[i] ?? 0)}만`,
     );
   }
 

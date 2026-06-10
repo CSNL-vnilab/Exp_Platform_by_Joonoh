@@ -92,6 +92,8 @@ export async function GET(
     .from("bookings")
     .select("booking_group_id, slot_start, slot_end")
     .in("booking_group_id", bgIds)
+    // Exclude cancelled/no_show — attended sessions only (00055 convention).
+    .in("status", ["confirmed", "running", "completed"])
     .order("slot_start", { ascending: true });
 
   const sessionsBy = new Map<

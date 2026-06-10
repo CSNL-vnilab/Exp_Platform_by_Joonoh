@@ -133,11 +133,16 @@ export async function POST(
 
   let didComplete = false;
   if (booking.status === "confirmed" || booking.status === "running") {
-    await admin
+    // CAS on status (2026-06-10 blind review [3]): the pre-read above
+    // can be stale — without this guard, a booking cancelled between
+    // read and write was silently resurrected to 'completed'.
+    const { data: completedRows } = await admin
       .from("bookings")
       .update({ status: "completed" })
-      .eq("id", bookingId);
-    didComplete = true;
+      .eq("id", bookingId)
+      .in("status", ["confirmed", "running"])
+      .select("id");
+    didComplete = Boolean(completedRows && completedRows.length > 0);
   }
 
   // Verified-and-completed transitions feed the payment-info dispatch the

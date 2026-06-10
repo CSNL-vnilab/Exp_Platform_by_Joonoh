@@ -184,7 +184,7 @@ for (const e of existingExps ?? []) {
 
 const { data: existingBks } = await sb
   .from("bookings")
-  .select("id, google_event_id, experiment_id")
+  .select("id, google_event_id, experiment_id, booking_group_id, participant_id, participants(name)")
   .not("google_event_id", "is", null);
 const existingByEventId = new Set((existingBks ?? []).map((b) => b.google_event_id));
 
@@ -362,6 +362,17 @@ for (const x of plannedExperiments) {
 
 // 8c. bookings
 const groupByExpAndPerson = new Map();
+// Re-run idempotency (2026-06-10 blind review [22]): pre-seed from
+// existing rows so partial re-runs reuse each person's existing group
+// instead of splitting them across two booking_groups (= duplicate
+// payment rows).
+for (const eb of existingBks ?? []) {
+  const nm = eb.participants?.name;
+  if (eb.experiment_id && nm && eb.booking_group_id) {
+    const k = `${eb.experiment_id}::${nm}`;
+    if (!groupByExpAndPerson.has(k)) groupByExpAndPerson.set(k, eb.booking_group_id);
+  }
+}
 let inserted = 0, skipped = 0;
 for (const b of plannedBookings) {
   if (b.action === "skip-exists") { skipped += 1; continue; }

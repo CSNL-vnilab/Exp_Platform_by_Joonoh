@@ -117,13 +117,36 @@ export async function processReminders(): Promise<number> {
     const reminder = raw as unknown as ReminderRow;
     const booking = reminder.bookings;
 
-    // Booking got cancelled after the reminder was scheduled → skip and close out.
-    if (booking.status === "cancelled") {
+    // Booking left the 'confirmed' state after the reminder was
+    // scheduled → close the reminder out without sending. Previously
+    // only 'cancelled' was skipped (2026-06-10 review): a session
+    // completed early (mark_group_completed), marked no_show, or
+    // already running would still nag the participant.
+    if (booking.status !== "confirmed") {
       await supabase
         .from("reminders")
         .update({ status: "sent", sent_at: new Date().toISOString() })
         .eq("id", reminder.id);
       continue;
+    }
+
+    // Atomic claim (2026-06-10 review [26]): GitHub Actions cron jitter
+    // means two dispatcher runs can overlap and both see this row as
+    // 'pending' — without a claim both would email AND SMS the
+    // participant (paid channel, double-send). CAS the row to 'sent'
+    // BEFORE dispatching; exactly one worker wins the flip, the loser
+    // skips. Trade-off: a crash between claim and SMTP loses that one
+    // reminder (recorded as sent) — strictly better than double-billed
+    // SMS spam. On send failure below, the catch overwrites our claim
+    // with status='failed', preserving the failure record.
+    const { data: claimed } = await supabase
+      .from("reminders")
+      .update({ status: "sent", sent_at: new Date().toISOString() })
+      .eq("id", reminder.id)
+      .eq("status", "pending")
+      .select("id");
+    if (!claimed || claimed.length === 0) {
+      continue; // another dispatcher claimed this row first
     }
 
     const participant = booking.participants;
@@ -289,14 +312,13 @@ export async function processReminders(): Promise<number> {
         await sendSMS(participant.phone, text);
       }
 
-      await supabase
-        .from("reminders")
-        .update({ status: "sent", sent_at: new Date().toISOString() })
-        .eq("id", reminder.id);
-
+      // Row already stamped 'sent' by the claim CAS above — nothing to
+      // update on success.
       processed++;
     } catch (err) {
       console.error(`[Reminder] Failed for reminder ${reminder.id}:`, err);
+      // Overwrite our own claim with the failure record. We hold the
+      // claim, so this can't clobber another worker's state.
       await supabase
         .from("reminders")
         .update({ status: "failed" })

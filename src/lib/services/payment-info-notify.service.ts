@@ -217,9 +217,11 @@ async function notifyPaymentInfoIfReadyImpl(
   if (row.payment_link_sent_at && !options.force) {
     return { outcome: NOTIFY_OUTCOME.ALREADY_SENT, bookingGroupId };
   }
-  if (row.amount_krw <= 0) {
-    return { outcome: NOTIFY_OUTCOME.AMOUNT_ZERO, bookingGroupId };
-  }
+  // NB: the amount_krw<=0 guard moved BELOW the group-readiness gate
+  // (2026-06-10 blind review [10]) — it used to run here, which meant a
+  // fully-cancelled group whose amount had been zeroed could never reach
+  // its terminal ALL_CANCELLED transition and sat in pending dashboards
+  // forever.
   // If the row was already submitted (참여자가 이미 정산 정보를 제출한 경우)
   // — 이미 메일이 굳이 필요 없다. 멱등성 차원에서 sent_at 을 stamp 해둔다.
   if (row.status !== "pending_participant") {
@@ -238,11 +240,20 @@ async function notifyPaymentInfoIfReadyImpl(
   // completing would still fail the gate forever — payment email never
   // dispatched and the row sat as pending in the admin queue.
   //
-  // New semantics: cancelled bookings are terminal-non-blocking. The
-  // gate passes when (a) at least one booking is non-cancelled AND
-  // (b) every non-cancelled booking is 'completed'. If EVERY booking
-  // is cancelled, transition payment_info to 'cancelled' and short-
-  // circuit — the row is dead, not pending.
+  // New semantics: cancelled AND no_show bookings are terminal-non-
+  // blocking. The gate passes when (a) at least one booking is still
+  // payable (neither cancelled nor no_show) AND (b) every payable
+  // booking is 'completed'. If EVERY booking is terminal-non-payable,
+  // transition payment_info to 'cancelled' and short-circuit — the row
+  // is dead, not pending.
+  //
+  // 2026-06-10 blind review [no_show cluster, 3 lenses confirmed]: the
+  // A2 fix (2026-05-29) only special-cased 'cancelled'. A single
+  // no_show in a multi-session group left that row in the "must be
+  // completed" set forever — the participant's COMPLETED sessions were
+  // never paid and no UI surfaced why. no_show is terminal by design
+  // (the participant didn't attend; the session will never complete),
+  // so it must not block the group's payable remainder.
   //
   // The researcher's amount-override workflow (migration 00065) already
   // handles per-session billing adjustments when a session count
@@ -257,12 +268,15 @@ async function notifyPaymentInfoIfReadyImpl(
   if (groupBookings.length === 0) {
     return { outcome: NOTIFY_OUTCOME.NOT_ALL_COMPLETED, bookingGroupId, detail: "no bookings" };
   }
-  const nonCancelled = groupBookings.filter((b) => b.status !== "cancelled");
-  if (nonCancelled.length === 0) {
-    // Every booking cancelled. Mark the payment row dead so it stops
-    // appearing in pending dashboards / cron retries. Idempotent — if
-    // a concurrent call already flipped status, the WHERE clause skips
-    // the UPDATE.
+  const TERMINAL_NON_PAYABLE = new Set(["cancelled", "no_show"]);
+  const payable = groupBookings.filter(
+    (b) => !TERMINAL_NON_PAYABLE.has(b.status as string),
+  );
+  if (payable.length === 0) {
+    // Every booking cancelled or no_show — nothing attended, nothing
+    // to pay. Mark the payment row dead so it stops appearing in
+    // pending dashboards / cron retries. Idempotent — if a concurrent
+    // call already flipped status, the WHERE clause skips the UPDATE.
     await supabase
       .from("participant_payment_info")
       // Cast: 'cancelled' was added to the payment_status enum in
@@ -280,12 +294,18 @@ async function notifyPaymentInfoIfReadyImpl(
     return {
       outcome: NOTIFY_OUTCOME.ALL_CANCELLED,
       bookingGroupId,
-      detail: "all bookings in group are cancelled",
+      detail: "all bookings in group are cancelled or no_show",
     };
   }
-  const allCompleted = nonCancelled.every((b) => b.status === "completed");
+  const allCompleted = payable.every((b) => b.status === "completed");
   if (!allCompleted) {
     return { outcome: NOTIFY_OUTCOME.NOT_ALL_COMPLETED, bookingGroupId };
+  }
+
+  // Amount guard — AFTER the group gate so the ALL_CANCELLED terminal
+  // transition above is reachable even when amount_krw was zeroed.
+  if (row.amount_krw <= 0) {
+    return { outcome: NOTIFY_OUTCOME.AMOUNT_ZERO, bookingGroupId };
   }
 
   // 3) Resolve recipient + experiment context. participants(name, email) is
@@ -346,6 +366,14 @@ async function notifyPaymentInfoIfReadyImpl(
   if (!recipientEmail) {
     await stampFailure(supabase, row.id, "no recipient email");
     return { outcome: NOTIFY_OUTCOME.NO_RECIPIENT, bookingGroupId };
+  }
+  if (!isDeliverableEmail(recipientEmail)) {
+    await stampUndeliverable(supabase, row.id, recipientEmail);
+    return {
+      outcome: NOTIFY_OUTCOME.NO_RECIPIENT,
+      bookingGroupId,
+      detail: `undeliverable sentinel address: ${recipientEmail}`,
+    };
   }
   const experiment = experimentRaw as unknown as
     | { id: string; title: string; created_by: string | null }
@@ -482,6 +510,15 @@ async function notifyPaymentInfoIfReadyImpl(
       await releaseLock();
       await stampFailure(supabase, row.id, "no recipient email after override removal");
       return { outcome: NOTIFY_OUTCOME.NO_RECIPIENT, bookingGroupId };
+    }
+    if (!isDeliverableEmail(recipientEmail)) {
+      await releaseLock();
+      await stampUndeliverable(supabase, row.id, recipientEmail);
+      return {
+        outcome: NOTIFY_OUTCOME.NO_RECIPIENT,
+        bookingGroupId,
+        detail: `undeliverable sentinel address (under lock): ${recipientEmail}`,
+      };
     }
     // Codex 2nd-pass M: re-check status as well. submit/route.ts can
     // CAS pending_participant → submitted_to_admin from another
@@ -749,11 +786,113 @@ async function stampFailure(supabase: Supabase, rowId: string, reason: string) {
     .eq("id", rowId);
 }
 
+// Sentinel addresses written by the backfill/import scripts — never
+// deliverable, by convention: import-byl-smj-bhl writes "{name}@-",
+// import-jop-timeexp1-cohort writes "{slug}@no-email.local",
+// import-form-responses recognises "@imported.invalid". A real address
+// needs a dot in its domain. Mirrors normEmail's rejection list in
+// scripts/import-form-responses.mjs.
+function isDeliverableEmail(email: string): boolean {
+  if (/@-$|@no-email\.local$|@imported\.invalid$/i.test(email)) return false;
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return false;
+  const domain = email.slice(at + 1);
+  return domain.includes(".");
+}
+
+// Shared stale-sibling sweep (2026-06-10 blind review [31]): when a
+// researcher manually completes ONE session of a multi-session group,
+// flip past-confirmed siblings to 'completed' too so the group can
+// reach payment readiness immediately instead of waiting for the
+// nightly cron's 7-day grace. Originally inlined in the bookings
+// status-PUT (2026-06-09); extracted so the observation-modal door
+// applies identical group-completion semantics — previously the same
+// click produced different payment timing depending on which UI door
+// the researcher used.
+//
+// Scope deliberately matches the PUT-path original: only same-group
+// rows with slot_end already past AND status='confirmed'. Future-
+// scheduled and terminal (cancelled/no_show) rows are untouched.
+export async function sweepStalePastSiblings(
+  supabase: Supabase,
+  bookingGroupId: string,
+  excludeBookingId?: string,
+): Promise<number> {
+  try {
+    let q = supabase
+      .from("bookings")
+      .update(
+        {
+          status: "completed",
+          auto_completed_at: new Date().toISOString(),
+        } as never,
+        { count: "exact" },
+      )
+      .eq("booking_group_id", bookingGroupId)
+      .eq("status", "confirmed")
+      .lt("slot_end", new Date().toISOString());
+    if (excludeBookingId) q = q.neq("id", excludeBookingId);
+    const { error, count } = await q;
+    if (error) {
+      console.warn(
+        `[SiblingSweep] failed for group ${bookingGroupId}: ${error.message}`,
+      );
+      return 0;
+    }
+    if ((count ?? 0) > 0) {
+      console.info(
+        `[SiblingSweep] swept ${count} past-confirmed sibling(s) in group ${bookingGroupId} to 'completed'`,
+      );
+    }
+    return count ?? 0;
+  } catch (err) {
+    console.warn(
+      "[SiblingSweep] crashed:",
+      err instanceof Error ? err.message : err,
+    );
+    return 0;
+  }
+}
+
+// Retire a row whose recipient can never receive mail: stamp the error
+// AND jump payment_link_attempts past the sweep ceiling so the nightly
+// cron stops re-examining it (2026-06-10 review — placeholder rows
+// retried every night forever, minting a fresh token each time). The
+// payment panel surfaces the error + a 다시 시도 button; an explicit
+// resend after the researcher fixes the participant's email works
+// because this guard re-evaluates the CURRENT address.
+async function stampUndeliverable(
+  supabase: Supabase,
+  rowId: string,
+  email: string,
+) {
+  const nowIso = new Date().toISOString();
+  await supabase
+    .from("participant_payment_info")
+    .update({
+      payment_link_last_error:
+        `수신 불가 주소(백필/플레이스홀더): ${email}`.slice(0, 500),
+      payment_link_last_attempt_at: nowIso,
+      payment_link_attempts: SWEEP_MAX_ATTEMPTS,
+    })
+    .eq("id", rowId)
+    .lt("payment_link_attempts", SWEEP_MAX_ATTEMPTS);
+}
+
 // ── Sweep helper: iterate over all groups whose bookings are completed
 //    but whose payment_link_sent_at is NULL. Used by the auto-complete
 //    cron after it flips a batch of rows to 'completed'. Bounded so a
 //    single cron tick can't fan out to thousands of SMTP calls.
 const SWEEP_LIMIT = 50;
+
+// Retry ceiling for the nightly sweep (2026-06-10 review): rows whose
+// dispatch has failed this many times stop being auto-retried — the
+// payment panel shows the error and the researcher's explicit 재시도
+// (resend, force=true) remains available. Without this, a permanently
+// undeliverable recipient churned every night forever, rotating its
+// token each time. Inline (non-sweep) triggers are NOT capped: a status
+// flip or researcher click should always get a fresh attempt.
+export const SWEEP_MAX_ATTEMPTS = 8;
 
 export async function sweepPaymentInfoNotifications(
   supabase: Supabase,
@@ -771,6 +910,9 @@ export async function sweepPaymentInfoNotifications(
     .is("payment_link_sent_at", null)
     .eq("status", "pending_participant")
     .gt("amount_krw", 0)
+    // Retry ceiling — rows that failed SWEEP_MAX_ATTEMPTS times leave
+    // the nightly candidate set; explicit resend stays available.
+    .lt("payment_link_attempts", SWEEP_MAX_ATTEMPTS)
     .eq("experiments.payment_link_auto_send", true)
     .limit(SWEEP_LIMIT);
 

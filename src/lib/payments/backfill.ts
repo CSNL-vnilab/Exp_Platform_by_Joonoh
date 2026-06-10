@@ -12,6 +12,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { issuePaymentToken } from "@/lib/payments/token";
 import { encryptToken } from "@/lib/crypto/payment-info";
+import { SWEEP_MAX_ATTEMPTS } from "@/lib/services/payment-info-notify.service";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -153,6 +154,17 @@ export async function backfillPaymentInfoForExperiment(
       period_end: kstDate(periodEnd),
       amount_krw: amountKrw,
       status: "pending_participant",
+      // Auto-dispatch suppression (2026-06-10 blind review [6]):
+      // backfilled rows describe HISTORICAL groups — without this the
+      // nightly sweep sees pending+unsent+amount>0 and mass-emails
+      // payment-info requests to participants whose experiments ended
+      // months ago (likely already paid offline). Seeding attempts at
+      // the sweep ceiling keeps the row out of the cron candidate set;
+      // the researcher's explicit 발송 button (force=true) remains the
+      // only dispatch door for backfilled rows.
+      payment_link_attempts: SWEEP_MAX_ATTEMPTS,
+      payment_link_last_error:
+        "백필 행 — 자동발송 억제. 필요 시 결제 패널에서 수동 발송하세요.",
     });
     if (error) {
       result.insertFailures++;

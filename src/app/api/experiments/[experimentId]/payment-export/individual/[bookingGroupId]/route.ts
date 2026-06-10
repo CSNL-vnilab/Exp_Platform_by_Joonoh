@@ -89,6 +89,9 @@ export async function GET(
     .from("bookings")
     .select("slot_start, slot_end")
     .eq("booking_group_id", bookingGroupId)
+    // Exclude cancelled/no_show — match propagate_payment_period's
+    // convention so the form's 회수/방문시간 reflect attended sessions.
+    .in("status", ["confirmed", "running", "completed"])
     .order("slot_start", { ascending: true });
   const sessions = bookings ?? [];
   const totalMs = sessions.reduce(

@@ -24,7 +24,10 @@ import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { observationSchema } from "@/lib/utils/validation";
 import { syncObservationToNotion } from "@/lib/services/observation.service";
-import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
+import {
+  notifyPaymentInfoIfReady,
+  sweepStalePastSiblings,
+} from "@/lib/services/payment-info-notify.service";
 import { requireBookingAccess } from "@/lib/auth/booking-access";
 
 // Observations get locked out of the future path until the session actually
@@ -173,6 +176,11 @@ export async function PUT(
         ?.booking_group_id;
       if (bgId) {
         const admin = createAdminClient();
+        // Same stale-sibling sweep as the status-PUT door (2026-06-10
+        // review [31]) — without it, completing the LAST session via
+        // the observation modal left earlier past-confirmed sessions
+        // blocking the payment email for up to 7 days (cron grace).
+        await sweepStalePastSiblings(admin, bgId, bookingId);
         await notifyPaymentInfoIfReady(admin, bgId);
       }
     } catch (err) {

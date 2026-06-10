@@ -138,6 +138,18 @@ export async function POST(
   // ended up cancelled, the helper transitions payment_info.status to
   // 'cancelled' so the row stops blocking the pending queue.
   try {
+    // Re-derive 활용일자 from live bookings post-cancel (2026-06-10
+    // review [16/21]) before the dispatch decision.
+    try {
+      await admin.rpc("propagate_payment_period", {
+        p_booking_group_id: verified.bookingGroupId,
+      });
+    } catch (err) {
+      console.warn(
+        "[ParticipantCancel] propagate_payment_period failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
     await notifyPaymentInfoIfReady(admin, verified.bookingGroupId);
   } catch (err) {
     console.error(

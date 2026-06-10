@@ -101,7 +101,7 @@ console.log(`Target experiment: [${targetExp.id.slice(0, 8)}] "${targetExp.title
 // ── 3. existing google_event_id index for idempotency ────────────────
 const { data: existingBookings } = await sb
   .from("bookings")
-  .select("id, google_event_id, slot_start, status, subject_number, session_number, participant_id, participants(name)")
+  .select("id, google_event_id, booking_group_id, slot_start, status, subject_number, session_number, participant_id, participants(name)")
   .eq("experiment_id", targetExp.id);
 const existingByEventId = new Map();
 for (const b of existingBookings ?? []) {
@@ -247,6 +247,17 @@ for (const p of newParticipants) {
 
 // 8c. insert bookings
 const bookingGroupByPerson = new Map();
+// Re-run idempotency (2026-06-10 blind review [22]): seed the map from
+// EXISTING rows so a partial re-run re-attaches new sessions to the
+// person's existing booking_group instead of minting a second group —
+// which would create a duplicate full-fee payment_info row and a
+// duplicate payment email for the same human.
+for (const b of existingBookings ?? []) {
+  const nm = b.participants?.name;
+  if (nm && b.booking_group_id && !bookingGroupByPerson.has(nm)) {
+    bookingGroupByPerson.set(nm, b.booking_group_id);
+  }
+}
 for (const p of planned.filter((x) => x.action === "insert")) {
   // One booking_group_id per (person, multi-session sequence). Reusing the
   // person's group means the multi-day sessions are linked the same way the

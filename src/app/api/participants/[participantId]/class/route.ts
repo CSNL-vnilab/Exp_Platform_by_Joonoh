@@ -9,6 +9,7 @@ import {
 import type { ParticipantClassRow } from "@/types/database";
 import { deleteEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
+import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -184,12 +185,13 @@ export async function POST(
     // the affected experiments can be re-notified via a manual sweep if
     // needed (tracked in docs/next-sprints.md).
     let cascadeCancelled = 0;
+    const cascadeGroups = new Set<string>();
     if (nextClass === "blacklist") {
       const nowIso = new Date().toISOString();
       const { data: futureBookings } = await admin
         .from("bookings")
         .select(
-          "id, google_event_id, experiment_id, experiments(google_calendar_id)",
+          "id, booking_group_id, google_event_id, experiment_id, experiments(google_calendar_id)",
         )
         .eq("participant_id", participantId)
         .in("status", ["confirmed", "running"])
@@ -212,6 +214,8 @@ export async function POST(
           continue;
         }
         cascadeCancelled += 1;
+        const bg = (b as { booking_group_id?: string | null }).booking_group_id;
+        if (bg) cascadeGroups.add(bg);
 
         if (b.google_event_id) {
           const exp = b.experiments as unknown as {
@@ -236,6 +240,26 @@ export async function POST(
               );
             }
           }
+        }
+      }
+
+      // Payment policy made explicit (2026-06-10 blind review [5/8]):
+      // a blacklisted participant is still owed for sessions they
+      // actually COMPLETED before the blacklist. Fire the dispatch
+      // helper per affected group — it settles each group the same way
+      // every other cancel path does: all-terminal groups transition
+      // payment_info to 'cancelled' (no email), groups with completed
+      // sessions become payable. Without this the outcome silently
+      // depended on the nightly cron's default behavior.
+      for (const bg of cascadeGroups) {
+        try {
+          await notifyPaymentInfoIfReady(admin, bg);
+        } catch (err) {
+          console.error(
+            "[Participant class POST] payment-info dispatch failed:",
+            bg,
+            err instanceof Error ? err.message : err,
+          );
         }
       }
     }
