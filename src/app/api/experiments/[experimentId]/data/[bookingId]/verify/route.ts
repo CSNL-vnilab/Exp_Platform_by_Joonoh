@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
+import { COMPLETABLE_STATUSES } from "@/lib/bookings/status";
 
 // POST /api/experiments/:experimentId/data/:bookingId/verify
 //
@@ -132,7 +133,8 @@ export async function POST(
   }
 
   let didComplete = false;
-  if (booking.status === "confirmed" || booking.status === "running") {
+  // COMPLETABLE_STATUSES = 전이 가능 출발상태 (confirmed/running) — bookings/status SSOT.
+  if ((COMPLETABLE_STATUSES as readonly string[]).includes(booking.status)) {
     // CAS on status (2026-06-10 blind review [3]): the pre-read above
     // can be stale — without this guard, a booking cancelled between
     // read and write was silently resurrected to 'completed'.
@@ -140,7 +142,7 @@ export async function POST(
       .from("bookings")
       .update({ status: "completed" })
       .eq("id", bookingId)
-      .in("status", ["confirmed", "running"])
+      .in("status", [...COMPLETABLE_STATUSES])
       .select("id");
     didComplete = Boolean(completedRows && completedRows.length > 0);
   }

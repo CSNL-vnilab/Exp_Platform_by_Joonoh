@@ -35,6 +35,7 @@ import { authorizeCronRequest } from "@/lib/auth/cron-secret";
 import { deleteEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { scrubPii } from "@/lib/observability/pii";
+import { TERMINAL_NON_PAYABLE } from "@/lib/bookings/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,7 +103,7 @@ async function handle(request: NextRequest) {
       .select(
         "id, status, google_event_id, updated_at, experiments(google_calendar_id)",
       )
-      .in("status", ["cancelled", "no_show"])
+      .in("status", [...TERMINAL_NON_PAYABLE])
       .not("google_event_id", "is", null)
       .lte("updated_at", cutoffIso)
       .order("updated_at", { ascending: true })

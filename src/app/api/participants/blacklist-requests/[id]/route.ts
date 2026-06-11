@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
+import { COMPLETABLE_STATUSES } from "@/lib/bookings/status";
 
 // POST /api/participants/blacklist-requests/[id]
 //   body: { action: "approve" | "reject", rejectedReason?: string }
@@ -139,7 +140,8 @@ export async function POST(
     .from("bookings")
     .select("id")
     .eq("participant_id", req.participant_id)
-    .in("status", ["confirmed", "running"])
+    // COMPLETABLE_STATUSES = in-flight 출발상태 (bookings/status SSOT).
+    .in("status", [...COMPLETABLE_STATUSES])
     .gt("slot_start", nowIso);
   let cancelled = 0;
   for (const b of futureBks ?? []) {
@@ -147,7 +149,9 @@ export async function POST(
       .from("bookings")
       .update({ status: "cancelled" })
       .eq("id", b.id)
-      .in("status", ["confirmed", "running"]);
+      // CAS: don't flip a booking that raced to 'completed' or was
+      // cancelled by another admin in the gap between SELECT and UPDATE.
+      .in("status", [...COMPLETABLE_STATUSES]);
     if (!cancelErr) cancelled += 1;
   }
 

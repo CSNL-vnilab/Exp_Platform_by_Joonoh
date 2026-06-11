@@ -26,6 +26,7 @@ import {
   fillResearchPaymentRequest,
   generateResearchPaymentRequestPdf,
 } from "@/lib/payments/template-filler";
+import { LIVE_STATUSES } from "@/lib/bookings/status";
 
 // 2026-06-10 user directive — auto-fill the 목적 (B13) cell with this
 // standing description for every offline experiment participating in
@@ -269,7 +270,7 @@ async function loadSessionsByBgId(
     .from("bookings")
     .select("booking_group_id, slot_start, slot_end")
     .in("booking_group_id", bgIds)
-    .in("status", ["confirmed", "running", "completed"])
+    .in("status", [...LIVE_STATUSES])
     .order("slot_start", { ascending: true });
   const sessionsBy = new Map<
     string,

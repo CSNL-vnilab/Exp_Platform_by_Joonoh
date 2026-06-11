@@ -18,6 +18,7 @@ import { buildConfirmationEmail } from "@/lib/services/booking-email-template";
 import { issueBookingEditToken } from "@/lib/booking-edit/token";
 import { getAppOrigin } from "@/lib/http/origin";
 import { scrubPii } from "@/lib/observability/pii";
+import { isLive } from "@/lib/bookings/status";
 import {
   buildRescheduleEmail,
   buildRescheduleSMS,
@@ -991,11 +992,12 @@ export async function renumberSessionsInGroup(
     return { changed: 0, total: 0 };
   }
 
-  // Renumber only active (confirmed/running/completed) — terminal
-  // states (cancelled/no_show) keep their original numbers so that
-  // analysis/billing audit trails don't shift.
-  const ACTIVE = new Set(["confirmed", "running", "completed"]);
-  const active = rows.filter((r) => ACTIVE.has(r.status as string));
+  // Renumber only live/attended sessions — terminal states
+  // (cancelled/no_show) keep their original numbers so that
+  // analysis/billing audit trails don't shift. LIVE membership comes
+  // from the SSOT in @/lib/bookings/status so this writer can't drift
+  // out of sync (e.g. the no_show-asymmetry incident).
+  const active = rows.filter((r) => isLive(r.status as string));
 
   let changed = 0;
   for (let i = 0; i < active.length; i += 1) {

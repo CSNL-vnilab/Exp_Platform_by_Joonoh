@@ -8,6 +8,7 @@ import {
   formatDateSpan,
   type ExportParticipant,
 } from "@/lib/payments/excel";
+import { LIVE_STATUSES } from "@/lib/bookings/status";
 
 // GET /api/experiments/:experimentId/payment-export/individual/:bookingGroupId
 //
@@ -91,7 +92,7 @@ export async function GET(
     .eq("booking_group_id", bookingGroupId)
     // Exclude cancelled/no_show — match propagate_payment_period's
     // convention so the form's 회수/방문시간 reflect attended sessions.
-    .in("status", ["confirmed", "running", "completed"])
+    .in("status", [...LIVE_STATUSES])
     .order("slot_start", { ascending: true });
   const sessions = bookings ?? [];
   const totalMs = sessions.reduce(

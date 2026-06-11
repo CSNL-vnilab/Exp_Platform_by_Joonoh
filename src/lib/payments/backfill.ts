@@ -13,6 +13,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { issuePaymentToken } from "@/lib/payments/token";
 import { encryptToken } from "@/lib/crypto/payment-info";
 import { SWEEP_MAX_ATTEMPTS } from "@/lib/services/payment-info-notify.service";
+import { isLive } from "@/lib/bookings/status";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -126,8 +127,8 @@ export async function backfillPaymentInfoForExperiment(
     // no_show 둘 다 terminal-non-payable. no_show 를 빠뜨리면 불참 회차의
     // slot 이 period_start/end 와 sessionCount 를 부풀려 정산서류에 들어간다
     // (backlog [17]; claim-bundle.loadSessionsByBgId 의 status 필터와 정합).
-    const LIVE_STATUSES = new Set(["confirmed", "running", "completed"]);
-    const liveRows = rows.filter((r) => LIVE_STATUSES.has(r.status));
+    // isLive = LIVE_STATUSES 멤버십 (bookings/status SSOT).
+    const liveRows = rows.filter((r) => isLive(r.status));
     if (liveRows.length === 0) continue;
     const starts = liveRows.map((r) => new Date(r.slot_start).getTime());
     const ends = liveRows.map((r) => new Date(r.slot_end).getTime());

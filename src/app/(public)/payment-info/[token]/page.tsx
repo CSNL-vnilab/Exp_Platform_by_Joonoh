@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPaymentToken, PaymentTokenError } from "@/lib/payments/token";
 import { formatDateKR } from "@/lib/utils/date";
 import PaymentInfoForm from "./PaymentInfoForm";
+import { COMPLETABLE_STATUSES } from "@/lib/bookings/status";
 
 interface PageProps {
   params: Promise<{ token: string }>;
@@ -163,13 +164,13 @@ export default async function PaymentInfoPage({ params }: PageProps) {
     .from("bookings")
     .select("id, slot_end, status")
     .eq("booking_group_id", info.booking_group_id);
-  const liveBookings = (groupBookings ?? []).filter(
-    (b) => b.status === "confirmed" || b.status === "running",
+  const pendingBookings = (groupBookings ?? []).filter((b) =>
+    (COMPLETABLE_STATUSES as readonly string[]).includes(b.status),
   );
-  const lastLiveSlotEnd = liveBookings
+  const lastLiveSlotEnd = pendingBookings
     .map((b) => new Date(b.slot_end).getTime())
     .reduce<number | null>((max, t) => (max === null || t > max ? t : max), null);
-  const pendingCount = liveBookings.length;
+  const pendingCount = pendingBookings.length;
 
   return (
     <div className="space-y-5">

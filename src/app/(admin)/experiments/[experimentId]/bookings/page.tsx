@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { BookingsManager, type BookingRowView } from "@/components/bookings-manager";
 import { PaymentPanel } from "@/components/payment-panel";
 import { recommendAmount } from "@/lib/payments/amount";
+import { isTerminalNonPayable } from "@/lib/bookings/status";
 import type { PaymentStatus } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -251,9 +252,8 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
       // 8822dd2 updated the server gate but left this page on the old
       // cancelled-only rule, so a 4-completed + 1-no_show group showed
       // "세션 종료 대기" forever while the server was ready to send.
-      const payable = statuses.filter(
-        (s) => s !== "cancelled" && s !== "no_show",
-      );
+      // {cancelled, no_show} = terminal-non-payable (bookings/status SSOT).
+      const payable = statuses.filter((s) => !isTerminalNonPayable(s));
       allCompleted.set(
         gid,
         payable.length > 0 && payable.every((s) => s === "completed"),

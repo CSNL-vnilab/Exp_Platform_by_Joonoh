@@ -10,6 +10,7 @@ import type { ParticipantClassRow } from "@/types/database";
 import { deleteEvent } from "@/lib/google/calendar";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
+import { COMPLETABLE_STATUSES } from "@/lib/bookings/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -194,7 +195,8 @@ export async function POST(
           "id, booking_group_id, google_event_id, experiment_id, experiments(google_calendar_id)",
         )
         .eq("participant_id", participantId)
-        .in("status", ["confirmed", "running"])
+        // COMPLETABLE_STATUSES = in-flight 출발상태 (bookings/status SSOT).
+        .in("status", [...COMPLETABLE_STATUSES])
         .gt("slot_start", nowIso);
 
       for (const b of futureBookings ?? []) {
@@ -204,7 +206,7 @@ export async function POST(
           .eq("id", b.id)
           // CAS: don't flip a booking that raced to 'completed' or was
           // cancelled by another admin in the gap between SELECT and UPDATE.
-          .in("status", ["confirmed", "running"]);
+          .in("status", [...COMPLETABLE_STATUSES]);
         if (cancelErr) {
           console.error(
             "[Participant class POST] cancel booking failed:",

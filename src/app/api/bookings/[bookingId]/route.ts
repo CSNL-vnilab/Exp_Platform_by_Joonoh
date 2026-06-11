@@ -20,18 +20,11 @@ import {
 import { notifyBookingStatusChange } from "@/lib/services/booking-status-notify.service";
 import { scrubPii } from "@/lib/observability/pii";
 import { requireBookingAccess } from "@/lib/auth/booking-access";
+import { VALID_TRANSITIONS, type BookingStatus } from "@/lib/bookings/status";
 
-// Valid status transitions: prevents going back from terminal states.
-// 'running' is set automatically when /run mints a completion code —
-// researchers typically only transition running → completed (after verifying
-// the completion code) or running → cancelled (participant abandoned the run).
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  confirmed: ["cancelled", "completed", "no_show", "running"],
-  running: ["cancelled", "completed", "no_show"],
-  cancelled: [],
-  completed: [],
-  no_show: [],
-};
+// VALID_TRANSITIONS moved to the bookings/status SSOT module (2026-06-10
+// blind review): the transition table is the canonical "what can flip to
+// what" rule and was previously defined inline here only.
 
 const bookingStatusSchema = z.object({
   status: z.enum(["confirmed", "cancelled", "completed", "no_show", "running"]),
@@ -105,7 +98,7 @@ export async function PUT(
     const { status } = result.data;
 
     // Validate status transition
-    const allowed = VALID_TRANSITIONS[booking.status] ?? [];
+    const allowed = VALID_TRANSITIONS[booking.status as BookingStatus] ?? [];
     if (!allowed.includes(status)) {
       return NextResponse.json(
         { error: `상태를 '${booking.status}'에서 '${status}'(으)로 변경할 수 없습니다` },

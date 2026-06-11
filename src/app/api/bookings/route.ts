@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { bookingRequestSchema, normalizePhone } from "@/lib/utils/validation";
 import { BOOKING_ERRORS, BOOKING_RETRY } from "@/lib/utils/constants";
 import { runPostBookingPipeline } from "@/lib/services/booking.service";
+import { LIVE_STATUSES } from "@/lib/bookings/status";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
           .from("bookings")
           .select("id, participants!inner(phone, email)")
           .in("experiment_id", excludeIds)
-          .in("status", ["confirmed", "running", "completed"])
+          .in("status", [...LIVE_STATUSES])
           .eq("participants.phone", phone)
           .eq("participants.email", participant.email)
           .limit(1);

@@ -32,6 +32,7 @@ import { buildPaymentInfoEmail } from "@/lib/services/payment-info-email-templat
 import { bytesFromSupabase, decryptToken, encryptToken } from "@/lib/crypto/payment-info";
 import { getAppOrigin } from "@/lib/http/origin";
 import { scrubPii } from "@/lib/observability/pii";
+import { isTerminalNonPayable } from "@/lib/bookings/status";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
@@ -268,9 +269,9 @@ async function notifyPaymentInfoIfReadyImpl(
   if (groupBookings.length === 0) {
     return { outcome: NOTIFY_OUTCOME.NOT_ALL_COMPLETED, bookingGroupId, detail: "no bookings" };
   }
-  const TERMINAL_NON_PAYABLE = new Set(["cancelled", "no_show"]);
+  // terminal-non-payable {cancelled, no_show} from the bookings/status SSOT.
   const payable = groupBookings.filter(
-    (b) => !TERMINAL_NON_PAYABLE.has(b.status as string),
+    (b) => !isTerminalNonPayable(b.status as string),
   );
   if (payable.length === 0) {
     // Every booking cancelled or no_show — nothing attended, nothing
