@@ -137,17 +137,19 @@ export async function processReminders(): Promise<number> {
     // BEFORE dispatching; exactly one worker wins the flip, the loser
     // skips. Trade-off: a crash between claim and SMTP loses that one
     // reminder (recorded as sent) — strictly better than double-billed
-    // SMS spam. On send failure below, the catch overwrites our claim
-    // with status='failed', preserving the failure record.
+    // SMS spam. On send failure below, the catch decides between a retry
+    // (re-queue to 'pending', bump attempts) and terminal 'failed' (S2
+    // [30]). We read `attempts` here so the catch knows the retry budget.
     const { data: claimed } = await supabase
       .from("reminders")
       .update({ status: "sent", sent_at: new Date().toISOString() })
       .eq("id", reminder.id)
       .eq("status", "pending")
-      .select("id");
+      .select("id, attempts");
     if (!claimed || claimed.length === 0) {
       continue; // another dispatcher claimed this row first
     }
+    const currentAttempts = (claimed[0]?.attempts as number | null) ?? 0;
 
     const participant = booking.participants;
     const experiment = booking.experiments;
@@ -169,6 +171,11 @@ export async function processReminders(): Promise<number> {
     const contactLine = researcherEmail || brandContactEmailOrNull();
 
     const location = await getLocation(experiment.location_id);
+
+    // Track whether the email already went out so the catch below can
+    // tell a PARTIAL failure (email OK, SMS threw) from a TOTAL one
+    // (nothing sent). Email is attempted first, SMS second.
+    let emailDispatched = false;
 
     try {
       if (reminder.channel === "email" || reminder.channel === "both") {
@@ -300,6 +307,9 @@ export async function processReminders(): Promise<number> {
           html,
           replyTo: researcherEmail ?? undefined,
         });
+        // Email delivered. From here a later-channel (SMS) throw is a
+        // PARTIAL failure — must NOT be retried (would re-email).
+        emailDispatched = true;
       }
 
       if (reminder.channel === "sms" || reminder.channel === "both") {
@@ -316,13 +326,49 @@ export async function processReminders(): Promise<number> {
       // update on success.
       processed++;
     } catch (err) {
-      console.error(`[Reminder] Failed for reminder ${reminder.id}:`, err);
-      // Overwrite our own claim with the failure record. We hold the
-      // claim, so this can't clobber another worker's state.
-      await supabase
-        .from("reminders")
-        .update({ status: "failed" })
-        .eq("id", reminder.id);
+      // We hold the claim (row is 'sent'), so any write here targets a row
+      // only we own — no CAS needed, can't clobber another worker (S2 [30]).
+      if (emailDispatched) {
+        // PARTIAL: the email was delivered but a later channel (SMS)
+        // failed. Retrying would re-send the email (duplicate). Close the
+        // row as 'failed' (terminal) and record the partial on the
+        // console — reminders has no last_error text column.
+        console.error(
+          `[Reminder] PARTIAL send for reminder ${reminder.id}: email delivered, SMS failed — closing as failed (no retry to avoid duplicate email):`,
+          err,
+        );
+        await supabase
+          .from("reminders")
+          .update({ status: "failed" })
+          .eq("id", reminder.id);
+      } else if (currentAttempts < 3) {
+        // TOTAL failure (nothing sent) with retry budget left. Re-queue:
+        // flip back to 'pending', bump attempts, clear our claim's
+        // sent_at. The next cron tick (scheduled_at already in the past)
+        // re-claims and re-reads the higher attempts count.
+        console.error(
+          `[Reminder] send failed for reminder ${reminder.id} (attempt ${currentAttempts + 1}, nothing sent) — re-queueing:`,
+          err,
+        );
+        await supabase
+          .from("reminders")
+          .update({
+            status: "pending",
+            attempts: currentAttempts + 1,
+            sent_at: null,
+          })
+          .eq("id", reminder.id);
+      } else {
+        // TOTAL failure, retry budget exhausted (attempts >= 3). Give up.
+        console.error(
+          `[Reminder] send failed for reminder ${reminder.id} — attempts exhausted (${currentAttempts}), marking failed:`,
+          err,
+        );
+        await supabase
+          .from("reminders")
+          .update({ status: "failed" })
+          .eq("id", reminder.id);
+      }
     }
   }
 

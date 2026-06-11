@@ -379,7 +379,11 @@ export async function PATCH(
     return NextResponse.json({ error: "실험 운영 요일이 아닙니다" }, { status: 400 });
   }
 
-  // Capacity check (excluding this booking)
+  // Capacity check (excluding this booking) — advisory check only, for a
+  // fast user-facing 409 before the GCal round-trip. The AUTHORITY is the
+  // reschedule_booking RPC (00072), which re-counts confirmed overlaps
+  // while holding the book_slot advisory lock; this SELECT runs outside
+  // that lock and can race a concurrent reschedule/booking.
   const { data: conflicts } = await admin
     .from("bookings")
     .select("id")
@@ -461,48 +465,36 @@ export async function PATCH(
     );
   }
 
-  const update: {
-    slot_start: string;
-    slot_end: string;
-    google_event_id?: string | null;
-  } = {
-    slot_start: normalizedStart,
-    slot_end: normalizedEnd,
-  };
-  if (newEventId) {
-    update.google_event_id = newEventId;
-  }
+  // Atomic capacity-revalidate + status-CAS + slot write under the
+  // book_slot advisory key (00072 reschedule_booking RPC). This replaces
+  // the former read-then-write (capacity SELECT above + .eq("status",
+  // "confirmed") CAS here): the capacity check ran outside any lock, so
+  // two concurrent reschedules — or a reschedule racing a new booking —
+  // could both pass and double-book the slot. The RPC re-counts confirmed
+  // overlaps while holding the lock and absorbs the status CAS.
+  //
+  // The status-CAS rationale (2026-06-10 blind review [28]) still holds
+  // and now lives inside the RPC: the status gate at the top of this
+  // handler ran BEFORE the GCal round-trip above; during that window a
+  // concurrent writer (e.g. the sibling auto-complete sweep in the status
+  // PUT) can flip this booking to 'completed'. The RPC's
+  // status='confirmed' CAS returns STATUS_CHANGED for that case so the
+  // slot write never lands on a completed/cancelled row.
+  const { data: rpcData, error: rpcErr } = await admin.rpc(
+    "reschedule_booking",
+    {
+      p_booking_id: bookingId,
+      p_new_start: normalizedStart,
+      p_new_end: normalizedEnd,
+      p_new_event_id: newEventId,
+    },
+  );
+  const rpcResult = rpcData as { success?: boolean; error?: string } | null;
 
-  // CAS on status (2026-06-10 blind review [28]): the status gate at the
-  // top of this handler ran BEFORE the GCal round-trip above — during
-  // that window a concurrent writer (e.g. the sibling auto-complete
-  // sweep in the status PUT, which targets past-confirmed rows) can flip
-  // this booking to 'completed'. Without the .eq("status","confirmed")
-  // guard the slot write landed on the completed row, producing a
-  // 'completed' booking scheduled in the FUTURE plus a premature
-  // payment email. Zero affected rows → undo the GCal pre-create and
-  // 409 so the researcher re-loads and retries.
-  const { data: updatedRows, error: updateErr } = await admin
-    .from("bookings")
-    .update(update)
-    .eq("id", bookingId)
-    .eq("status", "confirmed")
-    .select("id");
-  if (updateErr) {
-    // DB update failed AFTER new GCal event created. Best we can do is log
-    // the orphan id and return the error — next outbox sweep or a manual
-    // cleanup has to fix it. Participant sees old time (DB unchanged);
-    // orphan event on calendar is the lesser evil.
-    console.error(
-      "[Reschedule] DB update failed after GCal create, orphan event:",
-      newEventId,
-    );
-    return NextResponse.json({ error: "예약 변경에 실패했습니다" }, { status: 500 });
-  }
-  if (!updatedRows || updatedRows.length === 0) {
-    // Status changed mid-flight — clean up the just-created GCal event
-    // and bail. Best-effort delete; on failure the orphan-reaper cron
-    // collects it.
+  if (rpcErr || !rpcResult?.success) {
+    const code = rpcResult?.error ?? (rpcErr ? "RPC_ERROR" : "UNKNOWN");
+    // Undo the GCal pre-create (reuse the CAS-conflict cleanup pattern);
+    // best-effort delete, on failure the orphan-reaper cron collects it.
     if (newEventId) {
       try {
         const calId = (
@@ -511,16 +503,40 @@ export async function PATCH(
         if (calId) await deleteEvent(calId, newEventId);
       } catch (err) {
         console.error(
-          "[Reschedule] CAS-conflict GCal cleanup failed, orphan event:",
+          "[Reschedule] RPC-reject GCal cleanup failed, orphan event:",
           newEventId,
           err instanceof Error ? err.message : err,
         );
       }
     }
-    return NextResponse.json(
-      { error: "예약 상태가 변경되어(완료/취소) 일정을 변경할 수 없습니다. 새로고침 후 다시 확인해 주세요." },
-      { status: 409 },
-    );
+    switch (code) {
+      case "SLOT_ALREADY_TAKEN":
+        return NextResponse.json(
+          { error: "선택한 시간대가 이미 예약되었습니다" },
+          { status: 409 },
+        );
+      case "STATUS_CHANGED":
+        return NextResponse.json(
+          { error: "예약 상태가 변경되어(완료/취소) 일정을 변경할 수 없습니다. 새로고침 후 다시 확인해 주세요." },
+          { status: 409 },
+        );
+      case "SLOT_CONTENTION_RETRY":
+        return NextResponse.json(
+          { error: "다른 예약 요청과 충돌했습니다. 잠시 후 다시 시도해 주세요." },
+          { status: 503 },
+        );
+      default:
+        console.error(
+          "[Reschedule] reschedule_booking RPC failed:",
+          rpcErr ?? code,
+          "orphan event:",
+          newEventId,
+        );
+        return NextResponse.json(
+          { error: "예약 변경에 실패했습니다" },
+          { status: 500 },
+        );
+    }
   }
 
   // Renumber sessions in the participant's group by date order. Multi-

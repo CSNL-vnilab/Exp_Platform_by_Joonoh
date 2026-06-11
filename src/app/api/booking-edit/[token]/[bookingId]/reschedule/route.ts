@@ -151,7 +151,11 @@ export async function PATCH(
     );
   }
 
-  // Capacity check (excluding this booking).
+  // Capacity check (excluding this booking) — advisory check only, for a
+  // fast user-facing 409 before the GCal round-trip. The AUTHORITY is the
+  // reschedule_booking RPC (00072), which re-counts confirmed overlaps
+  // while holding the book_slot advisory lock; this SELECT runs outside
+  // that lock and can race a concurrent reschedule/booking.
   const { data: conflicts } = await admin
     .from("bookings")
     .select("id")
@@ -234,28 +238,31 @@ export async function PATCH(
     );
   }
 
-  const update: {
-    slot_start: string;
-    slot_end: string;
-    google_event_id?: string | null;
-  } = {
-    slot_start: normalizedStart,
-    slot_end: normalizedEnd,
-  };
-  if (newEventId) update.google_event_id = newEventId;
+  // Atomic capacity-revalidate + status-CAS + slot write under the
+  // book_slot advisory key (00072 reschedule_booking RPC). Replaces the
+  // former unguarded .update().eq("id") write: the capacity SELECT above
+  // ran outside any lock, so two concurrent reschedules — or a reschedule
+  // racing a new booking — could both pass and double-book the slot. The
+  // RPC re-counts confirmed overlaps while holding the lock; its
+  // status='confirmed' CAS also rejects (STATUS_CHANGED) if a concurrent
+  // writer flipped this booking to completed/cancelled during the GCal
+  // round-trip above — the participant route previously had no such guard.
+  const { data: rpcData, error: rpcErr } = await admin.rpc(
+    "reschedule_booking",
+    {
+      p_booking_id: bookingId,
+      p_new_start: normalizedStart,
+      p_new_end: normalizedEnd,
+      p_new_event_id: newEventId,
+    },
+  );
+  const rpcResult = rpcData as { success?: boolean; error?: string } | null;
 
-  const { error: updateErr } = await admin
-    .from("bookings")
-    .update(update)
-    .eq("id", bookingId);
-  if (updateErr) {
-    console.error(
-      "[ParticipantReschedule] DB update failed after GCal create, orphan event:",
-      newEventId,
-    );
-    // Best-effort rollback so the calendar doesn't carry a phantom
-    // event that the DB never references. Failure to roll back logs
-    // the orphan id so it can be cleaned up manually.
+  if (rpcErr || !rpcResult?.success) {
+    const code = rpcResult?.error ?? (rpcErr ? "RPC_ERROR" : "UNKNOWN");
+    // Best-effort rollback of the just-created GCal event so the calendar
+    // doesn't carry a phantom event the DB never references. On failure
+    // the orphan id is logged for manual / cron cleanup.
     if (newEventId && calendarId) {
       try {
         await deleteEvent(calendarId, newEventId);
@@ -267,10 +274,34 @@ export async function PATCH(
         );
       }
     }
-    return NextResponse.json(
-      { error: "예약 변경에 실패했습니다" },
-      { status: 500 },
-    );
+    switch (code) {
+      case "SLOT_ALREADY_TAKEN":
+        return NextResponse.json(
+          { error: "선택한 시간대가 이미 예약되었습니다" },
+          { status: 409 },
+        );
+      case "STATUS_CHANGED":
+        return NextResponse.json(
+          { error: "예약 상태가 변경되어(완료/취소) 일정을 변경할 수 없습니다. 새로고침 후 다시 확인해 주세요." },
+          { status: 409 },
+        );
+      case "SLOT_CONTENTION_RETRY":
+        return NextResponse.json(
+          { error: "다른 예약 요청과 충돌했습니다. 잠시 후 다시 시도해 주세요." },
+          { status: 503 },
+        );
+      default:
+        console.error(
+          "[ParticipantReschedule] reschedule_booking RPC failed:",
+          rpcErr ?? code,
+          "orphan event:",
+          newEventId,
+        );
+        return NextResponse.json(
+          { error: "예약 변경에 실패했습니다" },
+          { status: 500 },
+        );
+    }
   }
 
   if (calendarId) {

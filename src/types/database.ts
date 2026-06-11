@@ -645,8 +645,11 @@ export interface Database {
           reminder_type: "day_before_evening" | "day_of_morning";
           scheduled_at: string;
           sent_at: string | null;
-          status: "pending" | "sent" | "failed";
+          // 'cancelled' added in 00054 (reschedule cancel-out path);
+          // attempts added in 00071 (S2 [30] retry budget).
+          status: "pending" | "sent" | "failed" | "cancelled";
           channel: "email" | "sms" | "both";
+          attempts: number;
           created_at: string;
         };
         Insert: {
@@ -654,12 +657,14 @@ export interface Database {
           booking_id: string;
           reminder_type: "day_before_evening" | "day_of_morning";
           scheduled_at: string;
-          status?: "pending" | "sent" | "failed";
+          status?: "pending" | "sent" | "failed" | "cancelled";
           channel?: "email" | "sms" | "both";
+          attempts?: number;
         };
         Update: {
-          status?: "pending" | "sent" | "failed";
+          status?: "pending" | "sent" | "failed" | "cancelled";
           sent_at?: string | null;
+          attempts?: number;
         };
         Relationships: [
           {
@@ -1577,8 +1582,10 @@ export interface Database {
         Returns: Json;
       };
       reschedule_reminders: {
-        // Migration 00054 — propagate booking slot change into pending
-        // reminder rows. Returns { success, updated, cancelled }.
+        // Migration 00054 (redefined in 00071) — propagate booking slot
+        // change into pending reminder rows, and re-seed a fresh reminder
+        // when a rescheduled-to-future booking has no pending row left
+        // (gap-fill). Returns { success, updated, cancelled, inserted }.
         Args: {
           p_booking_id: string;
           p_new_slot_start: string;
@@ -1598,6 +1605,21 @@ export interface Database {
         // the group to 'completed' in one shot. Used by the payment
         // panel's "회차 완료 처리" button. Returns { success, updated }.
         Args: { p_booking_group_id: string };
+        Returns: Json;
+      };
+      reschedule_booking: {
+        // Migration 00072 — atomic reschedule: re-counts confirmed
+        // overlaps under the book_slot advisory key, CAS on
+        // status='confirmed', then writes the new slot window (and the
+        // pre-created GCal event id). Returns { success } or
+        // { success:false, error:'NOT_FOUND'|'SLOT_CONTENTION_RETRY'|
+        // 'SLOT_ALREADY_TAKEN'|'STATUS_CHANGED' }.
+        Args: {
+          p_booking_id: string;
+          p_new_start: string;
+          p_new_end: string;
+          p_new_event_id?: string | null;
+        };
         Returns: Json;
       };
     };
