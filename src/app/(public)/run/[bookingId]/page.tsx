@@ -6,6 +6,11 @@ import { RunErrorBoundary } from "@/components/run/run-error-boundary";
 import { brandContactEmailOrNull } from "@/lib/branding";
 import type { OnlineRuntimeConfig } from "@/types/database";
 
+// FOLLOW-UP finding (not fixed here): this page passes the full
+// online_runtime_config — including attention_checks[].correct_answer — into
+// the sandbox; even with the own-booking-token gate, the participant can read
+// the answer from devtools. Needs server-side attention-check verification.
+//
 // Progress state is mutated by /api/.../block uploads. We render server-
 // side once and must always reflect the latest counter — no ISR, no cache.
 export const dynamic = "force-dynamic";

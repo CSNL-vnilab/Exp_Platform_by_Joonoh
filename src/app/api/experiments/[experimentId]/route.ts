@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { experimentEditSchema, isValidUUID } from "@/lib/utils/validation";
 import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
 import { requireExperimentAccess } from "@/lib/auth/experiment-access";
+import { sanitizeExperimentForPublic } from "@/lib/experiments/sanitize";
 
 export async function GET(
   _request: NextRequest,
@@ -29,14 +30,36 @@ export async function GET(
       return NextResponse.json({ error: "Experiment not found" }, { status: 404 });
     }
 
-    // Public if active; otherwise only the owner may view it
+    // Determine privilege. Owner = creator; admin = profiles.role==='admin'.
+    // Both get the full row; everyone else (anon participant, OTHER
+    // researcher) gets a sanitized copy with the data-integrity-sensitive
+    // fields masked — attention-check answers, counterbalance logic,
+    // cross-study exclusion list, and internal code/data paths.
+    const isOwner = !!user && user.id === experiment.created_by;
+    let isAdmin = false;
+    if (user && !isOwner) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      isAdmin =
+        (profile as { role: string | null } | null)?.role === "admin";
+    }
+
+    // Public if active; otherwise only the owner/admin may view it at all.
     if (experiment.status !== "active") {
-      if (!user || user.id !== experiment.created_by) {
+      if (!isOwner && !isAdmin) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }
 
-    return NextResponse.json({ experiment });
+    if (isOwner || isAdmin) {
+      return NextResponse.json({ experiment });
+    }
+    return NextResponse.json({
+      experiment: sanitizeExperimentForPublic(experiment),
+    });
   } catch (err) {
     return NextResponse.json(
       { error: "Internal server error" },

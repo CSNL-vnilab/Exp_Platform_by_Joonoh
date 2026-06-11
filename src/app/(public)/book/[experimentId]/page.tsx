@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { BookingFlow } from "@/components/booking/booking-flow";
+import { sanitizeExperimentForPublic } from "@/lib/experiments/sanitize";
 
 interface BookPageProps {
   params: Promise<{ experimentId: string }>;
@@ -119,5 +120,16 @@ export default async function BookPage({ params }: BookPageProps) {
         .maybeSingle()
     : { data: null };
 
-  return <BookingFlow experiment={experiment} location={loc ?? null} />;
+  // This page is fully public, so always mask the data-integrity-sensitive
+  // fields (attention-check answers, counterbalance logic, exclusion list,
+  // internal code/data paths) before handing the row to the client
+  // component. BookingFlow only consumes non-sensitive fields (title,
+  // precautions, fee, session, location, irb), so masking is behaviour-
+  // neutral for the booking flow.
+  return (
+    <BookingFlow
+      experiment={sanitizeExperimentForPublic(experiment)}
+      location={loc ?? null}
+    />
+  );
 }

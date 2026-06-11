@@ -328,6 +328,57 @@ await group("zero bookings (cascade race) → not_all_completed", async () => {
   check("outcome=not_all_completed", result.outcome === "not_all_completed");
 });
 
+// ── 5c. no_show gate: mixed completed + no_show → sent ───────────────────
+// Regression for the 2026-06-10 no_show cluster fix: a no_show booking is
+// terminal-non-payable and must NOT block the group's payable remainder.
+// 4 completed + 1 no_show → the payable subset (4 completed) is fully
+// complete, so the email goes out exactly once.
+await group("mixed completed + no_show → sent", async () => {
+  pendingSendResult = { success: true, messageId: "<msg-noshow@test.local>" };
+  const { groupId, state } = freshFixture({
+    bookings: [
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "completed" },
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "completed" },
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "completed" },
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "completed" },
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "no_show" },
+    ],
+  });
+  const sb = makeStubSupabase(state);
+  sendEmailCalls.length = 0;
+  const result = await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
+  check("outcome=sent", result.outcome === "sent", `got ${result.outcome} ${result.detail}`);
+  check("one email sent", sendEmailCalls.length === 1);
+  check(
+    "sent_at stamped",
+    state.participant_payment_info[0].payment_link_sent_at !== null,
+  );
+});
+
+// ── 5d. no_show gate: all no_show → all_cancelled ────────────────────────
+// Every booking no_show → no payable session remains → the row transitions
+// to terminal 'cancelled' so it stops blocking the pending dashboards /
+// cron sweep, and no email is sent.
+await group("all no_show → all_cancelled", async () => {
+  pendingSendResult = { success: true, messageId: "<msg-allnoshow@test.local>" };
+  const { groupId, state } = freshFixture({
+    bookings: [
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "no_show" },
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "no_show" },
+    ],
+  });
+  const sb = makeStubSupabase(state);
+  sendEmailCalls.length = 0;
+  const result = await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
+  check("outcome=all_cancelled", result.outcome === "all_cancelled", `got ${result.outcome}`);
+  check("no email sent", sendEmailCalls.length === 0);
+  check(
+    "payment_info.status=cancelled",
+    state.participant_payment_info[0].status === "cancelled",
+    `got ${state.participant_payment_info[0].status}`,
+  );
+});
+
 // ── 6. no_recipient ──────────────────────────────────────────────────────
 await group("empty participant email → no_recipient", async () => {
   const { groupId, state } = freshFixture();
