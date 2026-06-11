@@ -246,10 +246,17 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
       // never satisfied the page-side gate and the "안내 메일 발송"
       // button never appeared — even though the helper would accept the
       // send. 2026-06-09 fix.
-      const nonCancelled = statuses.filter((s) => s !== "cancelled");
+      // 2026-06-11 visual-QC fix: match notifyPaymentInfoIfReady's gate
+      // EXACTLY — {cancelled, no_show} are both terminal-non-payable.
+      // 8822dd2 updated the server gate but left this page on the old
+      // cancelled-only rule, so a 4-completed + 1-no_show group showed
+      // "세션 종료 대기" forever while the server was ready to send.
+      const payable = statuses.filter(
+        (s) => s !== "cancelled" && s !== "no_show",
+      );
       allCompleted.set(
         gid,
-        nonCancelled.length > 0 && nonCancelled.every((s) => s === "completed"),
+        payable.length > 0 && payable.every((s) => s === "completed"),
       );
       // Tally the four buckets the amount hint cares about. Any status
       // that isn't completed/no_show/cancelled (e.g. confirmed/running)
