@@ -146,9 +146,9 @@ function ProvBadge({
   source: "user" | "ai" | "heuristic" | "missing";
 }) {
   const map: Record<typeof source, { label: string; variant: "default" | "info" | "warning" | "success" }> = {
-    user: { label: "사용자", variant: "success" },
-    ai: { label: "AI", variant: "info" },
-    heuristic: { label: "휴리스틱", variant: "warning" },
+    user: { label: "직접 수정", variant: "success" },
+    ai: { label: "AI 추정", variant: "info" },
+    heuristic: { label: "규칙 기반 추정", variant: "warning" },
     missing: { label: "—", variant: "default" },
   };
   const { label, variant } = map[source];
@@ -301,7 +301,7 @@ export function OfflineCodeAnalyzer({
   // ---- source-driven analysis -----------------------------------------
   const runFromSource = async (mode: "heuristic" | "ai" | "both") => {
     if (!source.trim()) {
-      toast("소스 주소(서버 경로 또는 GitHub URL)를 입력하세요", "error");
+      toast("코드 위치(서버 폴더 경로 또는 GitHub 주소)를 입력하세요", "error");
       return;
     }
     setAnalyzing(true);
@@ -343,7 +343,7 @@ export function OfflineCodeAnalyzer({
           ? ` · 문서 ${json.source.docsResolved === "auto" ? "자동 감지" : "지정"}됨 (${json.source.docsBytes.toLocaleString()}자)`
           : "";
       toast(
-        `분석 완료 — ${json.bundle?.selected?.length ?? 0}개 파일 번들${docsNote}`,
+        `분석 완료 — ${json.bundle?.selected?.length ?? 0}개 파일 묶음${docsNote}`,
         "success",
       );
     } catch (err) {
@@ -497,7 +497,7 @@ export function OfflineCodeAnalyzer({
     setIvDone(new Set());
     setIvText("");
     if (qs.length === 0) {
-      toast("확인이 필요한 불확실 항목이 없습니다 — 해체가 충분히 명확합니다.", "success");
+      toast("확인이 필요한 불확실 항목이 없습니다 — 분석 결과가 충분히 명확합니다.", "success");
     }
   };
 
@@ -744,7 +744,7 @@ export function OfflineCodeAnalyzer({
         setPendingPatches((prev) => [...prev, ...newPatches]);
         const invalidCount = newPatches.filter((p) => p.kind === "invalid").length;
         if (invalidCount > 0) {
-          toast(`잘못된 patch ${invalidCount}개 거부됨 — 챗봇 사이드패널 확인`, "error");
+          toast(`잘못된 수정안 ${invalidCount}개가 적용되지 않음 — 오른쪽 챗봇에서 확인`, "error");
         }
       }
     } catch (err) {
@@ -850,9 +850,9 @@ export function OfflineCodeAnalyzer({
             {/* source-driven (primary input) */}
             <div className="rounded-lg border border-border bg-white p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-sm font-semibold">소스 주소</h3>
+                <h3 className="text-sm font-semibold">코드 위치</h3>
                 <span className="text-[11px] text-muted">
-                  서버 절대 경로 또는 GitHub URL
+                  서버 폴더 전체 경로 또는 GitHub 주소
                 </span>
               </div>
               <p className="mt-1 text-[11px] text-muted">
@@ -885,7 +885,7 @@ export function OfflineCodeAnalyzer({
                 </summary>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <div>
-                    <label className="text-[11px] text-muted">엔트리 파일 (선택)</label>
+                    <label className="text-[11px] text-muted">실험 시작 파일 (선택)</label>
                     <input
                       value={entryHint}
                       onChange={(e) => setEntryHint(e.target.value)}
@@ -1042,7 +1042,7 @@ export function OfflineCodeAnalyzer({
                     }}
                     className="mt-2 text-xs text-danger hover:underline"
                   >
-                    번들 해제 → 단일 코드 입력으로 전환
+                    묶음 해제 → 단일 코드 입력으로 전환
                   </button>
                 </div>
               )}
@@ -1053,7 +1053,7 @@ export function OfflineCodeAnalyzer({
                   참고 문서 (README / summary / IRB 프로토콜) — 선택
                 </label>
                 <p className="text-[11px] text-muted">
-                  연구자가 작성한 설명을 함께 입력하면 AI가 IV/조건 식별 정확도가 크게 올라갑니다.
+                  연구자가 작성한 설명을 함께 입력하면 AI가 조작변수·조건 식별 정확도가 크게 올라갑니다.
                   코드와 충돌 시 문서를 우선 신뢰합니다 (최대 50,000자).
                 </p>
                 <textarea
@@ -1073,7 +1073,7 @@ export function OfflineCodeAnalyzer({
                   onClick={() => runAnalysis("heuristic")}
                   disabled={analyzing || (!code.trim() && bundleFiles.length === 0)}
                 >
-                  휴리스틱만 (즉시)
+                  빠른 규칙 분석 (즉시)
                 </Button>
                 <Button
                   type="button"
@@ -1081,18 +1081,18 @@ export function OfflineCodeAnalyzer({
                   onClick={() => runAnalysis("both")}
                   disabled={analyzing || (!code.trim() && bundleFiles.length === 0)}
                 >
-                  {analyzing ? "분석 중…" : "AI 분석 실행 (Qwen)"}
+                  {analyzing ? "분석 중…" : "AI 분석 실행"}
                 </Button>
                 <span className="text-[11px] text-muted">
-                  단일 파일 200KB / 번들 80,000자까지 AI 분석에 사용됩니다.
+                  단일 파일 200KB / 묶음 80,000자까지 AI 분석에 사용됩니다.
                 </span>
               </div>
 
               {bundleInfo && bundleInfo.entry && (
                 <div className="mt-3 rounded border border-blue-200 bg-blue-50 p-2 text-[11px]">
                   <div className="font-medium text-blue-900">
-                    엔트리: <code>{bundleInfo.entry}</code> · 선택 {bundleInfo.selected.length}개 ·{" "}
-                    번들 크기 {bundleInfo.totalChars.toLocaleString()}자
+                    시작 파일: <code>{bundleInfo.entry}</code> · 선택 {bundleInfo.selected.length}개 ·{" "}
+                    묶음 크기 {bundleInfo.totalChars.toLocaleString()}자
                   </div>
                   <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono">
                     {bundleInfo.selected.map((s) => (
@@ -1153,7 +1153,7 @@ export function OfflineCodeAnalyzer({
                 <section className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-xs text-sky-950">
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold">
-                      확인 인터뷰 — 해체 결과 컨펌
+                      분석 결과 확인 문답
                     </h3>
                     {ivQs === null ? (
                       <button
@@ -1181,15 +1181,15 @@ export function OfflineCodeAnalyzer({
 
                   {ivQs === null && (
                     <p className="text-[11px] text-sky-800">
-                      불확실한 항목(역할 미정 IV·단일값 변수·추론된 변수·계층
+                      불확실한 항목(역할 미정 조작변수·단일값 변수·추론된 변수·중첩
                       구조·파라미터 형태 등)을 한 번에 하나씩, 코드 근거와 함께
-                      물어봅니다. 답하면 해체 결과에 바로 반영됩니다.
+                      물어봅니다. 답하면 분석 결과에 바로 반영됩니다.
                     </p>
                   )}
 
                   {ivQs !== null && ivQs.length === 0 && (
                     <p className="text-[11px] text-sky-800">
-                      확인이 필요한 불확실 항목이 없습니다 — 해체가 충분히
+                      확인이 필요한 불확실 항목이 없습니다 — 분석 결과가 충분히
                       명확합니다.
                     </p>
                   )}
@@ -1198,7 +1198,7 @@ export function OfflineCodeAnalyzer({
                     ivQs.length > 0 &&
                     ivDone.size >= ivQs.length && (
                       <p className="rounded bg-emerald-100 p-2 text-[11px] font-medium text-emerald-900">
-                        모든 항목을 확인했습니다. 아래 “저장”으로 컨펌된 해체를
+                        모든 항목을 확인했습니다. 아래 “저장”으로 확인된 분석 결과를
                         저장하세요.
                       </p>
                     )}
@@ -1313,7 +1313,7 @@ export function OfflineCodeAnalyzer({
 
                 {/* meta */}
                 <section>
-                  <h3 className="mb-2 text-sm font-semibold">실험 구조 메타</h3>
+                  <h3 className="mb-2 text-sm font-semibold">실험 구조 요약</h3>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     <MetaCell
                       label="언어"
@@ -1328,17 +1328,17 @@ export function OfflineCodeAnalyzer({
                       options={SUPPORTED_FRAMEWORKS as readonly string[]}
                     />
                     <MetaNumber
-                      label="블럭 수 (n_blocks)"
+                      label="블록 수"
                       value={merged.meta.n_blocks}
                       onChange={(v) => setMeta("n_blocks", v)}
                     />
                     <MetaNumber
-                      label="블럭당 트라이얼"
+                      label="블록당 시행 수"
                       value={merged.meta.n_trials_per_block}
                       onChange={(v) => setMeta("n_trials_per_block", v)}
                     />
                     <MetaNumber
-                      label="총 트라이얼"
+                      label="전체 시행 수"
                       value={merged.meta.total_trials}
                       onChange={(v) => setMeta("total_trials", v)}
                     />
@@ -1348,12 +1348,12 @@ export function OfflineCodeAnalyzer({
                       onChange={(v) => setMeta("estimated_duration_min", v)}
                     />
                     <MetaText
-                      label="seed"
+                      label="난수 시드 (seed)"
                       value={merged.meta.seed}
                       onChange={(v) => setMeta("seed", v)}
                     />
                     <MetaCell
-                      label="장르 (domain genre)"
+                      label="실험 유형 (과제 종류)"
                       value={merged.meta.domain_genre ?? "other"}
                       onChange={(v) => setMeta("domain_genre", v as CodeAnalysis["meta"]["domain_genre"])}
                       options={SUPPORTED_GENRES as readonly string[]}
@@ -1361,7 +1361,7 @@ export function OfflineCodeAnalyzer({
                   </div>
                   <div className="mt-3">
                     <label className="text-[11px] text-muted">
-                      디자인 매트릭스 (피험자/세션 별 IV 배정 패턴 — 자유서술)
+                      조건 배정표 (피험자·세션별로 어떤 조작변수를 줬는지 — 자유서술)
                     </label>
                     <textarea
                       value={merged.meta.design_matrix ?? ""}
@@ -1375,7 +1375,7 @@ export function OfflineCodeAnalyzer({
                   </div>
                   <div className="mt-3">
                     <label className="text-[11px] text-muted">
-                      계층 구조 (experiment→session→block→trial 중첩 — 루프변수·개수·인덱스 매핑)
+                      중첩 구조 (실험→세션→블록→시행 중첩 — 루프변수·개수·인덱스 매핑)
                     </label>
                     <textarea
                       value={merged.meta.hierarchy ?? ""}
@@ -1391,8 +1391,8 @@ export function OfflineCodeAnalyzer({
 
                 {/* block phases */}
                 <Section
-                  title="Block phases (실험 구조 분해)"
-                  hint="한 세션에 phase 가 여럿 (training / test / stair / practice / main 등) 이거나 day 별로 다른 경우. 단일 phase 면 비어있어도 괜찮음."
+                  title="블록 단계 (training / 계단식 / 본실험 등)"
+                  hint="한 세션에 단계가 여럿 (연습 / 본실험 / 계단식 등) 이거나 날짜별로 다른 경우. 단일 단계면 비어있어도 괜찮음."
                   onAdd={() =>
                     setOverrides((prev) => ({
                       ...prev,
@@ -1586,8 +1586,8 @@ export function OfflineCodeAnalyzer({
 
                 {/* factors */}
                 <Section
-                  title="조작 변수 (Independent Variables / factors)"
-                  hint="실험에서 의도적으로 조작되는 IV. 하나의 요인은 여러 수준(level)을 갖습니다."
+                  title="조작(독립)변수 (factors)"
+                  hint="실험에서 연구자가 의도적으로 바꾸는 조작변수(IV). 하나의 요인은 여러 수준(level)을 갖습니다."
                   onAdd={() =>
                     setOverrides((prev) => ({
                       ...prev,
@@ -1606,7 +1606,7 @@ export function OfflineCodeAnalyzer({
                   }
                 >
                   {visibleFactors.length === 0 ? (
-                    <Empty>등록된 조작 변수가 없습니다</Empty>
+                    <Empty>등록된 조작변수가 없습니다</Empty>
                   ) : (
                     <table className="w-full text-xs">
                       <thead className="text-left text-muted">
@@ -1716,7 +1716,7 @@ export function OfflineCodeAnalyzer({
                 {/* parameters */}
                 <Section
                   title="파라미터 (실험 셋업 상수)"
-                  hint="조작 변수가 아닌 고정 셋업 값. 자극 강도, 화면 거리, 시행 길이 등."
+                  hint="조작변수가 아닌 고정 셋업 값. 자극 강도, 화면 거리, 시행 길이 등."
                   onAdd={() =>
                     setOverrides((prev) => ({
                       ...prev,
@@ -1959,7 +1959,7 @@ export function OfflineCodeAnalyzer({
 
                 {/* saved variables */}
                 <Section
-                  title="저장 변수 (출력 데이터 스키마)"
+                  title="기록(저장)변수 (출력 데이터 스키마)"
                   hint="실험 코드가 실제로 기록하는 변수 — 이름, 포맷, 저장 위치."
                   onAdd={() =>
                     setOverrides((prev) => ({
@@ -1979,7 +1979,7 @@ export function OfflineCodeAnalyzer({
                   }
                 >
                   {visibleSaved.length === 0 ? (
-                    <Empty>등록된 저장 변수가 없습니다</Empty>
+                    <Empty>등록된 기록(저장)변수가 없습니다</Empty>
                   ) : (
                     <table className="w-full text-xs">
                       <thead className="text-left text-muted">
@@ -2127,7 +2127,7 @@ export function OfflineCodeAnalyzer({
                       setRemovedSaved(new Set());
                     }}
                   >
-                    내 수정 초기화 (AI/휴리스틱 결과로 되돌리기)
+                    내 수정 초기화 (AI/규칙 기반 추정 결과로 되돌리기)
                   </Button>
                   <span className="ml-auto text-[11px] text-muted">
                     {analyzing ? "분석 진행 중…" : `요인 ${visibleFactors.length} · 파라미터 ${visibleParams.length} · 컨디션 ${visibleConds.length} · 저장변수 ${visibleSaved.length}`}
@@ -2207,7 +2207,7 @@ export function OfflineCodeAnalyzer({
               {pendingPatches.some((p) => p.kind === "invalid") && (
                 <div className="mb-3 rounded border border-red-300 bg-red-50 p-2 text-xs">
                   <div className="mb-1 font-medium text-red-900">
-                    거부된 patch {pendingPatches.filter((p) => p.kind === "invalid").length}개 — 챗봇이 잘못된 형식을 emit
+                    적용 안 된 수정안 {pendingPatches.filter((p) => p.kind === "invalid").length}개 — 챗봇이 잘못된 형식을 제안
                   </div>
                   <ul className="space-y-1.5">
                     {pendingPatches

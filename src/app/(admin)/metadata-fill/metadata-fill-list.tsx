@@ -90,8 +90,8 @@ export function MetadataFillList({
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-muted">
-          비어 있는 메타데이터 항목이 있는 실험이 없습니다. 모두 입력 완료
-          또는 면제 처리되었습니다. ✓
+          빠진 등록 정보가 있는 실험이 없습니다. 모두 입력 완료 또는 면제
+          처리되었습니다. ✓
         </CardContent>
       </Card>
     );
@@ -162,7 +162,7 @@ export function MetadataFillList({
   async function optOut(e: ExperimentRow) {
     if (
       !confirm(
-        `"${e.title}" 을(를) 프로젝트가 아닌 항목(pilot · 장비 테스트 등)으로\n표시하고 메타데이터 입력 안내에서 면제하시겠습니까?\n\n나중에 실험 상세 화면에서 다시 켤 수 있습니다.`,
+        `"${e.title}" 을(를) 정식 실험이 아닌 항목(예비 · 장비 테스트 등)으로\n표시하고 등록 정보 입력 안내에서 면제하시겠습니까?\n\n나중에 실험 상세 화면에서 다시 켤 수 있습니다.`,
       )
     ) {
       return;
@@ -214,9 +214,9 @@ export function MetadataFillList({
                     variant="secondary"
                     disabled={isOptingOut || isSaving}
                     onClick={() => optOut(e)}
-                    title="pilot · 장비 테스트 등 정식 프로젝트가 아닌 항목으로 표시"
+                    title="예비(pilot) · 장비 테스트 등 정식 실험이 아닌 항목으로 표시"
                   >
-                    {isOptingOut ? "처리 중…" : "프로젝트 아님 (면제)"}
+                    {isOptingOut ? "처리 중…" : "정식 실험 아님 (기록 면제)"}
                   </Button>
                   {isSaved && (
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
@@ -229,21 +229,21 @@ export function MetadataFillList({
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
                   id={`code-${e.id}`}
-                  label="분석 코드 저장소/디렉토리 (필수)"
+                  label="분석 코드 위치 (필수) — GitHub 주소 또는 서버 폴더"
                   placeholder="예: /Volumes/CSNL/analysis/exp6 또는 https://github.com/…"
                   value={f.code_repo_url}
                   onChange={(ev) => patch(e.id, "code_repo_url", ev.target.value)}
                 />
                 <Input
                   id={`data-${e.id}`}
-                  label="원본 데이터 경로 (필수)"
+                  label="원본 데이터 폴더 경로 (필수)"
                   placeholder="예: /Volumes/CSNL/data/exp6"
                   value={f.data_path}
                   onChange={(ev) => patch(e.id, "data_path", ev.target.value)}
                 />
                 <Input
                   id={`proto-${e.id}`}
-                  label="프로토콜 버전"
+                  label="실험 절차 버전"
                   placeholder="예: v1.0"
                   value={f.protocol_version}
                   onChange={(ev) => patch(e.id, "protocol_version", ev.target.value)}
@@ -280,7 +280,7 @@ export function MetadataFillList({
                 />
                 <Input
                   id={`recr-${e.id}`}
-                  label="모집 인원 (총 참여자 수, 선택)"
+                  label="모집 목표 인원 (총 참여자 수, 선택)"
                   type="number"
                   min={1}
                   placeholder="비워두면 무제한"
@@ -292,7 +292,7 @@ export function MetadataFillList({
                 <div>
                   <Input
                     id={`irb-${e.id}`}
-                    label="IRB 문서 URL"
+                    label="연구윤리심의(IRB) 문서 링크"
                     type="url"
                     placeholder="https://…"
                     value={f.irb_document_url}

@@ -107,11 +107,11 @@ interface EmailPreview {
 }
 
 const STATUS_LABEL: Record<PaymentStatus, string> = {
-  pending_participant: "참가자 입력 대기",
-  submitted_to_admin: "제출됨",
-  claimed: "청구 완료",
-  paid: "청구 완료", // no UI path sets this; treated identically to claimed
-  paid_offline: "정산 완료 (오프라인)",
+  pending_participant: "참여자 입력 대기",
+  submitted_to_admin: "참여자 제출됨",
+  claimed: "지급 신청됨",
+  paid: "지급 신청됨", // no UI path sets this; treated identically to claimed
+  paid_offline: "지급 완료 (현장 지급)",
 };
 
 const STATUS_CLASS: Record<PaymentStatus, string> = {
@@ -159,7 +159,7 @@ export function PaymentPanel({
   async function handleBackfill() {
     if (
       !confirm(
-        "이 실험의 모든 booking_group 에 대해 누락된 정산 정보 행을 생성합니다.\n" +
+        "이 실험의 모든 예약 묶음에 대해 빠진 정산 정보 행을 만듭니다.\n" +
           "이미 행이 있는 경우는 건너뜁니다 (안전).\n\n진행할까요?",
       )
     )
@@ -178,18 +178,18 @@ export function PaymentPanel({
         error?: string;
       } | null;
       if (!res.ok || !body) {
-        toast(body?.error ?? "백필에 실패했습니다.", "error");
+        toast(body?.error ?? "정산 행 채우기에 실패했습니다.", "error");
         return;
       }
       if (body.skippedNoFee) {
-        toast("참여비 0원 실험은 백필이 필요 없습니다.", "info");
+        toast("참여비 0원 실험은 채울 정산 행이 없습니다.", "info");
         return;
       }
       const ins = body.inserted ?? 0;
       const had = body.alreadyHadRow ?? 0;
       toast(
         ins > 0
-          ? `${ins}건 백필 완료 (이미 있던 행: ${had})`
+          ? `${ins}건 채움 완료 (이미 있던 행: ${had})`
           : "추가로 만들 행이 없습니다.",
         ins > 0 ? "success" : "info",
       );
@@ -206,9 +206,9 @@ export function PaymentPanel({
   async function handleMarkCompleted(r: PaymentRow) {
     if (
       !confirm(
-        `${r.participantName}님의 모든 회차를 '완료(completed)' 로 마킹할까요?\n\n` +
-          "이미 'completed' 인 회차는 그대로 유지되며, " +
-          "'confirmed' / 'running' 회차만 일괄 'completed' 로 바뀝니다. " +
+        `${r.participantName}님의 모든 회차를 '완료' 로 표시할까요?\n\n` +
+          "이미 완료된 회차는 그대로 유지되며, " +
+          "예정·진행 중 회차만 일괄 '완료' 로 바뀝니다. " +
           "이후 '안내 메일 발송' 버튼이 활성화됩니다.",
       )
     )
@@ -315,7 +315,7 @@ export function PaymentPanel({
     if (claimable.length === 0) return;
     if (
       !confirm(
-        `미청구 ${claimable.length}명의 참여자비를 청구하시겠습니까?\n총 ${totalClaimable.toLocaleString()}원\n\n번들이 다운로드된 후 "행정 메일 발송" 버튼이 활성화됩니다 (자동 전송 안 됨 — 미리보기 후 컨펌).\n\n실행 후에는 해당 참가자의 금액·정보를 수정할 수 없습니다.`,
+        `미신청 ${claimable.length}명의 참여비 지급을 신청하시겠습니까?\n총 ${totalClaimable.toLocaleString()}원\n\n지급 신청서가 다운로드된 후 "행정실로 지급요청 메일 보내기" 버튼이 활성화됩니다 (자동 전송 안 됨 — 미리보기 후 직접 확인).\n\n실행 후에는 해당 참여자의 금액·정보를 수정할 수 없습니다.`,
       )
     )
       return;
@@ -326,7 +326,7 @@ export function PaymentPanel({
     );
     if (ok) {
       toast(
-        "청구 번들이 생성되었습니다. 행정 메일 발송 버튼으로 이어 보낼 수 있어요.",
+        "지급 신청 묶음파일이 만들어졌습니다. 행정실로 지급요청 메일 보내기 버튼으로 이어 보낼 수 있어요.",
         "success",
       );
       if (claimId) {
@@ -494,7 +494,7 @@ export function PaymentPanel({
               참여자비 정산
             </h2>
             <p className="mt-0.5 text-sm text-muted">
-              미청구 {claimable.length}명 · 총 {totalClaimable.toLocaleString()}원
+              미신청 {claimable.length}명 · 총 {totalClaimable.toLocaleString()}원
               {rows.length > claimable.length &&
                 ` · 전체 ${rows.length}명 중`}
             </p>
@@ -507,8 +507,8 @@ export function PaymentPanel({
               className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {downloading === "claim"
-                ? "번들 생성 중…"
-                : `📦 참여자비 청구 (${claimable.length}명)`}
+                ? "지급 신청서 만드는 중…"
+                : `참여비 지급 신청 (${claimable.length}명)`}
             </button>
             {activeClaimId && (
               <button
@@ -525,7 +525,7 @@ export function PaymentPanel({
               >
                 {downloading === "email-preview"
                   ? "미리보기 생성 중…"
-                  : "📧 행정 메일 발송"}
+                  : "행정실로 지급요청 메일 보내기"}
               </button>
             )}
             {rows.some(
@@ -542,25 +542,25 @@ export function PaymentPanel({
                 }
                 className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                업로드 양식만
+                일괄 업로드용 양식
               </button>
             )}
             <button
               type="button"
               disabled={backfilling}
               onClick={handleBackfill}
-              title="import 등으로 누락된 booking_group 의 정산 정보 행을 한 번에 생성합니다 (안전, 멱등)."
+              title="가져오기 등으로 정산 정보 행이 빠진 예약 묶음에 대해 빈 행을 한 번에 만들어 줍니다 (안전·반복 실행 가능)."
               className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-medium text-muted hover:bg-muted/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {backfilling ? "백필 중…" : "📋 정산 정보 백필"}
+              {backfilling ? "채우는 중…" : "누락된 정산 행 채우기"}
             </button>
           </div>
         </div>
 
         {rows.length === 0 ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            정산 정보 행이 없습니다. 참여자비가 있는 실험에서 행이 안 보이면
-            상단의 <b>📋 정산 정보 백필</b> 버튼을 눌러 누락된 행을 생성해
+            정산 정보 행이 없습니다. 참여비가 있는 실험에서 행이 안 보이면
+            상단의 <b>누락된 정산 행 채우기</b> 버튼을 눌러 빠진 행을 만들어
             주세요. (이미 있는 행은 건너뜁니다.)
           </div>
         ) : (
@@ -951,10 +951,10 @@ function DispatchCell({
             type="button"
             disabled={marking}
             onClick={onMarkCompleted}
-            title="이 그룹의 모든 회차를 한 번에 'completed' 로 마킹합니다."
+            title="이 참여자의 예정·진행 중 회차를 모두 한 번에 '완료'로 바꿉니다."
             className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100 disabled:opacity-50"
           >
-            {marking ? "마킹 중…" : "✓ 회차 완료 처리"}
+            {marking ? "표시 중…" : "✓ 회차 완료로 표시"}
           </button>
           {previewLink}
         </div>
@@ -1061,10 +1061,10 @@ function AmountRecommendation({
     <button
       type="button"
       onClick={onApply}
-      title="클릭하면 이 금액으로 편집 입력을 채웁니다 (저장 전까지 적용 안 됨)"
+      title="회차 수·참여비로 자동 계산한 권장 지급액 — 클릭하면 입력칸에 채워집니다 (저장 전까지 적용 안 됨)"
       className="inline-flex w-fit items-center gap-1 rounded text-[10px] text-sky-700 hover:text-sky-900 hover:underline"
     >
-      추천 {row.recommendedKrw.toLocaleString()}원{sessionSuffix}
+      자동 계산 금액 {row.recommendedKrw.toLocaleString()}원{sessionSuffix}
     </button>
   );
 }
@@ -1074,12 +1074,12 @@ function labelForKind(
 ): string {
   switch (k) {
     case "individual_form":
-      return "개별 양식";
+      return "개인별 양식";
     case "upload_form":
-      return "업로드 양식";
+      return "일괄 업로드용 양식";
     case "both":
-      return "통합 파일";
+      return "통합본";
     case "claim_bundle":
-      return "청구 번들";
+      return "지급 신청 묶음파일";
   }
 }

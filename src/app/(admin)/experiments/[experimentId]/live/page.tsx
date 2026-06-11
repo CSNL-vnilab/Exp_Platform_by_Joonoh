@@ -94,8 +94,8 @@ export default async function LiveSessionsPage({
             실시간 세션 · {exp.title}
           </h1>
           <p className="mt-1 text-xs text-muted">
-            참여자가 실험 중인 상황을 실시간으로 확인합니다. 5분 이상 블록 전송이 없으면 정체로
-            표시됩니다.
+            참여자가 실험 중인 상황을 실시간으로 확인합니다. 5분 이상 진행 신호(블록 전송)가
+            없으면 멈춤(응답 끊김)으로 표시됩니다.
           </p>
         </div>
       </div>

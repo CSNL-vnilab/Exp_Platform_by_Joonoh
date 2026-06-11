@@ -846,34 +846,45 @@ export function ExperimentForm({
                 error={errors.break_between_slots_minutes}
               />
 
-              <Input
-                id="slot_increment_minutes"
-                label="예약 슬롯 간격 (분) — 비우면 세션 길이 기준"
-                type="number"
-                min={5}
-                value={slotIncrementMinutes ?? ""}
-                onChange={(e) =>
-                  setSlotIncrementMinutes(
-                    e.target.value === "" ? null : Number(e.target.value),
-                  )
-                }
-                error={errors.slot_increment_minutes}
-              />
+              <div>
+                <Input
+                  id="slot_increment_minutes"
+                  label="예약 시작 간격 (분) — 비우면 세션 길이와 동일"
+                  type="number"
+                  min={5}
+                  value={slotIncrementMinutes ?? ""}
+                  onChange={(e) =>
+                    setSlotIncrementMinutes(
+                      e.target.value === "" ? null : Number(e.target.value),
+                    )
+                  }
+                  error={errors.slot_increment_minutes}
+                />
+                <p className="mt-1 text-xs text-muted">
+                  참여자가 고를 수 있는 예약 시작 시각의 간격입니다 — 예: 세션이
+                  60분이라도 30분으로 두면 30분마다 시작할 수 있습니다.
+                </p>
+              </div>
 
-              <Input
-                id="max_participants"
-                label="슬롯당 최대 참여자 수"
-                type="number"
-                min={1}
-                value={maxParticipants}
-                onChange={(e) => setMaxParticipants(Number(e.target.value))}
-                error={errors.max_participants_per_slot}
-              />
+              <div>
+                <Input
+                  id="max_participants"
+                  label="한 시간대(슬롯)당 동시 참여 인원"
+                  type="number"
+                  min={1}
+                  value={maxParticipants}
+                  onChange={(e) => setMaxParticipants(Number(e.target.value))}
+                  error={errors.max_participants_per_slot}
+                />
+                <p className="mt-1 text-xs text-muted">
+                  같은 시각에 동시에 받을 수 있는 참여자 수입니다 — 1:1 실험이면 1.
+                </p>
+              </div>
 
               <div>
                 <Input
                   id="recruitment_target"
-                  label="모집 인원 (총 참여자 수, 선택)"
+                  label="모집 목표 인원 (총 참여자 수, 선택)"
                   type="number"
                   min={1}
                   placeholder="비워두면 무제한"
@@ -901,9 +912,9 @@ export function ExperimentForm({
                   </p>
                 )}
                 <p className="mt-1 text-xs text-muted">
-                  이 인원이 차면 실험이 자동으로 마감(`completed`)되어 새로운
-                  예약을 받지 않습니다. 모든 예약을 취소한 참여자는 현재
-                  카운트에서 자동으로 제외됩니다.
+                  이 인원이 차면 실험이 자동으로 마감되어 새로운 예약을 받지
+                  않습니다. 모든 예약을 취소한 참여자는 현재 인원에서 자동으로
+                  제외됩니다.
                 </p>
               </div>
 
@@ -932,11 +943,11 @@ export function ExperimentForm({
                   />
                   <div className="flex-1">
                     <div className="text-sm font-medium text-foreground">
-                      정산 안내 메일 자동 발송
+                      참여비 안내 메일 자동 발송
                     </div>
                     <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                      체크 시 마지막 회차가 완료되는 즉시 참여자에게 정산
-                      정보 입력 안내 메일이 자동 발송됩니다. <b>해제</b>하면
+                      체크 시 마지막 회차가 완료되는 즉시 참여자에게 참여비
+                      입금 정보 입력 안내 메일이 자동 발송됩니다. <b>해제</b>하면
                       자동 발송이 보류되며, 참여자 관리 페이지에서 <b>금액을
                       확인/조정한 뒤 직접 발송</b>해야 합니다. 회차 수가 자주
                       변경되는 실험 (실험 지연 / 조기 중단) 에서는 해제 후
@@ -986,19 +997,25 @@ export function ExperimentForm({
               </div>
 
               {sessionType === "multi" && (
-                <Input
-                  id="required_sessions"
-                  label="필수 회차 수"
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={requiredSessions === 0 ? "" : String(requiredSessions)}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, "");
-                    setRequiredSessions(digits === "" ? 0 : Math.max(2, Number(digits)));
-                  }}
-                  error={errors.required_sessions}
-                />
+                <div>
+                  <Input
+                    id="required_sessions"
+                    label="참여자 1인당 필수 방문 횟수"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={requiredSessions === 0 ? "" : String(requiredSessions)}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "");
+                      setRequiredSessions(digits === "" ? 0 : Math.max(2, Number(digits)));
+                    }}
+                    error={errors.required_sessions}
+                  />
+                  <p className="mt-1 text-xs text-muted">
+                    한 참여자가 며칠에 걸쳐 몇 번 와야 하는지입니다 — 예: 5일
+                    연속 실험이면 5.
+                  </p>
+                </div>
               )}
             </div>
           </CardContent>
@@ -1063,40 +1080,52 @@ export function ExperimentForm({
                 <div className="sm:col-span-2">
                   <Input
                     id="online_entry_url"
-                    label="실험 JS 진입 URL *"
+                    label="온라인 실험 코드 주소 (참여자 브라우저가 불러올 .js 파일) *"
                     value={onlineEntryUrl}
                     onChange={(e) => setOnlineEntryUrl(e.target.value)}
                     placeholder="https://cdn.example.com/my-exp.js"
                     error={errors["online_runtime_config.entry_url"]}
                   />
                   <p className="mt-1 text-xs text-muted">
-                    참여자 브라우저가 /run 페이지의 샌드박스에서 로드합니다. HTTPS CDN 경로를
-                    권장합니다. <strong>ZIP 업로드는 미지원 — 단일 JS 파일 URL만 허용</strong>됩니다
-                    (<code>.js</code> 확장자 권장). SRI 해시는 다음 칸에 붙여넣으세요.
+                    참여자가 접속하면 이 주소의 실험 코드가 브라우저에서 실행됩니다.
+                    HTTPS 주소를 권장합니다. <strong>ZIP·폴더 업로드는 미지원 — 단일 .js 파일
+                    주소만 허용</strong>됩니다. 코드 변조 방지 검증값은 다음 칸에 붙여넣으세요.
                   </p>
                 </div>
-                <Input
-                  id="online_block_count"
-                  label="블록 수"
-                  type="number"
-                  min={1}
-                  value={onlineBlockCount === "" ? "" : String(onlineBlockCount)}
-                  onChange={(e) =>
-                    setOnlineBlockCount(e.target.value === "" ? "" : Number(e.target.value))
-                  }
-                  placeholder="예: 3"
-                />
-                <Input
-                  id="online_trial_count"
-                  label="트라이얼 수 (선택)"
-                  type="number"
-                  min={1}
-                  value={onlineTrialCount === "" ? "" : String(onlineTrialCount)}
-                  onChange={(e) =>
-                    setOnlineTrialCount(e.target.value === "" ? "" : Number(e.target.value))
-                  }
-                  placeholder="예: 120"
-                />
+                <div>
+                  <Input
+                    id="online_block_count"
+                    label="블록(묶음) 수"
+                    type="number"
+                    min={1}
+                    value={onlineBlockCount === "" ? "" : String(onlineBlockCount)}
+                    onChange={(e) =>
+                      setOnlineBlockCount(e.target.value === "" ? "" : Number(e.target.value))
+                    }
+                    placeholder="예: 3"
+                  />
+                  <p className="mt-1 text-xs text-muted">
+                    실험이 몇 개의 과제 묶음(블록)으로 나뉘는지입니다 — 예:
+                    연습 1 + 본실험 3이면 4.
+                  </p>
+                </div>
+                <div>
+                  <Input
+                    id="online_trial_count"
+                    label="시행(trial) 수 (선택)"
+                    type="number"
+                    min={1}
+                    value={onlineTrialCount === "" ? "" : String(onlineTrialCount)}
+                    onChange={(e) =>
+                      setOnlineTrialCount(e.target.value === "" ? "" : Number(e.target.value))
+                    }
+                    placeholder="예: 120"
+                  />
+                  <p className="mt-1 text-xs text-muted">
+                    참여자가 반복하는 1회 자극-반응 단위(시행)의 총 횟수입니다 —
+                    모르면 비워도 됩니다.
+                  </p>
+                </div>
                 <Input
                   id="online_estimated_minutes"
                   label="예상 소요 시간 (분)"
@@ -1115,7 +1144,7 @@ export function ExperimentForm({
                 />
                 <div>
                   <label className="mb-1 block text-sm font-medium text-foreground">
-                    완료 코드 형식
+                    참여 완료 인증 코드 형식
                   </label>
                   <select
                     value={completionTokenFormat}
@@ -1132,13 +1161,14 @@ export function ExperimentForm({
                 <div className="sm:col-span-2">
                   <Input
                     id="entry_url_sri"
-                    label="SRI 무결성 해시 (선택)"
+                    label="코드 변조 방지 검증값 (선택)"
                     value={entryUrlSri}
                     onChange={(e) => setEntryUrlSri(e.target.value)}
                     placeholder="sha384-abc...xyz"
                   />
                   <p className="mt-1 text-xs text-muted">
-                    CDN 파일이 변조되면 자동 차단합니다. <code>openssl dgst -sha384 -binary your.js | openssl base64 -A</code>
+                    입력해 두면 실험 코드 파일이 중간에 바뀌었을 때 자동으로 실행을 막아줍니다.
+                    <code>openssl dgst -sha384 -binary your.js | openssl base64 -A</code>
                     로 계산하고 <code>sha384-</code> 접두어를 붙여 입력하세요.
                   </p>
                 </div>
@@ -1148,9 +1178,10 @@ export function ExperimentForm({
             {/* Preflight requirements */}
             {experimentMode !== "offline" && (
               <div className="mt-6 rounded-xl border border-border bg-card p-4">
-                <h3 className="text-sm font-semibold text-foreground">사전 점검 (Preflight)</h3>
+                <h3 className="text-sm font-semibold text-foreground">시작 전 환경 점검</h3>
                 <p className="mt-0.5 text-xs text-muted">
-                  참여자가 실험 코드를 로드하기 전에 환경을 확인합니다.
+                  참여자가 실험 코드를 불러오기 전에 화면 크기·키보드·소리 등 실험에
+                  필요한 환경을 자동으로 확인합니다.
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <Input
@@ -1212,10 +1243,10 @@ export function ExperimentForm({
             {/* Counterbalancing */}
             {experimentMode !== "offline" && (
               <div className="mt-4 rounded-xl border border-border bg-card p-4">
-                <h3 className="text-sm font-semibold text-foreground">카운터밸런싱 (조건 배정)</h3>
+                <h3 className="text-sm font-semibold text-foreground">참여자별 조건 자동 배정 (순서 균형 맞추기)</h3>
                 <p className="mt-0.5 text-xs text-muted">
-                  Sbj 번호를 기반으로 서버에서 조건을 결정합니다. 참여자 JS 는{" "}
-                  <code>window.expPlatform.condition</code> 으로 읽습니다.
+                  피험자 번호 순서대로 서버가 조건을 정해 줍니다. (실험 코드에서{" "}
+                  <code>window.expPlatform.condition</code> 으로 읽힘)
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-3">
                   <div>
@@ -1234,9 +1265,9 @@ export function ExperimentForm({
                       className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
                     >
                       <option value="">미사용</option>
-                      <option value="latin_square">Latin square (순환)</option>
-                      <option value="block_rotation">블록 회전</option>
-                      <option value="random">결정적 무작위</option>
+                      <option value="latin_square">라틴 방격 (순환 배정)</option>
+                      <option value="block_rotation">블록 단위 순환</option>
+                      <option value="random">고정 무작위 (재현 가능)</option>
                     </select>
                   </div>
                   {counterbalanceKind && (
@@ -1251,7 +1282,7 @@ export function ExperimentForm({
                   {counterbalanceKind === "block_rotation" && (
                     <Input
                       id="counterbalance_block_size"
-                      label="블록 크기 (연속 Sbj 수)"
+                      label="같은 조건을 줄 연속 피험자 수"
                       type="number"
                       min={1}
                       value={
@@ -1295,11 +1326,11 @@ export function ExperimentForm({
               return (
                 <div className="mt-4 rounded-xl border border-border bg-card p-4">
                   <h3 className="text-sm font-semibold text-foreground">
-                    교차 연구 제외
+                    다른 연구 중복 참여 차단
                   </h3>
                   <p className="mt-0.5 text-xs text-muted">
-                    아래 실험에 이미 참여한 분은 이 연구에 예약할 수 없습니다. 실험 UUID 를 한
-                    줄에 하나씩 입력하세요. UUID 가 아닌 줄은 무시됩니다.
+                    아래 실험에 이미 참여한 분은 이 연구에 예약할 수 없습니다. 실험 고유 ID를 한
+                    줄에 하나씩 입력하세요(실험 상세 주소 끝의 긴 ID). 고유 ID 형식이 아닌 줄은 무시됩니다.
                   </p>
                   <textarea
                     value={excludeExperimentIds}
@@ -1313,7 +1344,7 @@ export function ExperimentForm({
                       {valid.length}개 인식됨
                       {dropped > 0 && (
                         <span className="ml-1 text-amber-700">
-                          · {dropped}개는 UUID 형식이 아니어서 저장되지 않습니다
+                          · {dropped}개는 고유 ID 형식이 아니어서 저장되지 않습니다
                         </span>
                       )}
                     </p>
@@ -1327,10 +1358,10 @@ export function ExperimentForm({
               <div className="mt-4 rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-foreground">주의 체크</h3>
+                    <h3 className="text-sm font-semibold text-foreground">집중도 확인 문항</h3>
                     <p className="mt-0.5 text-xs text-muted">
-                      참여자가 지정된 블록을 마친 뒤 오버레이로 질문이 표시됩니다. 오답 시
-                      attention_fail_count 가 증가합니다.
+                      참여자가 지정된 블록을 마친 뒤 화면에 질문이 표시됩니다. 틀리면
+                      &quot;집중 실패 횟수&quot;가 1 올라갑니다 — 오답이 쌓이면 데이터 제외 판단에 씁니다.
                     </p>
                   </div>
                   <button
@@ -1471,9 +1502,9 @@ export function ExperimentForm({
             {/* Online screener editor — separate API, lives on the experiment id */}
             {isEditing && experimentMode !== "offline" && experiment?.id && (
               <div className="mt-6 rounded-xl border border-border bg-card p-4">
-                <h3 className="text-sm font-semibold text-foreground">온라인 스크리너</h3>
+                <h3 className="text-sm font-semibold text-foreground">참여 자격 사전 질문(스크리닝)</h3>
                 <p className="mt-0.5 text-xs text-muted">
-                  참여자가 실험을 시작하기 전에 응답하는 질문들. 통과하지 못하면 실험이
+                  참여자가 실험을 시작하기 전에 응답하는 자격 확인 질문입니다. 통과하지 못하면 실험이
                   열리지 않습니다. 기존 예/아니오 체크리스트와 독립적입니다.
                 </p>
                 <div className="mt-3">
@@ -1487,12 +1518,12 @@ export function ExperimentForm({
         {/* IRB & Precautions */}
         <Card className="lg:col-span-2">
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-4">IRB 승인 및 참여 조건</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-4">연구윤리심의(IRB) 승인 및 참여 조건</h2>
             <div className="grid gap-4">
               <div>
                 <Input
                   id="irb_document_url"
-                  label="IRB 승인 문서 URL (선택)"
+                  label="연구윤리심의(IRB) 승인 문서 링크 (선택)"
                   value={irbDocumentUrl}
                   onChange={(e) => setIrbDocumentUrl(e.target.value)}
                   placeholder="https://drive.google.com/file/d/..."
@@ -1803,18 +1834,18 @@ export function ExperimentForm({
               <div>
                 <Input
                   id="project_name"
-                  label="프로젝트 약칭 (캘린더 이벤트에 사용)"
+                  label="프로젝트 줄임말 (캘린더 일정 제목에 사용)"
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
                   placeholder="예: TimeEst"
                   error={errors.project_name}
                 />
-                <p className="mt-1 text-xs text-muted">빈 값이면 실험 제목이 그대로 쓰입니다.</p>
+                <p className="mt-1 text-xs text-muted">비우면 실험 제목이 그대로 쓰입니다.</p>
               </div>
               <div>
                 <Input
                   id="subject_start_number"
-                  label="Sbj 시작 번호"
+                  label="피험자 시작 번호"
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
@@ -1825,12 +1856,12 @@ export function ExperimentForm({
                   }}
                   error={errors.subject_start_number}
                 />
-                <p className="mt-1 text-xs text-muted">첫 참여자에게 할당되는 Sbj 번호입니다. 이후는 자동 증가.</p>
+                <p className="mt-1 text-xs text-muted">첫 참여자에게 부여될 피험자 번호입니다. 이후 참여자는 1씩 자동 증가합니다.</p>
               </div>
               <div className="sm:col-span-2">
                 <Input
                   id="protocol_version"
-                  label="프로토콜 버전 (Notion 버전넘버 컬럼에 기록)"
+                  label="실험 절차 버전 (연동된 Notion에 함께 기록)"
                   value={protocolVersion}
                   onChange={(e) => setProtocolVersion(e.target.value)}
                   placeholder="예: v1.0, 2026-03-rev2"
@@ -1838,9 +1869,8 @@ export function ExperimentForm({
                   error={errors.protocol_version}
                 />
                 <p className="mt-1 text-xs text-muted">
-                  자유 형식 (최대 64자). 변경 이후의 모든 새 예약 Notion 행의{" "}
-                  <code>버전넘버</code> 컬럼에 이 값이 기록됩니다. 기존 예약은
-                  건드리지 않습니다.
+                  실험 절차를 수정할 때마다 버전을 적어두면, 이후 새 예약 기록에 이 값이 함께
+                  저장됩니다(최대 64자). 과거 예약 기록은 그대로 둡니다.
                 </p>
               </div>
             </div>
@@ -1856,17 +1886,17 @@ export function ExperimentForm({
             analyzer can't reach the source (private repo, offline disk). */}
         <Card className="lg:col-span-2">
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-2">연구 메타데이터</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-2">실험 등록 정보</h2>
             <p className="mb-4 text-xs text-muted">
               <span className="font-medium text-foreground">아래 “오프라인 실험 코드 자동 분석”</span> 섹션에서
-              서버 경로 또는 GitHub URL 을 입력하면 코드 저장소·데이터 경로·파라미터 스키마가
-              자동으로 채워집니다. 활성화(active) 직전에 분석 결과를 검토하고 잘못된 항목을
-              수정만 해주시면 됩니다. draft → active 전환 시 Notion DB 에도 페이지가 생성됩니다.
+              서버 경로 또는 GitHub 주소를 입력하면 분석 코드 위치·데이터 경로·실험 변수 정의가
+              자동으로 채워집니다. 공개(active) 직전에 분석 결과를 검토하고 잘못된 항목을
+              수정만 해주시면 됩니다. 초안(draft)→공개(active) 전환 시 Notion 기록에도 페이지가 생성됩니다.
             </p>
             <div className="rounded-lg border border-dashed border-border bg-card/30 p-3 text-xs">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <span className="text-muted">현재 등록된 코드 저장소:</span>{" "}
+                  <span className="text-muted">현재 등록된 분석 코드 위치:</span>{" "}
                   {codeRepoUrl ? (
                     <code className="rounded bg-card px-1 py-0.5 text-foreground">{codeRepoUrl}</code>
                   ) : (
@@ -1874,7 +1904,7 @@ export function ExperimentForm({
                   )}
                 </div>
                 <span className="text-[10px] text-muted">
-                  데이터 경로:{" "}
+                  데이터 폴더 경로:{" "}
                   {dataPath ? (
                     <code className="text-foreground">{dataPath}</code>
                   ) : (
@@ -1890,7 +1920,7 @@ export function ExperimentForm({
                   <div>
                     <Input
                       id="code_repo_url"
-                      label="분석 코드 저장소"
+                      label="분석 코드 위치 (GitHub 주소 또는 서버 폴더)"
                       value={codeRepoUrl}
                       onChange={(e) => setCodeRepoUrl(e.target.value)}
                       placeholder="https://github.com/org/repo 또는 /srv/lab/project"
@@ -1900,7 +1930,7 @@ export function ExperimentForm({
                   <div>
                     <Input
                       id="data_path"
-                      label="원본 데이터 경로"
+                      label="원본 데이터 폴더 경로"
                       value={dataPath}
                       onChange={(e) => setDataPath(e.target.value)}
                       placeholder="예: /data/lab/exp42/raw"
@@ -1914,7 +1944,7 @@ export function ExperimentForm({
             {/* Parameter schema */}
             <div className="mt-6">
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm font-medium text-foreground">실험 파라미터 스키마</label>
+                <label className="text-sm font-medium text-foreground">실험 변수 정의</label>
                 <button
                   type="button"
                   onClick={() =>
@@ -1929,8 +1959,8 @@ export function ExperimentForm({
                 </button>
               </div>
               <p className="mb-3 text-xs text-muted">
-                각 세션에서 기록할 파라미터 이름과 타입을 선언해 두세요.
-                enum 타입인 경우 선택지를 쉼표로 구분해 입력하세요.
+                각 세션에서 기록할 실험 변수의 이름과 형식을 미리 선언해 두세요.
+                선택형(enum)인 경우 선택지를 쉼표로 구분해 입력하세요.
               </p>
               {parameterSchema.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border py-4 text-center text-xs text-muted">
@@ -1947,7 +1977,7 @@ export function ExperimentForm({
                           next[index] = { ...next[index], key: e.target.value };
                           setParameterSchema(next);
                         }}
-                        placeholder="key (예: stim_contrast)"
+                        placeholder="변수 이름 (예: stim_contrast)"
                         className="min-w-[12rem] flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                       />
                       <select

@@ -57,7 +57,7 @@ const statusCfg: Record<
   running: { label: "진행 중", variant: "warning" },
   cancelled: { label: "취소", variant: "danger" },
   completed: { label: "완료", variant: "info" },
-  no_show: { label: "노쇼", variant: "warning" },
+  no_show: { label: "불참(노쇼)", variant: "warning" },
 };
 
 type Filter = "all" | "confirmed" | "running" | "cancelled" | "completed" | "no_show";
@@ -219,7 +219,7 @@ export function BookingsManager({
             ["확정", counts.confirmed, "text-emerald-600"],
             ["취소", counts.cancelled, "text-rose-600"],
             ["완료", counts.completed, "text-sky-600"],
-            ["노쇼", counts.no_show, "text-amber-600"],
+            ["불참(노쇼)", counts.no_show, "text-amber-600"],
           ] as const
         ).map(([label, n, color]) => (
           <Card key={label}>
@@ -244,7 +244,7 @@ export function BookingsManager({
                   : ([] as const)),
                 ["cancelled", `취소 (${counts.cancelled})`],
                 ["completed", `완료 (${counts.completed})`],
-                ["no_show", `노쇼 (${counts.no_show})`],
+                ["no_show", `불참(노쇼) (${counts.no_show})`],
               ] as const
             ).map(([k, label]) => (
               <button
@@ -265,7 +265,7 @@ export function BookingsManager({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="이름·전화·이메일·Sbj 검색"
+                placeholder="이름·전화·이메일·피험자번호 검색"
                 className="w-48 rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
               <Button size="sm" variant="secondary" onClick={() => copyField("email")}>
@@ -348,9 +348,14 @@ export function BookingsManager({
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-card">
-                      <th className="px-4 py-3 text-left font-medium text-muted">Sbj</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted">피험자</th>
                       <th className="px-4 py-3 text-left font-medium text-muted">참여자</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted">클래스</th>
+                      <th
+                        className="px-4 py-3 text-left font-medium text-muted"
+                        title="참여 이력에 따라 자동 분류된 참여자 등급"
+                      >
+                        분류
+                      </th>
                       <th className="px-4 py-3 text-left font-medium text-muted">연락처</th>
                       <th className="px-4 py-3 text-left font-medium text-muted">예약 시간</th>
                       <th className="px-4 py-3 text-left font-medium text-muted">상태</th>
@@ -371,7 +376,7 @@ export function BookingsManager({
                           className="border-b border-border last:border-b-0 hover:bg-card/50"
                         >
                           <td className="px-4 py-3 whitespace-nowrap text-foreground">
-                            {b.subject_number != null ? `Sbj${b.subject_number}` : "-"}
+                            {b.subject_number != null ? `피험자${b.subject_number}` : "-"}
                           </td>
                           <td className="px-4 py-3 font-medium text-foreground">
                             {p?.name ?? "-"}
@@ -502,7 +507,7 @@ export function BookingsManager({
                             {p?.name ?? "-"}
                           </span>
                           {b.subject_number != null && (
-                            <span className="text-xs text-muted">Sbj{b.subject_number}</span>
+                            <span className="text-xs text-muted">피험자{b.subject_number}</span>
                           )}
                           {b.session_number > 1 && (
                             <span className="text-xs text-muted">· {b.session_number}회차</span>

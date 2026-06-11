@@ -250,7 +250,7 @@ export function ExperimentDetail({
   // Task 1: 완전 삭제
   async function handleHardDelete() {
     const confirmed = window.confirm(
-      "이 실험을 완전히 삭제합니다. 예약, 캘린더 연동 기록, 수동 블록이 모두 함께 삭제됩니다. 계속하시겠습니까?"
+      "이 실험을 완전히 삭제합니다. 예약, 캘린더 연동 기록, 예약 차단 시간대가 모두 함께 삭제됩니다. 계속하시겠습니까?"
     );
     if (!confirmed) return;
 
@@ -323,11 +323,11 @@ export function ExperimentDetail({
 
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      toast(j.error ?? "블록 추가 중 오류가 발생했습니다.", "error");
+      toast(j.error ?? "차단 시간대 추가 중 오류가 발생했습니다.", "error");
       return;
     }
 
-    toast("수동 블록이 추가되었습니다.", "success");
+    toast("예약 차단 시간대가 추가되었습니다.", "success");
     setBlockStart("");
     setBlockEnd("");
     setBlockReason("");
@@ -335,7 +335,7 @@ export function ExperimentDetail({
   }
 
   async function handleDeleteBlock(blockId: string) {
-    const confirmed = window.confirm("이 블록을 삭제하시겠습니까?");
+    const confirmed = window.confirm("이 시간대를 삭제하시겠습니까?");
     if (!confirmed) return;
 
     const res = await fetch(
@@ -470,7 +470,7 @@ export function ExperimentDetail({
             예약 링크 복사
           </Button>
           <Button variant="secondary" size="sm" onClick={openBlockModal}>
-            수동 블록 관리
+            예약 차단 시간대 관리
           </Button>
           {experiment.status === "draft" && (
             <Button
@@ -838,21 +838,21 @@ export function ExperimentDetail({
       <Modal
         open={blockModalOpen}
         onClose={() => setBlockModalOpen(false)}
-        title={`수동 시간 블록 · ${experiment.title}`}
+        title={`예약 차단 시간대 · ${experiment.title}`}
       >
         <div className="flex flex-col gap-5">
           <p className="text-sm text-muted">
-            실험 기간 중 예약받지 않을 시간대를 수동으로 지정합니다. 이 블록은 참여자의 주간
+            실험 기간 중 예약을 받지 않을 시간대를 직접 지정합니다. 이 시간대는 참여자의 주간
             시간표에서 마감으로 표시됩니다.
           </p>
 
           {/* Existing blocks */}
           <div>
-            <h3 className="mb-2 text-sm font-semibold text-foreground">등록된 블록</h3>
+            <h3 className="mb-2 text-sm font-semibold text-foreground">직접 막은 시간대</h3>
             {blocksLoading ? (
               <p className="text-sm text-muted">불러오는 중...</p>
             ) : blocks.length === 0 ? (
-              <p className="text-sm text-muted">등록된 수동 블록이 없습니다.</p>
+              <p className="text-sm text-muted">직접 막은 시간대가 없습니다.</p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {blocks.map((block) => (
@@ -883,7 +883,7 @@ export function ExperimentDetail({
 
           {/* Add new block form */}
           <div className="border-t border-border pt-4">
-            <h3 className="mb-3 text-sm font-semibold text-foreground">새 블록 추가</h3>
+            <h3 className="mb-3 text-sm font-semibold text-foreground">차단 시간대 추가</h3>
             <div className="flex flex-col gap-3">
               <Input
                 label="시작 일시 (KST)"

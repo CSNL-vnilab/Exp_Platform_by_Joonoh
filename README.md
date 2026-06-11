@@ -48,8 +48,9 @@
   결과수집-참여자비 청구 전 사이클을 자체 운영할 수 있습니다.
 - **연구실 자체 보유 (lab-sovereign).** 코드베이스, 데이터베이스, 첨부 파일,
   참여자 개인정보 모두 도입 연구실 본인의 Supabase / Vercel 계정 안에
-  머무릅니다. 외부 SaaS 벤더가 데이터를 중계하거나 보관하지 않습니다. IRB /
-  GDPR / 기관 데이터 거주 요구가 까다로운 연구실에 적합한 배포 형태입니다.
+  머무릅니다. 외부 SaaS 벤더가 데이터를 중계하거나 보관하지 않습니다.
+  IRB(연구윤리심의위원회) / GDPR(EU 개인정보보호법) / 기관 데이터 거주
+  요구가 까다로운 연구실에 적합한 배포 형태입니다.
 - **수정·확장 가능 (forkable & extensible).** 기관-특이적 값 — 참여자비
   양식(.xlsx), 메일 본문, 행정실 주소, 캘린더 식별자, 단가 — 은 모두 환경
   변수와 deployment-config 로 분리되어 있습니다. 코드 수정 없이 도입 연구실에
@@ -81,7 +82,7 @@ key trail 로 추적된다는 것입니다.
 
 결과적으로 한 연구의 publish 이후, 외부에서 manuscript 만 보고 알 수 없는
 실무적 결정들 — 어떤 시점에 어떤 commit 이 실제로 돌았는지, 어떤 참여자가
-어떤 사유로 언제 제외되었는지, 어떤 파라미터 sweep 이 시도되었다가 보고
+어떤 사유로 언제 제외되었는지, 어떤 파라미터 탐색(sweep) 이 시도되었다가 보고
 되지 않았는지 — 이 schema 안에 영구적인 audit trail 로 남습니다. 인수
 인계, 공동 연구, 사후 감사, 메타 분석에 모두 유리한 상태로 유지됩니다.
 
@@ -416,7 +417,7 @@ flowchart TB
 | 컬럼 | 내용 |
 |---|---|
 | 공개 ID | `CSNL-XXXXXX` 형식의 pseudonymous 식별자 (Slack/메모용) |
-| 이름 / 이메일 / 연락처 | 실제 PII. 블랙리스트 참여자는 연락처가 끝 4자리로 자동 마스킹 |
+| 이름 / 이메일 / 연락처 | 실제 PII(개인식별정보). 블랙리스트 참여자는 연락처가 끝 4자리로 자동 마스킹 |
 | 참여 실험 | 그 사람이 예약(완료/예정)한 실험 제목들. 모드 탭에 맞춰 자동 필터링 |
 | 클래스 | 뉴비 / 로열 / VIP / 블랙리스트. 블랙리스트 행은 사유가 함께 표시 |
 | 완료 세션 / 최근 참여일 | 모드 탭에 한정된 집계 |
@@ -444,8 +445,9 @@ flowchart TB
    소개 / 예약 페이지 URL)로 자동 채워집니다. **그대로 자유롭게 수정**할 수
    있습니다.
 3. **편집 ↔ 미리보기** 탭으로 서버가 렌더링한 실제 HTML 결과를 확인.
-4. **발송**: 단일 이메일이 To = 발신 계정(self), BCC = 선택한 deliverable
-   참여자 전원으로 나갑니다. 주소록은 서로 노출되지 않습니다.
+4. **발송**: 단일 이메일이 받는사람(To) = 발신 계정 본인, 숨은참조(BCC)
+   = 선택한 수신가능(deliverable) 참여자 전원으로 나갑니다. 주소록은 서로
+   노출되지 않습니다.
 5. 발송 결과는 `participant_promo_sends` 에 한 행씩 기록되어 같은 실험에
    대해 중복 발송을 자동 차단합니다.
 
@@ -466,7 +468,7 @@ flowchart TB
    pending 행으로 쌓입니다.
 4. 관리자가 큐에서 **승인** 누르면:
    - 클래스가 즉시 `blacklist` 로 전환 (`assign_participant_class_manual`
-     RPC, audit trigger 발화).
+     RPC(DB 저장 프로시저), audit trigger 발화).
    - `participants.phone` 가 신청 시 입력된 끝 4자리로 덮어쓰여
      이후 UI 에선 끝 4자리만 노출됩니다 (전체 번호는 저장 안 함).
    - 예정된 confirmed / running 예약은 자동 취소 (cascade-cancel, P2-3).
@@ -526,8 +528,8 @@ claude plugin install lab-reservation@csnl-lab
     `repair --status applied` 로 트래커 동기화하는 절차.
   - **`lab-blacklist-workflow`** — 연구원 신청 → 관리자 승인 → 클래스 전환 +
     연락처 끝 4자리 마스킹 + cascade-cancel 흐름과 promo email hard gate.
-  - **`lab-promo-email`** — BCC-from-self 템플릿 흐름과 3종 hard-gate
-    (undeliverable / already-sent / blacklisted).
+  - **`lab-promo-email`** — 숨은참조(BCC)-from-self 템플릿 흐름과 3종
+    차단 게이트(수신불가 / 이미발송 / 블랙리스트).
 
 ### 환경이 또 망가졌다면
 

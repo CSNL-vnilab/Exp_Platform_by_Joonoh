@@ -117,7 +117,7 @@ export function LiveSessionBoard({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <StatCard label="총 세션" value={stats.total} />
         <StatCard label="진행 중" value={stats.running} tone="emerald" />
-        <StatCard label="정체" value={stats.idle} tone="amber" />
+        <StatCard label="멈춤(응답 끊김)" value={stats.idle} tone="amber" />
         <StatCard label="코드 발급" value={stats.completed} tone="sky" />
         <StatCard label="확인 완료" value={stats.verified} tone="violet" />
       </div>
@@ -131,11 +131,11 @@ export function LiveSessionBoard({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-card text-xs text-muted">
-                <th className="px-4 py-3 text-left font-medium">Sbj</th>
+                <th className="px-4 py-3 text-left font-medium">피험자</th>
                 <th className="px-4 py-3 text-left font-medium">참여자</th>
                 <th className="px-4 py-3 text-left font-medium">예약 시간</th>
                 <th className="px-4 py-3 text-left font-medium">진행</th>
-                <th className="px-4 py-3 text-left font-medium">마지막 전송</th>
+                <th className="px-4 py-3 text-left font-medium">마지막 신호</th>
                 <th className="px-4 py-3 text-left font-medium">상태</th>
                 <th className="px-4 py-3 text-left font-medium">플래그</th>
               </tr>
@@ -202,7 +202,7 @@ function Row({
       ? "완료 (확인 대기)"
       : row.blocks_submitted > 0
         ? idle
-          ? "정체"
+          ? "멈춤(응답 끊김)"
           : "진행 중"
         : "시작 전";
   const statusColor = row.verified_at
@@ -222,7 +222,7 @@ function Row({
       }`}
     >
       <td className="px-4 py-3 whitespace-nowrap text-foreground">
-        {row.subject_number != null ? `Sbj${row.subject_number}` : "-"}
+        {row.subject_number != null ? `피험자${row.subject_number}번` : "-"}
       </td>
       <td className="px-4 py-3 font-medium text-foreground">
         {row.participant_name}
@@ -267,8 +267,11 @@ function Row({
           )}
           {typeof row.attention_fail_count === "number" &&
             row.attention_fail_count > 0 && (
-              <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-medium text-red-700">
-                ⚠ {row.attention_fail_count}
+              <span
+                className="rounded-full bg-red-100 px-1.5 py-0.5 font-medium text-red-700"
+                title="집중도 확인 문항에서 틀린 누적 횟수"
+              >
+                집중 실패 {row.attention_fail_count}회
               </span>
             )}
         </div>
