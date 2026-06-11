@@ -365,7 +365,14 @@ async function notifyPaymentInfoIfReadyImpl(
   let recipientName =
     (row.name_override?.trim() || participant?.name || "").trim();
   if (!recipientEmail) {
-    await stampFailure(supabase, row.id, "no recipient email");
+    // Empty recipient is PERMANENTLY undeliverable, not a transient send
+    // failure — there is no address to retry against. Retire the row past
+    // the sweep ceiling (same as the sentinel-address path) so the nightly
+    // cron stops re-examining it. Previously this used stampFailure, which
+    // left payment_link_attempts untouched: the row never left the sweep
+    // candidate set (.lt attempts < SWEEP_MAX_ATTEMPTS) and produced
+    // examined=1,sent=0,errors=1 every night → a perpetual false outage 500.
+    await stampUndeliverable(supabase, row.id, recipientEmail || "(빈 주소)");
     return { outcome: NOTIFY_OUTCOME.NO_RECIPIENT, bookingGroupId };
   }
   if (!isDeliverableEmail(recipientEmail)) {
@@ -509,7 +516,10 @@ async function notifyPaymentInfoIfReadyImpl(
         "").trim();
     if (!recipientEmail) {
       await releaseLock();
-      await stampFailure(supabase, row.id, "no recipient email after override removal");
+      // Permanently undeliverable (override cleared every address) — retire
+      // past the sweep ceiling so the nightly cron stops re-examining and
+      // stops manufacturing a false outage. See the pre-lock branch above.
+      await stampUndeliverable(supabase, row.id, recipientEmail || "(빈 주소)");
       return { outcome: NOTIFY_OUTCOME.NO_RECIPIENT, bookingGroupId };
     }
     if (!isDeliverableEmail(recipientEmail)) {
@@ -898,7 +908,19 @@ export const SWEEP_MAX_ATTEMPTS = 8;
 export async function sweepPaymentInfoNotifications(
   supabase: Supabase,
   mailer: Mailer = defaultSendEmail,
-): Promise<{ examined: number; sent: number; errors: number; results: NotifyResult[] }> {
+): Promise<{
+  examined: number;
+  sent: number;
+  errors: number;
+  // Permanently-undeliverable rows (no_recipient: empty or sentinel
+  // address). Split out from `errors` because these are NOT infrastructure
+  // failures — there is no address to retry against, and the row has been
+  // retired past the sweep ceiling. The auto-complete cron excludes this
+  // tally from its outage formula so a quiet night whose only pending row
+  // is undeliverable doesn't manufacture a false 500 + Slack page.
+  undeliverable: number;
+  results: NotifyResult[];
+}> {
   // C7 fix (Codex review 2026-05-28): exclude experiments whose
   // researcher opted out of auto-dispatch (migration 00065). Otherwise
   // every cron tick re-examines every held-up opt-out row, returning
@@ -920,13 +942,19 @@ export async function sweepPaymentInfoNotifications(
   const results: NotifyResult[] = [];
   let sent = 0;
   let errors = 0;
+  let undeliverable = 0;
   for (const r of rows ?? []) {
     const bgId = (r as { booking_group_id: string }).booking_group_id;
     try {
       const result = await notifyPaymentInfoIfReady(supabase, bgId, mailer);
       results.push(result);
       if (result.outcome === "sent") sent++;
-      if (result.outcome === "send_failed" || result.outcome === "no_recipient") errors++;
+      // Infrastructure failure (SMTP/transient) → errors. Permanently
+      // undeliverable (empty/sentinel recipient) → undeliverable. The two
+      // are kept distinct so the cron's outage detector only trips on
+      // genuine send failures, not on rows that can never be delivered.
+      else if (result.outcome === "send_failed") errors++;
+      else if (result.outcome === "no_recipient") undeliverable++;
     } catch (err) {
       errors++;
       results.push({
@@ -936,5 +964,5 @@ export async function sweepPaymentInfoNotifications(
       });
     }
   }
-  return { examined: (rows ?? []).length, sent, errors, results };
+  return { examined: (rows ?? []).length, sent, errors, undeliverable, results };
 }

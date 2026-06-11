@@ -26,11 +26,51 @@ import { scrubPii } from "@/lib/observability/pii";
 //
 // Auth: experiment owner or admin.
 
+// Server-side recipient domain allowlist (S4 PII finding).
+//
+// The dispatch email carries plaintext RRN, bank account numbers, and
+// bankbook-copy attachments. The client modal lets a researcher type an
+// arbitrary recipient, so the server — not the client — must be the
+// source of truth on where that PII is allowed to land. We gate sends to
+// a small env-driven allowlist of administrative / lab domains.
+//
+// Subdomains are honoured: an address on a subdomain of an allowlisted
+// domain (e.g. dept.snu.ac.kr) passes because we match `endsWith("." + d)`
+// in addition to the exact `endsWith("@" + d)` apex match.
+const ALLOWED_RECIPIENT_DOMAINS = (
+  process.env.PAYMENT_CLAIM_ALLOWED_DOMAINS ?? "snu.ac.kr,vnilab.local"
+)
+  .split(",")
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
+
+// True when `email`'s domain is the allowlisted apex (user@snu.ac.kr) or
+// any subdomain of it (user@dept.snu.ac.kr). Case-insensitive; operates
+// on the full address so a crafted local-part can't spoof the suffix
+// (e.g. "x@evil.com?snu.ac.kr" never endsWith("@snu.ac.kr")).
+function isRecipientDomainAllowed(email: string): boolean {
+  const normalized = email.trim().toLowerCase();
+  return ALLOWED_RECIPIENT_DOMAINS.some(
+    (d) => normalized.endsWith("@" + d) || normalized.endsWith("." + d),
+  );
+}
+
 const sendBodySchema = z.object({
   // Recipient email — researcher can override the default LAB_ADMIN_EMAIL
   // env value in the modal (different deans / different terms have
   // different admin emails).
-  recipientEmail: z.string().email().max(254),
+  //
+  // Domain allowlist refine (S4): the body is the only place a recipient
+  // is chosen, so this is where the server enforces the allowlist. A
+  // rejection here surfaces through the existing Zod-catch path → stampError
+  // (scrubPii'd) → 400. Never trust the client's own check.
+  recipientEmail: z
+    .string()
+    .email()
+    .max(254)
+    .refine(isRecipientDomainAllowed, {
+      message: `수신 도메인이 허용 목록에 없습니다 (허용: ${ALLOWED_RECIPIENT_DOMAINS.join(", ")})`,
+    }),
   // Force flag — frontend must explicitly opt in. Belt-and-suspenders
   // against accidental single-button auto-sends.
   confirm: z.literal(true),

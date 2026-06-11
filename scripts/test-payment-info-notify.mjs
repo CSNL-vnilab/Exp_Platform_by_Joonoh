@@ -85,6 +85,10 @@ function makeStubSupabase(state) {
         _filter[col] = { gt: val };
         return builder;
       },
+      lt(col, val) {
+        _filter[col] = { lt: val };
+        return builder;
+      },
       limit() {
         return builder;
       },
@@ -108,6 +112,10 @@ function makeStubSupabase(state) {
           },
           is(col, val) {
             _filterPath[col] = { is: val };
+            return updateBuilder;
+          },
+          lt(col, val) {
+            _filterPath[col] = { lt: val };
             return updateBuilder;
           },
           // Phase 2 lock-acquire uses .or("a.is.null,a.lt.X") — accept
@@ -166,6 +174,10 @@ function makeStubSupabase(state) {
         if (!v.in.includes(row[k])) return false;
       } else if (v && typeof v === "object" && "gt" in v) {
         if (!(row[k] > v.gt)) return false;
+      } else if (v && typeof v === "object" && "lt" in v) {
+        // payment_link_attempts is NOT NULL DEFAULT 0 in prod, so a row
+        // fixture that omits it behaves as 0 (below any positive ceiling).
+        if (!((row[k] ?? 0) < v.lt)) return false;
       } else if (row[k] !== v) {
         return false;
       }
@@ -325,9 +337,17 @@ await group("empty participant email → no_recipient", async () => {
   const result = await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
   check("outcome=no_recipient", result.outcome === "no_recipient", `got ${result.outcome}`);
   check("no email sent", sendEmailCalls.length === 0);
+  // Empty recipient is now classified PERMANENTLY undeliverable (S5):
+  // stampUndeliverable stamps a Korean reason + retires the row past the
+  // sweep ceiling so the nightly cron stops re-examining it (and stops
+  // manufacturing a false outage 500).
   check(
-    "last_error stamped",
-    state.participant_payment_info[0].payment_link_last_error?.includes("no recipient"),
+    "last_error stamped (수신 불가)",
+    state.participant_payment_info[0].payment_link_last_error?.includes("수신 불가"),
+  );
+  check(
+    "retired past sweep ceiling",
+    state.participant_payment_info[0].payment_link_attempts >= 8,
   );
 });
 

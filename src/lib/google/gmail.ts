@@ -4,6 +4,12 @@ const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
   secure: false,
+  // S4 PII finding: force STARTTLS. With port 587 / secure:false,
+  // nodemailer would otherwise fall back to an unencrypted plaintext
+  // session if the STARTTLS upgrade fails — sending RRN / bank account /
+  // bankbook-copy attachments in the clear. requireTLS makes the upgrade
+  // mandatory: the send aborts rather than transmits PII unencrypted.
+  requireTLS: true,
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,

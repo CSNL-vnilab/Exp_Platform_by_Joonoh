@@ -211,17 +211,30 @@ async function handle(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      ok: true,
-      candidates: candidates.length,
-      processed: toProcess.length,
-      sent,
-      failed,
-      skipped,
-      rate_limited_at: rateLimitedAt,
-      duration_ms: Date.now() - started,
-      results,
-    });
+    // S4 observability: signal a TOTAL outage (had sends to make, every one
+    // failed) with a non-200 so GH Actions notify-cron-failure can fire.
+    // Partial failures stay 200 to avoid GH retry stampedes; skipped-only /
+    // nothing-to-do also stay 200 (failed===0).
+    const totalOutage = sent === 0 && failed > 0;
+    if (totalOutage) {
+      console.error(
+        `[PromoCron] TOTAL OUTAGE — ${failed} send(s) attempted, 0 delivered`,
+      );
+    }
+    return NextResponse.json(
+      {
+        ok: !totalOutage,
+        candidates: candidates.length,
+        processed: toProcess.length,
+        sent,
+        failed,
+        skipped,
+        rate_limited_at: rateLimitedAt,
+        duration_ms: Date.now() - started,
+        results,
+      },
+      { status: totalOutage ? 500 : 200 },
+    );
   } catch (err) {
     console.error("[PromoCron] error:", err);
     return NextResponse.json(

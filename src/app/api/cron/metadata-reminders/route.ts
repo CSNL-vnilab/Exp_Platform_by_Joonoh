@@ -261,17 +261,29 @@ async function handle(request: NextRequest) {
       }
     }
 
+    const emailed = results.filter((r) => r.ok).length;
+    const failed = results.filter((r) => !r.ok && !r.skipped_reason).length;
+    // S4 observability: signal a TOTAL outage (had emails to send, every one
+    // failed) with a non-200 so GH Actions notify-cron-failure can fire.
+    // Partial failures stay 200 to avoid GH retry stampedes; skipped-only
+    // (rate_limited / disabled / no_email) and nothing-to-do stay 200.
+    const totalOutage = emailed === 0 && failed > 0;
+    if (totalOutage) {
+      console.error(
+        `[MetadataReminderCron] TOTAL OUTAGE — ${failed} send(s) attempted, 0 delivered`,
+      );
+    }
     const summary = {
-      ok: true,
+      ok: !totalOutage,
       duration_ms: Date.now() - started,
       total_researchers_with_gaps: byResearcher.size,
-      emailed: results.filter((r) => r.ok).length,
+      emailed,
       rate_limited: results.filter((r) => r.skipped_reason === "rate_limited_7d").length,
       skipped_other: results.filter((r) => r.skipped_reason && r.skipped_reason !== "rate_limited_7d").length,
-      failed: results.filter((r) => !r.ok && !r.skipped_reason).length,
+      failed,
       rows: results,
     };
-    return NextResponse.json(summary);
+    return NextResponse.json(summary, { status: totalOutage ? 500 : 200 });
   } catch (err) {
     console.error("[MetadataReminderCron] error:", err);
     return NextResponse.json(
