@@ -19,15 +19,14 @@
 // actually consume (entry_url, preflight, fee, precautions, …) are kept so
 // behaviour is unchanged for the public flow.
 //
-// FOLLOW-UP finding (out of scope here): /run/[bookingId] passes the FULL
-// online_runtime_config — including attention_checks[].correct_answer — into
-// the sandbox. Even though /run is gated by the participant's own booking
-// token, the correct_answer is still shipped to the participant's browser,
-// so a determined participant can read it from devtools. Fixing that needs
-// server-side answer verification (grade attention checks on the server from
-// the block-upload payload, never ship correct_answer to the client). Not
-// done here because /run's threat surface (own-token gate) and the required
-// server-grading infra are a separate work item.
+// RESOLVED (P0-2): /run/[bookingId]/page.tsx now runs online_runtime_config
+// through sanitizeOnlineRuntimeConfig before handing it to RunShell, so
+// attention_checks[].correct_answer no longer reaches the participant's
+// browser/sandbox. Grading moved server-side to
+// /api/experiments/[id]/data/[bookingId]/attention (kind:"attention_response"):
+// the route loads the unsanitized attention_checks from the stored row,
+// compares the submitted answer, and bumps attention_fail_count on a miss
+// (record-only — never gates the run). The client never sees the answer.
 
 import type { OnlineRuntimeConfig } from "@/types/database";
 

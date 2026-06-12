@@ -100,9 +100,13 @@ export function RunShell({
   const [completionCode, setCompletionCode] = useState<string | null>(progress.completion_code);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [attentionOverlay, setAttentionOverlay] = useState<
-    NonNullable<OnlineRuntimeConfig["attention_checks"]>[number] | null
-  >(null);
+  // The overlay carries the check's index so the server can re-locate it in
+  // the stored config and grade it (correct_answer is NOT present client-side
+  // anymore — it's stripped before this component ever sees the config).
+  const [attentionOverlay, setAttentionOverlay] = useState<{
+    index: number;
+    check: NonNullable<OnlineRuntimeConfig["attention_checks"]>[number];
+  } | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const entryUrl = cfg?.entry_url ?? "";
@@ -356,15 +360,19 @@ export function RunShell({
           }
           // Inject attention check if the researcher configured one after
           // the just-submitted block. Block index passed in the payload.
+          // We track the array INDEX (not the object) so the server can grade
+          // it from the stored config — the client copy has no correct_answer.
           const justSubmitted = (data as { block_index?: number })?.block_index;
           const checks = cfg?.attention_checks ?? [];
           if (typeof justSubmitted === "number" && checks.length > 0) {
-            const match = checks.find(
+            const matchIndex = checks.findIndex(
               (c) =>
                 c.position === `after_block:${justSubmitted}` ||
                 (c.position === "random" && Math.random() < 1 / checks.length),
             );
-            if (match) setAttentionOverlay(match);
+            if (matchIndex >= 0) {
+              setAttentionOverlay({ index: matchIndex, check: checks[matchIndex] });
+            }
           }
           return {
             blocks_submitted: body.blocks_submitted ?? 0,
@@ -394,6 +402,32 @@ export function RunShell({
       },
     ).catch(() => {});
   }, [booking.id, experiment.id, token]);
+
+  // Submit the participant's raw attention answer to the server, which grades
+  // it against the stored correct_answer and bumps attention_fail_count on a
+  // miss. The client no longer decides pass/fail (the answer was never shipped
+  // to it). Record-only: we don't gate the run on the result, so failures are
+  // best-effort fire-and-forget like the other integrity signals.
+  const postAttentionResponse = useCallback(
+    async (checkIndex: number, answer: string | boolean) => {
+      await fetch(
+        `/api/experiments/${experiment.id}/data/${booking.id}/attention`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            kind: "attention_response",
+            check_index: checkIndex,
+            answer,
+          }),
+        },
+      ).catch(() => {});
+    },
+    [booking.id, experiment.id, token],
+  );
 
   const postBehavior = useCallback(
     async (delta: Record<string, number | string>) => {
@@ -711,9 +745,10 @@ export function RunShell({
 
       {attentionOverlay && phase === "running" && (
         <AttentionOverlay
-          check={attentionOverlay}
-          onDone={(correct) => {
-            if (!correct) void postAttention();
+          check={attentionOverlay.check}
+          onAnswer={(answer) => {
+            // Server grades from the stored config; record-only, never blocks.
+            void postAttentionResponse(attentionOverlay.index, answer);
             setAttentionOverlay(null);
           }}
         />
@@ -1153,19 +1188,18 @@ function Check({ ok, label }: { ok: boolean; label: string }) {
 
 function AttentionOverlay({
   check,
-  onDone,
+  onAnswer,
 }: {
   check: NonNullable<OnlineRuntimeConfig["attention_checks"]>[number];
-  onDone: (correct: boolean) => void;
+  // Emits the participant's RAW answer. Grading happens on the server from the
+  // stored correct_answer — this component never receives it (P0-2), so it
+  // cannot and must not decide pass/fail here.
+  onAnswer: (answer: string | boolean) => void;
 }) {
   const [answer, setAnswer] = useState<string | boolean | null>(null);
   function submit() {
     if (answer === null) return;
-    const correct =
-      check.kind === "yes_no"
-        ? (answer === true ? "yes" : "no") === check.correct_answer.toLowerCase()
-        : String(answer) === check.correct_answer;
-    onDone(correct);
+    onAnswer(answer);
   }
   return (
     <div

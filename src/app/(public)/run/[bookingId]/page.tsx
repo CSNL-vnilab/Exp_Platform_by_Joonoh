@@ -4,12 +4,17 @@ import { verifyRunToken, hashToken, TokenError } from "@/lib/experiments/run-tok
 import { RunShell } from "@/components/run/run-shell";
 import { RunErrorBoundary } from "@/components/run/run-error-boundary";
 import { brandContactEmailOrNull } from "@/lib/branding";
+import { sanitizeOnlineRuntimeConfig } from "@/lib/experiments/sanitize";
 import type { OnlineRuntimeConfig } from "@/types/database";
 
-// FOLLOW-UP finding (not fixed here): this page passes the full
-// online_runtime_config — including attention_checks[].correct_answer — into
-// the sandbox; even with the own-booking-token gate, the participant can read
-// the answer from devtools. Needs server-side attention-check verification.
+// SECURITY (P0-2): this page used to pass the full online_runtime_config —
+// including attention_checks[].correct_answer — into the sandbox, so even with
+// the own-booking-token gate a participant could read the expected answer from
+// devtools and defeat every attention check. We now run the config through
+// sanitizeOnlineRuntimeConfig before handing it to the shell: correct_answer
+// (and counterbalance_spec / exclude_experiment_ids) are stripped, while the
+// question/kind/options/position the overlay renders are preserved. Grading
+// happens server-side in /data/[bookingId]/attention from the stored config.
 //
 // Progress state is mutated by /api/.../block uploads. We render server-
 // side once and must always reflect the latest counter — no ISR, no cache.
@@ -203,7 +208,10 @@ export default async function RunPage({ params, searchParams }: PageProps) {
           title: exp.title,
           description: exp.description,
           mode: exp.experiment_mode,
-          runtime_config: exp.online_runtime_config,
+          // Strip correct_answer (+ counterbalance_spec / exclude list) before
+          // the config crosses into the participant's browser / sandbox. The
+          // server grades attention answers from the unsanitized stored row.
+          runtime_config: sanitizeOnlineRuntimeConfig(exp.online_runtime_config),
           irb_document_url: exp.irb_document_url,
           data_consent_required: exp.data_consent_required,
           precautions: exp.precautions ?? [],

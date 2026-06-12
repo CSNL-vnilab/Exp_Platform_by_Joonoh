@@ -206,6 +206,19 @@ const experimentObjectSchema = z.object({
   // null; online/hybrid require entry_url. Other fields are optional hints
   // the /run shell uses to render progress/ETA.
   experiment_mode: z.enum(["offline", "online", "hybrid"]).default("offline"),
+  // Mirror of OnlineRuntimeConfig (src/types/database.ts). The 5 trailing
+  // keys (entry_url_sri / preflight / counterbalance_spec / attention_checks /
+  // exclude_experiment_ids) were authored by experiment-form's buildOnlineConfig
+  // but ABSENT from this zod object → a plain z.object() silently stripped them
+  // on every INSERT/UPDATE, so counterbalancing + attention filters never
+  // persisted (blueprint #1). Widened to validate-not-strip.
+  //
+  // zod/v4 .partial() trap (experimentEditSchema = …partial()): .partial()
+  // only loosens TOP-LEVEL keys; the nested shape of online_runtime_config is
+  // re-validated whole whenever a PATCH includes the key. So NO nested
+  // .default() here — a default would materialise on partial patches and
+  // clobber sibling keys the researcher didn't send. Every new field is plain
+  // .optional() (or .nullable().optional()), value-preserving on round-trip.
   online_runtime_config: z
     .object({
       // Must be HTTP(S). `z.string().url()` alone allows javascript:,
@@ -218,6 +231,18 @@ const experimentObjectSchema = z.object({
           (v) => /^https?:\/\//i.test(v.trim()),
           "http:// 또는 https:// URL만 허용합니다",
         ),
+      // Subresource Integrity hash. ADVISORY per researcher directive — we only
+      // validate the FORMAT (sha256/384/512-<base64>), never require it and
+      // never gate activation on it. Form sends the trimmed string, or `null`
+      // when the field is cleared, so accept both.
+      entry_url_sri: z
+        .string()
+        .regex(
+          /^sha(256|384|512)-[A-Za-z0-9+/]+={0,2}$/,
+          "SRI는 sha256-/sha384-/sha512- 접두어와 base64 다이제스트 형식이어야 합니다",
+        )
+        .nullable()
+        .optional(),
       trial_count: z.number().int().positive().optional(),
       block_count: z.number().int().positive().max(999).optional(),
       estimated_minutes: z.number().int().positive().max(600).optional(),
@@ -232,6 +257,116 @@ const experimentObjectSchema = z.object({
               "alphanumeric 코드는 최소 6자리 이상이어야 합니다",
             ),
         ])
+        .optional(),
+      // Pre-run environment check. All fields optional — the form only emits a
+      // preflight object when at least one is set, and an empty {} is harmless.
+      preflight: z
+        .object({
+          min_width: z.number().int().positive().max(10000).optional(),
+          min_height: z.number().int().positive().max(10000).optional(),
+          require_keyboard: z.boolean().optional(),
+          require_audio: z.boolean().optional(),
+          instructions: z.string().max(2000).optional(),
+        })
+        .optional(),
+      // Condition-assignment spec. Discriminated on `kind`; each variant carries
+      // a non-empty, non-blank conditions[]. block_rotation adds block_size,
+      // random adds a stable seed — both optional hints.
+      counterbalance_spec: z
+        .discriminatedUnion("kind", [
+          z.object({
+            kind: z.literal("latin_square"),
+            conditions: z
+              .array(z.string().trim().min(1).max(200))
+              .min(1, "최소 1개의 조건이 필요합니다")
+              .max(50),
+          }),
+          z.object({
+            kind: z.literal("block_rotation"),
+            conditions: z
+              .array(z.string().trim().min(1).max(200))
+              .min(1, "최소 1개의 조건이 필요합니다")
+              .max(50),
+            block_size: z.number().int().positive().max(999).optional(),
+          }),
+          z.object({
+            kind: z.literal("random"),
+            conditions: z
+              .array(z.string().trim().min(1).max(200))
+              .min(1, "최소 1개의 조건이 필요합니다")
+              .max(50),
+            seed: z.string().max(200).optional(),
+          }),
+        ])
+        .optional(),
+      // Attention checks injected between blocks. `position` is
+      // 'after_block:N' (0-indexed) or 'random'. single_choice must carry the
+      // options it presents AND its correct_answer must be one of them — a
+      // malformed check (answer not in options) is unscorable and would
+      // silently pass/fail everyone, so reject it at author time.
+      attention_checks: z
+        .array(
+          z
+            .object({
+              question: z.string().trim().min(1, "질문을 입력해주세요").max(1000),
+              kind: z.enum(["yes_no", "single_choice"]),
+              options: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+              correct_answer: z.string().trim().min(1, "정답을 입력해주세요").max(500),
+              // Narrow to the exact OnlineRuntimeConfig union
+              // (`after_block:${number}` | "random") rather than plain
+              // `string`, so the parsed value is assignable to the persisted
+              // JSONB type at the INSERT/UPDATE call sites.
+              position: z.custom<`after_block:${number}` | "random">(
+                (v) => typeof v === "string" && /^(after_block:\d+|random)$/.test(v),
+                "위치는 'after_block:N' 또는 'random' 이어야 합니다",
+              ),
+            })
+            .superRefine((v, ctx) => {
+              if (v.kind === "single_choice") {
+                if (!v.options || v.options.length < 2) {
+                  ctx.addIssue({
+                    code: "custom",
+                    path: ["options"],
+                    message: "단일 선택 주의검사는 최소 2개의 선택지가 필요합니다",
+                  });
+                  return;
+                }
+                if (new Set(v.options).size !== v.options.length) {
+                  ctx.addIssue({
+                    code: "custom",
+                    path: ["options"],
+                    message: "선택지가 중복됩니다",
+                  });
+                }
+                if (!v.options.includes(v.correct_answer)) {
+                  ctx.addIssue({
+                    code: "custom",
+                    path: ["correct_answer"],
+                    message: "정답은 선택지 중 하나여야 합니다",
+                  });
+                }
+              } else {
+                // yes_no — correct_answer must be a yes/no token.
+                const ans = v.correct_answer.trim().toLowerCase();
+                if (!["yes", "no", "예", "아니오", "true", "false"].includes(ans)) {
+                  ctx.addIssue({
+                    code: "custom",
+                    path: ["correct_answer"],
+                    message: "예/아니오 주의검사의 정답은 yes/no(예/아니오)여야 합니다",
+                  });
+                }
+              }
+            }),
+        )
+        .max(50, "주의검사는 최대 50개까지 등록할 수 있습니다")
+        .optional(),
+      // Cross-study exclusion list — experiment UUIDs. Loose 8-4-4-4-12 hex to
+      // match isValidUUID (the DB column is Postgres UUID, so anything that
+      // passes here also passes INSERT). The form already filters non-UUIDs
+      // before sending; this is the server-side guarantee.
+      exclude_experiment_ids: z
+        .array(z.string().regex(uuidRegex, "올바른 실험 ID 형식이 아닙니다"))
+        .max(200)
         .optional(),
     })
     .nullable()
