@@ -724,7 +724,7 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
       {typeof p.attention_fail_count === "number" && p.attention_fail_count > 0 && (
         <span
           className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
-          title="주의 체크 실패"
+          title="집중 실패"
         >
           ⚠ {p.attention_fail_count}
         </span>
@@ -874,12 +874,12 @@ function VerifyCompletionModal({
         className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-base font-semibold text-foreground">완료 코드 확인</h3>
+        <h3 className="text-base font-semibold text-foreground">참여 완료 인증 코드 확인</h3>
         <p className="mt-1 text-xs text-muted">
           참여자가 제출한 코드를 입력하면 예약 상태가 &ldquo;완료&rdquo;로 전환됩니다.
         </p>
         <label className="mt-4 block">
-          <span className="text-xs font-medium text-muted">완료 코드</span>
+          <span className="text-xs font-medium text-muted">참여 완료 인증 코드</span>
           <input
             type="text"
             value={code}

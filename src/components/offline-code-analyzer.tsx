@@ -821,7 +821,7 @@ export function OfflineCodeAnalyzer({
             </h2>
             <p className="mt-1 text-xs text-muted">
               실험 코드 + 라이브러리가 있는 서버 경로 또는 GitHub URL 만 알려주면,
-              서버가 트리를 받아 핵심 파일을 추리고 휴리스틱 + Qwen 으로 메타데이터를
+              서버가 트리를 받아 핵심 파일을 추리고 규칙 기반 추정 + Qwen 으로 메타데이터를
               뽑아 표로 보여줍니다. 데이터 디렉토리·파라미터 스키마 같은 항목을
               일일이 입력할 필요가 없으며, 모든 추출 결과는 직접 수정 가능하고,
               우측 챗봇으로 모호한 부분을 대화로 확정할 수 있습니다.
@@ -881,7 +881,7 @@ export function OfflineCodeAnalyzer({
               </div>
               <details className="mt-2">
                 <summary className="cursor-pointer text-[11px] text-muted hover:text-foreground">
-                  고급 옵션 (엔트리 파일 / 문서 경로 명시)
+                  고급 옵션 (실험 시작 파일 / 문서 경로 명시)
                 </summary>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <div>

@@ -74,7 +74,7 @@ const statusCfg: Record<
   running: { label: "진행 중", variant: "warning" },
   cancelled: { label: "취소", variant: "danger" },
   completed: { label: "완료", variant: "info" },
-  no_show: { label: "노쇼", variant: "warning" },
+  no_show: { label: "불참(노쇼)", variant: "warning" },
 };
 
 const genderLabels: Record<string, string> = {
@@ -139,7 +139,7 @@ export function ParticipantDetail({ data, role }: Props) {
             예정 {data.stats.confirmed}
           </span>
           <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-800">
-            노쇼 {data.stats.no_show}
+            불참(노쇼) {data.stats.no_show}
           </span>
           <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-800">
             취소 {data.stats.cancelled}
@@ -328,7 +328,7 @@ export function ParticipantDetail({ data, role }: Props) {
                       <th className="px-3 py-2 font-medium text-muted">실험명</th>
                       <th className="px-3 py-2 font-medium text-muted">일시</th>
                       <th className="px-3 py-2 font-medium text-muted">회차</th>
-                      <th className="px-3 py-2 font-medium text-muted">Sbj</th>
+                      <th className="px-3 py-2 font-medium text-muted">피험자</th>
                       <th className="px-3 py-2 font-medium text-muted">상태</th>
                     </tr>
                   </thead>

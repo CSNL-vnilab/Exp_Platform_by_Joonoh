@@ -1462,7 +1462,7 @@ export function ExperimentForm({
                 </div>
                 {attentionChecks.length === 0 ? (
                   <p className="mt-3 rounded-lg border border-dashed border-border py-3 text-center text-xs text-muted">
-                    주의 체크 없음
+                    집중도 확인 문항이 없습니다
                   </p>
                 ) : (
                   <div className="mt-3 space-y-3">
