@@ -252,8 +252,8 @@ function AddUserModal({ open, onClose }: { open: boolean; onClose: () => void })
             <Button type="button" variant="secondary" onClick={handleClose} disabled={loading}>
               취소
             </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "생성 중..." : "계정 만들기"}
+            <Button type="submit" loading={loading}>
+              계정 만들기
             </Button>
           </div>
         </form>

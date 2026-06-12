@@ -327,9 +327,10 @@ export function OnlineScreenerEditor({ experimentId }: { experimentId: string })
           <Button
             size="sm"
             onClick={save}
+            loading={saving}
             disabled={saving || !dirty}
           >
-            {saving ? "저장 중…" : "저장"}
+            저장
           </Button>
         </div>
       </div>

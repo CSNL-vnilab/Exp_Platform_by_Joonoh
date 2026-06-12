@@ -921,9 +921,10 @@ export function OfflineCodeAnalyzer({
                   type="button"
                   size="sm"
                   onClick={() => runFromSource("both")}
+                  loading={analyzing}
                   disabled={analyzing || !source.trim()}
                 >
-                  {analyzing ? "분석 중…" : "소스에서 분석 실행"}
+                  소스에서 분석 실행
                 </Button>
                 <span className="text-[11px] text-muted">
                   서버에서 디렉토리 스캔 / GitHub tarball 받아 핵심 파일만 추려 분석합니다.
@@ -1079,9 +1080,10 @@ export function OfflineCodeAnalyzer({
                   type="button"
                   size="sm"
                   onClick={() => runAnalysis("both")}
+                  loading={analyzing}
                   disabled={analyzing || (!code.trim() && bundleFiles.length === 0)}
                 >
-                  {analyzing ? "분석 중…" : "AI 분석 실행"}
+                  AI 분석 실행
                 </Button>
                 <span className="text-[11px] text-muted">
                   단일 파일 200KB / 묶음 80,000자까지 AI 분석에 사용됩니다.
@@ -2109,10 +2111,10 @@ export function OfflineCodeAnalyzer({
                     <Button
                       type="button"
                       onClick={saveToDb}
-                      disabled={savingDb}
+                      loading={savingDb}
                       size="sm"
                     >
-                      {savingDb ? "저장 중…" : "이 실험에 저장"}
+                      이 실험에 저장
                     </Button>
                   )}
                   <Button

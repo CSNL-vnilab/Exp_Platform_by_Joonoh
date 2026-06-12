@@ -74,8 +74,8 @@ export function PendingRequestsPanel({ requests }: { requests: PendingRequest[] 
                   >
                     거절
                   </Button>
-                  <Button disabled={busy} onClick={() => act(r.id, "approve")}>
-                    {busy ? "처리 중..." : "승인"}
+                  <Button loading={busy} onClick={() => act(r.id, "approve")}>
+                    승인
                   </Button>
                 </div>
               </div>

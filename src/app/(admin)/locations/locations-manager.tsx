@@ -211,8 +211,8 @@ function LocationModal({ open, onClose, initial, onSaved }: LocationModalProps) 
           <Button type="button" variant="secondary" onClick={handleClose} disabled={loading}>
             취소
           </Button>
-          <Button type="submit" disabled={loading}>
-            {loading ? (isEdit ? "수정 중..." : "추가 중...") : isEdit ? "저장" : "추가"}
+          <Button type="submit" loading={loading}>
+            {isEdit ? "저장" : "추가"}
           </Button>
         </div>
       </form>
@@ -340,10 +340,10 @@ export function LocationsManager({ initialLocations }: LocationsManagerProps) {
                 <Button
                   variant="danger"
                   size="sm"
-                  disabled={busy}
+                  loading={busy}
                   onClick={() => handleDelete(loc)}
                 >
-                  {busy ? "삭제 중..." : "삭제"}
+                  삭제
                 </Button>
               </div>
             </Card>

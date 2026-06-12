@@ -302,8 +302,8 @@ export function BookingObservationModal({
               <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
                 닫기
               </Button>
-              <Button size="sm" onClick={handleSave} disabled={saving}>
-                {saving ? "저장 중…" : "저장"}
+              <Button size="sm" onClick={handleSave} loading={saving}>
+                저장
               </Button>
             </div>
           </>

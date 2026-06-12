@@ -170,9 +170,10 @@ export function BlacklistRequestModal({
               </Button>
               <Button
                 onClick={submit}
+                loading={submitting}
                 disabled={submitting || reason.trim().length < 2}
               >
-                {submitting ? "제출 중…" : `${participantIds.length}명 등록 신청`}
+                {`${participantIds.length}명 등록 신청`}
               </Button>
             </div>
           </>

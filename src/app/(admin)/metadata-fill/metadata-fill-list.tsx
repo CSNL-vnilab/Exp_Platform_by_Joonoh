@@ -212,11 +212,12 @@ export function MetadataFillList({
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={isOptingOut || isSaving}
+                    loading={isOptingOut}
+                    disabled={isSaving}
                     onClick={() => optOut(e)}
                     title="예비(pilot) · 장비 테스트 등 정식 실험이 아닌 항목으로 표시"
                   >
-                    {isOptingOut ? "처리 중…" : "정식 실험 아님 (기록 면제)"}
+                    정식 실험 아님 (기록 면제)
                   </Button>
                   {isSaved && (
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
@@ -351,8 +352,8 @@ export function MetadataFillList({
               </div>
 
               <div className="flex justify-end">
-                <Button onClick={() => save(e)} disabled={isSaving}>
-                  {isSaving ? "저장 중…" : "이 실험 저장"}
+                <Button onClick={() => save(e)} loading={isSaving}>
+                  이 실험 저장
                 </Button>
               </div>
             </CardContent>

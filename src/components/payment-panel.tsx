@@ -489,18 +489,18 @@ export function PaymentPanel({
               type="button"
               variant="primary"
               size="sm"
+              loading={downloading === "claim"}
               disabled={downloading !== null || claimable.length === 0}
               onClick={handleClaim}
             >
-              {downloading === "claim"
-                ? "지급 신청서 만드는 중…"
-                : `참여비 지급 신청 (${claimable.length}명)`}
+              {`참여비 지급 신청 (${claimable.length}명)`}
             </Button>
             {activeClaimId && (
               <Button
                 type="button"
                 variant="primary"
                 size="sm"
+                loading={downloading === "email-preview"}
                 disabled={downloading !== null}
                 onClick={() => openEmailModal(activeClaimId)}
                 title={
@@ -510,9 +510,7 @@ export function PaymentPanel({
                     : "방금 생성된 청구"
                 }
               >
-                {downloading === "email-preview"
-                  ? "미리보기 생성 중…"
-                  : "행정실로 지급요청 메일 보내기"}
+                행정실로 지급요청 메일 보내기
               </Button>
             )}
             {rows.some(
@@ -537,11 +535,11 @@ export function PaymentPanel({
               type="button"
               variant="ghost"
               size="sm"
-              disabled={backfilling}
+              loading={backfilling}
               onClick={handleBackfill}
               title="가져오기 등으로 정산 정보 행이 빠진 예약 묶음에 대해 빈 행을 한 번에 만들어 줍니다 (안전·반복 실행 가능)."
             >
-              {backfilling ? "채우는 중…" : "누락된 정산 행 채우기"}
+              누락된 정산 행 채우기
             </Button>
           </div>
         </div>
@@ -846,9 +844,9 @@ export function PaymentPanel({
                 type="button"
                 variant="primary"
                 onClick={confirmAndSendEmail}
-                disabled={emailModal.sending}
+                loading={emailModal.sending}
               >
-                {emailModal.sending ? "발송 중…" : "메일 발송"}
+                메일 발송
               </Button>
             </div>
           </div>
@@ -953,11 +951,11 @@ function DispatchCell({
             type="button"
             variant="secondary"
             size="sm"
-            disabled={marking}
+            loading={marking}
             onClick={onMarkCompleted}
             title="이 참여자의 예정·진행 중 회차를 모두 한 번에 '완료'로 바꿉니다."
           >
-            {marking ? "표시 중…" : "회차 완료로 표시"}
+            회차 완료로 표시
           </Button>
           {previewLink}
         </div>
@@ -1023,10 +1021,10 @@ function DispatchCell({
         type="button"
         variant="primary"
         size="sm"
-        disabled={busy}
+        loading={busy}
         onClick={onResend}
       >
-        {busy ? "발송 중…" : "안내 메일 발송"}
+        안내 메일 발송
       </Button>
       {previewLink}
     </div>

@@ -67,8 +67,8 @@ export function LabSettingsForm({
         </div>
 
         <div className="flex justify-end">
-          <Button onClick={save} disabled={saving}>
-            {saving ? "저장 중…" : "저장"}
+          <Button onClick={save} loading={saving}>
+            저장
           </Button>
         </div>
       </CardContent>

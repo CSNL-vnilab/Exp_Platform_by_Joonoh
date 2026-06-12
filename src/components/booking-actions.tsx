@@ -138,9 +138,9 @@ export function BookingActions({
           variant="danger"
           size="sm"
           onClick={handleCancel}
-          disabled={cancelling}
+          loading={cancelling}
         >
-          {cancelling ? "취소 중..." : "예약 취소"}
+          예약 취소
         </Button>
       </div>
       <RescheduleModal
@@ -510,8 +510,8 @@ function RescheduleModal({
             <Button variant="secondary" onClick={onClose} disabled={submitting}>
               취소
             </Button>
-            <Button onClick={handleConfirm} disabled={!picked || submitting}>
-              {submitting ? "변경 중..." : picked ? "변경 확정" : "슬롯 선택"}
+            <Button onClick={handleConfirm} loading={submitting} disabled={!picked || submitting}>
+              {picked ? "변경 확정" : "슬롯 선택"}
             </Button>
           </div>
         </div>

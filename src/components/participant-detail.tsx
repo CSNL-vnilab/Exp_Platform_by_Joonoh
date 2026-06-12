@@ -594,10 +594,10 @@ function ClassEditModal({
           <Button
             size="sm"
             onClick={handleSubmit}
-            disabled={saving}
+            loading={saving}
             variant={chosen === "blacklist" ? "danger" : "primary"}
           >
-            {saving ? "저장 중…" : "저장"}
+            저장
           </Button>
         </div>
       </div>

@@ -81,8 +81,8 @@ export default function LoginPage() {
               autoComplete="current-password"
             />
             {error && <p className="text-sm text-danger">{error}</p>}
-            <Button type="submit" disabled={loading} className="w-full mt-2">
-              {loading ? "로그인 중..." : "로그인"}
+            <Button type="submit" loading={loading} className="w-full mt-2">
+              로그인
             </Button>
           </form>
         </Card>

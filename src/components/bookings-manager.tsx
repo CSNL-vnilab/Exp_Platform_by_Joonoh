@@ -325,10 +325,10 @@ export function BookingsManager({
                 <Button
                   size="sm"
                   onClick={downloadAnalysisCsv}
-                  disabled={analysisCsvBusy}
+                  loading={analysisCsvBusy}
                   title="참여자별 trial 단위 분석용 CSV (스크리너·주의체크·세션 컬럼 포함)"
                 >
-                  {analysisCsvBusy ? "생성 중…" : "분석용 CSV"}
+                  분석용 CSV
                 </Button>
               )}
               {showsOnlineCols && (
@@ -700,8 +700,8 @@ function ReissueTokenButton({
     }
   }
   return (
-    <Button size="sm" variant="secondary" onClick={reissue} disabled={busy}>
-      {busy ? "발급 중…" : "링크 재발급"}
+    <Button size="sm" variant="secondary" onClick={reissue} loading={busy}>
+      링크 재발급
     </Button>
   );
 }
@@ -817,8 +817,8 @@ function PilotToggleButton({
     }
   }
   return (
-    <Button size="sm" variant="secondary" onClick={toggle} disabled={busy}>
-      {busy ? "변경 중…" : isPilot ? "파일럿 해제" : "파일럿 표시"}
+    <Button size="sm" variant="secondary" onClick={toggle} loading={busy}>
+      {isPilot ? "파일럿 해제" : "파일럿 표시"}
     </Button>
   );
 }
@@ -902,8 +902,8 @@ function VerifyCompletionModal({
           <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>
             취소
           </Button>
-          <Button size="sm" onClick={submit} disabled={busy || !code.trim() || ok}>
-            {busy ? "확인 중…" : "확인"}
+          <Button size="sm" onClick={submit} loading={busy} disabled={busy || !code.trim() || ok}>
+            확인
           </Button>
         </div>
       </div>

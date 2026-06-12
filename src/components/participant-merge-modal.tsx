@@ -237,10 +237,11 @@ export function ParticipantMergeModal({
           </Button>
           <Button
             onClick={doMerge}
+            loading={merging}
             disabled={!target || merging || confirmText.trim() !== "병합"}
             variant="danger"
           >
-            {merging ? "병합 중…" : "병합 실행"}
+            병합 실행
           </Button>
         </div>
       </div>

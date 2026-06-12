@@ -103,8 +103,8 @@ export function NotionLinkInput({
           placeholder="Notion 페이지 URL 붙여넣기 또는 32자 hex ID"
           className="flex-1"
         />
-        <Button type="submit" size="sm" disabled={saving}>
-          {saving ? "저장 중…" : "저장"}
+        <Button type="submit" size="sm" loading={saving}>
+          저장
         </Button>
         {current && (
           <Button

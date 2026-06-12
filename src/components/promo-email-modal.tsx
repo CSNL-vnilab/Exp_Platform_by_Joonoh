@@ -335,13 +335,15 @@ export function PromoEmailModal({
                     <Button
                       variant="secondary"
                       onClick={refreshPreview}
+                      loading={refreshing}
                       disabled={refreshing || sending}
                     >
-                      {refreshing ? "갱신 중…" : "미리보기"}
+                      미리보기
                     </Button>
                   )}
                   <Button
                     onClick={send}
+                    loading={sending}
                     disabled={
                       sending ||
                       counts.deliverable === 0 ||
@@ -349,9 +351,7 @@ export function PromoEmailModal({
                       !body.trim()
                     }
                   >
-                    {sending
-                      ? "발송 중…"
-                      : `${counts.deliverable}명에게 발송`}
+                    {`${counts.deliverable}명에게 발송`}
                   </Button>
                 </div>
               </>

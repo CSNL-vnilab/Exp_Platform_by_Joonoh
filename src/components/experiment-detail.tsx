@@ -435,10 +435,10 @@ export function ExperimentDetail({
             <Button
               size="sm"
               variant="secondary"
-              disabled={notionResyncing}
+              loading={notionResyncing}
               onClick={handleNotionResync}
             >
-              {notionResyncing ? "재시도 중..." : "Notion 재동기화"}
+              Notion 재동기화
             </Button>
           </div>
           <p className="mt-1 text-xs text-info-800">
@@ -915,10 +915,10 @@ export function ExperimentDetail({
               />
               <Button
                 size="sm"
-                disabled={blockAdding}
+                loading={blockAdding}
                 onClick={handleAddBlock}
               >
-                {blockAdding ? "추가 중..." : "추가"}
+                추가
               </Button>
             </div>
           </div>

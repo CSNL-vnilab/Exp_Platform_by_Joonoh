@@ -2344,12 +2344,8 @@ export function ExperimentForm({
         <Button type="button" variant="secondary" onClick={handlePreview}>
           미리보기
         </Button>
-        <Button type="submit" disabled={submitting}>
-          {submitting
-            ? "저장 중..."
-            : isEditing
-              ? "수정 완료"
-              : "실험 생성"}
+        <Button type="submit" loading={submitting}>
+          {isEditing ? "수정 완료" : "실험 생성"}
         </Button>
         {onCancel && (
           <Button
