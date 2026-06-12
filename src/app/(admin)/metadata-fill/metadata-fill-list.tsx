@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import type { ExperimentChecklistItem } from "@/types/database";
@@ -88,12 +89,10 @@ export function MetadataFillList({
 
   if (visible.length === 0) {
     return (
-      <Card>
-        <CardContent className="py-10 text-center text-sm text-muted">
-          빠진 등록 정보가 있는 실험이 없습니다. 모두 입력 완료 또는 면제
-          처리되었습니다. ✓
-        </CardContent>
-      </Card>
+      <EmptyState
+        tone="success"
+        title="빠진 등록 정보가 있는 실험이 없습니다. 모두 입력 완료 또는 면제 처리되었습니다. ✓"
+      />
     );
   }
 

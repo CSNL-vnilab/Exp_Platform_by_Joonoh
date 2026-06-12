@@ -5,6 +5,7 @@ import Link from "next/link";
 import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export interface ExperimentListRow {
   id: string;
@@ -147,11 +148,7 @@ export function ExperimentList({ items, bookingCounts }: Props) {
       </Card>
 
       {visible.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted">
-            조건에 맞는 실험이 없습니다.
-          </CardContent>
-        </Card>
+        <EmptyState title="조건에 맞는 실험이 없습니다." />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((experiment) => {

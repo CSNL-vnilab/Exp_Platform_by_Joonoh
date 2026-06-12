@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 
 type Status = "pending" | "approved" | "rejected";
@@ -140,17 +141,9 @@ export function BlacklistRequestsList() {
       </Card>
 
       {loading ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted">
-            불러오는 중…
-          </CardContent>
-        </Card>
+        <EmptyState title="불러오는 중…" />
       ) : rows.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted">
-            요청이 없습니다.
-          </CardContent>
-        </Card>
+        <EmptyState title="요청이 없습니다." />
       ) : (
         <Card>
           <CardContent className="p-0">

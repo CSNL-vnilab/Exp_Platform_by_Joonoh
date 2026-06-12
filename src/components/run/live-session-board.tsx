@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   ParticipantProgress,
   type ProgressTone,
@@ -166,9 +167,7 @@ export function LiveSessionBoard({
       </div>
 
       {sorted.length === 0 ? (
-        <div className="rounded-xl border border-border bg-neutral-50 p-10 text-center text-sm text-neutral-500">
-          아직 시작한 참여자가 없습니다.
-        </div>
+        <EmptyState title="아직 시작한 참여자가 없습니다." />
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-white">
           <table className="w-full text-sm">

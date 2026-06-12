@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ExperimentList, type ExperimentListRow } from "@/components/experiment-list";
 
 export const dynamic = "force-dynamic";
@@ -97,14 +97,14 @@ export default async function ExperimentsPage() {
       </div>
 
       {!experiments || experiments.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted">등록된 실험이 없습니다.</p>
-            <Link href="/experiments/new" className="mt-4 inline-block">
+        <EmptyState
+          title="등록된 실험이 없습니다."
+          action={
+            <Link href="/experiments/new">
               <Button variant="secondary">첫 실험을 만들어보세요</Button>
             </Link>
-          </CardContent>
-        </Card>
+          }
+        />
       ) : (
         <ExperimentList
           items={(itemsWithRecruit as unknown as ExperimentListRow[]) ?? []}

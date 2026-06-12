@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ClassBadge } from "@/components/class-badge";
 import { PromoEmailModal } from "@/components/promo-email-modal";
 import { BlacklistRequestModal } from "@/components/blacklist-request-modal";
@@ -260,17 +261,9 @@ export function ParticipantsList() {
       )}
 
       {loading ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted">
-            불러오는 중…
-          </CardContent>
-        </Card>
+        <EmptyState title="불러오는 중…" />
       ) : rows.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted">
-            조건에 맞는 참여자가 없습니다.
-          </CardContent>
-        </Card>
+        <EmptyState title="조건에 맞는 참여자가 없습니다." />
       ) : (
         <Card>
           <CardContent className="p-0">
