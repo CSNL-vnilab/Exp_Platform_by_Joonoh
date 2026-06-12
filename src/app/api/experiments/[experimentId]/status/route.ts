@@ -3,12 +3,82 @@ import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireExperimentAccess } from "@/lib/auth/experiment-access";
+import type {
+  ExperimentMode,
+  OnlineRuntimeConfig,
+} from "@/types/database";
 import { createExperimentPage } from "@/lib/notion/client";
 import { sendExperimentPublishedEmail } from "@/lib/services/lab-notifications.service";
 
 const statusBodySchema = z.object({
   status: z.enum(["draft", "active", "completed", "cancelled"]),
 });
+
+const KNOWN_COUNTERBALANCE_KINDS = [
+  "latin_square",
+  "block_rotation",
+  "random",
+] as const;
+
+// Online/hybrid activation readiness check. Returns a Korean error string when
+// the experiment is NOT ready to be published, or null when it passes.
+//
+// This is intentionally a SHAPE-SANITY check, not a full re-validation: the
+// zod schema in src/lib/utils/validation.ts (online_runtime_config) already
+// rejects malformed config at save time, so config that landed in the row is
+// well-formed. Here we only confirm the run-shell can actually start —
+// (1) a usable entry_url exists, and (2) IF the researcher claims to have
+// configured counterbalancing or attention checks, the stored structure is
+// the expected shape (defence-in-depth against a hand-edited/legacy row).
+function assertOnlineActivationReady(
+  config: OnlineRuntimeConfig | null,
+): string | null {
+  if (!config) {
+    // null config = legacy online row authored before entry_url existed, or a
+    // mode-switched offline→online row that was never re-saved. Either way the
+    // run-shell has nothing to load.
+    return "온라인 실험 코드 주소(entry_url)가 필요합니다. 실험 수정에서 참여자 브라우저가 불러올 .js 파일 주소를 입력해주세요.";
+  }
+
+  const entryUrl = config.entry_url?.trim();
+  if (!entryUrl || !/^https?:\/\//i.test(entryUrl)) {
+    return "온라인 실험 코드 주소(entry_url)가 유효한 http:// 또는 https:// 주소여야 합니다.";
+  }
+
+  // Sanity-only: present-but-malformed counterbalance/attention structures
+  // (e.g. from a manual DB edit) must not slip past as "ready".
+  const spec = config.counterbalance_spec;
+  if (spec !== undefined && spec !== null) {
+    if (
+      typeof spec !== "object" ||
+      !KNOWN_COUNTERBALANCE_KINDS.includes(
+        (spec as { kind?: string }).kind as (typeof KNOWN_COUNTERBALANCE_KINDS)[number],
+      )
+    ) {
+      return "조건 배정(counterbalance) 설정 형식이 올바르지 않습니다. 실험 수정에서 다시 저장해주세요.";
+    }
+  }
+
+  const checks = config.attention_checks;
+  if (checks !== undefined && checks !== null) {
+    if (!Array.isArray(checks)) {
+      return "주의검사(attention check) 설정 형식이 올바르지 않습니다. 실험 수정에서 다시 저장해주세요.";
+    }
+    const malformed = checks.some(
+      (c) =>
+        !c ||
+        typeof c !== "object" ||
+        typeof c.position !== "string" ||
+        typeof c.correct_answer !== "string" ||
+        c.correct_answer.trim().length === 0,
+    );
+    if (malformed) {
+      return "주의검사(attention check) 항목에 위치(position) 또는 정답(correct_answer)이 누락되었습니다. 실험 수정에서 다시 저장해주세요.";
+    }
+  }
+
+  return null;
+}
 
 export async function POST(
   request: NextRequest,
@@ -21,7 +91,8 @@ export async function POST(
     // status (publishes/cancels), matching the pre-helper behavior.
     const access = await requireExperimentAccess(experimentId, {
       ownerOnly: true,
-      extraColumns: "status, code_repo_url, data_path",
+      extraColumns:
+        "status, code_repo_url, data_path, experiment_mode, online_runtime_config",
     });
     if (access instanceof NextResponse) return access;
     const { user, supabase } = access;
@@ -31,6 +102,8 @@ export async function POST(
       status: string | null;
       code_repo_url: string | null;
       data_path: string | null;
+      experiment_mode: ExperimentMode | null;
+      online_runtime_config: OnlineRuntimeConfig | null;
     };
 
     const parsed = statusBodySchema.safeParse(await request.json());
@@ -55,6 +128,26 @@ export async function POST(
           },
           { status: 400 },
         );
+      }
+
+      // Online readiness gate (P1-7 / blueprint Step G). The code_repo_url +
+      // data_path check above is the OFFLINE invariant and stays required for
+      // every mode (cumulative). For online/hybrid we additionally assert the
+      // run-shell can actually load and run the study, so a green "ready"
+      // signal can't lie: a participant who books an online experiment must
+      // reach a real runtime, not a stripped/empty config.
+      //
+      // online_runtime_config is null on legacy online rows authored before
+      // the entry_url field existed — that is exactly "not ready" and is
+      // caught by the entry_url check below. Offline rows skip this block
+      // entirely, so previously-passing offline activations are unaffected.
+      if (existing.experiment_mode && existing.experiment_mode !== "offline") {
+        const gateError = assertOnlineActivationReady(
+          existing.online_runtime_config,
+        );
+        if (gateError) {
+          return NextResponse.json({ error: gateError }, { status: 400 });
+        }
       }
     }
 

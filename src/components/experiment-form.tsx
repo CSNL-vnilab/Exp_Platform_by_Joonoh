@@ -317,13 +317,13 @@ export function ExperimentForm({
     reminder_day_before_enabled: reminderDayBeforeEnabled,
     reminder_day_of_enabled: reminderDayOfEnabled,
     experiment_mode: experimentMode,
-    online_runtime_config:
-      experimentMode === "offline"
-        ? null
-        : {
-            entry_url: onlineEntryUrl,
-            entry_url_sri: entryUrlSri || null,
-          },
+    // Use the SAME builder as submit (buildOnlineConfig) so the completeness
+    // sidebar reflects exactly what will be persisted — including
+    // counterbalance_spec / attention_checks. Previously this snapshot only
+    // carried entry_url + entry_url_sri, so the "준비됨" signal could never see
+    // counterbalance/attention and silently green-ticked them (P1-7 honest-
+    // signal bug). buildOnlineConfig already returns null for offline mode.
+    online_runtime_config: buildOnlineConfig() as Experiment["online_runtime_config"],
   };
   const draftSignature = JSON.stringify(draftSnapshot);
   useEffect(() => {

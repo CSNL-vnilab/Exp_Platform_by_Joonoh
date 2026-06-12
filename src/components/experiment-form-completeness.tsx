@@ -170,23 +170,77 @@ function classify(draft: Draft): FieldStatus[] {
   ];
 
   if (isOnline) {
+    // Read the SAME object the server reads (online_runtime_config). The form's
+    // draft snapshot is built by buildOnlineConfig(), so what's reflected here
+    // is what will actually be persisted/activated — not a UI-local subset.
+    // This makes the activation readiness signal honest (P1-7 / blueprint
+    // Step G): if the researcher set counterbalancing/attention in the form but
+    // the config doesn't carry it, this stays red.
+    const cfg = draft.online_runtime_config;
+    const entryUrl = cfg?.entry_url;
+    const entryUrlValid =
+      typeof entryUrl === "string" && /^https?:\/\//i.test(entryUrl.trim());
+
     out.push(
       {
         // D5-4 — schema superRefine rejects save without entry_url for
         // online/hybrid mode, so it's required at submit time not just
-        // at activation. Level accordingly.
+        // at activation. A bare path or non-http(s) string isn't loadable by
+        // the run-shell, so require a valid http(s) URL here too — matching
+        // the server activation gate in status/route.ts.
         name: "온라인 실험 코드 주소",
         level: "required",
-        filled: hasValue(draft.online_runtime_config?.entry_url),
-        hint: "참여자 브라우저가 불러올 .js 파일 주소",
+        filled: entryUrlValid,
+        hint: "온라인 실험 코드 주소(entry_url)가 필요합니다 — http:// 또는 https:// 로 시작하는 .js 파일 주소",
       },
       {
         name: "코드 변조 방지 검증값",
         level: "recommended",
-        filled: hasValue(draft.online_runtime_config?.entry_url_sri),
+        filled: hasValue(cfg?.entry_url_sri),
         hint: "코드 파일이 중간에 바뀌면 실행을 막아줍니다",
       },
     );
+
+    // Counterbalancing — only surface the signal once the researcher has
+    // started configuring it. Showing it unconditionally would nag every
+    // single-condition study. When configured, it's red until the spec is
+    // actually present in the saved config (a known kind + conditions).
+    const spec = cfg?.counterbalance_spec;
+    if (spec) {
+      const specValid =
+        typeof spec === "object" &&
+        (spec.kind === "latin_square" ||
+          spec.kind === "block_rotation" ||
+          spec.kind === "random") &&
+        Array.isArray(spec.conditions) &&
+        spec.conditions.length > 0;
+      out.push({
+        name: "조건 배정(counterbalance) 설정",
+        level: "required_for_activation",
+        filled: specValid,
+        hint: "조건 배정을 설정했다면 조건 목록까지 저장돼야 활성화할 수 있어요",
+      });
+    }
+
+    // Attention checks — same "only when configured" rule. Each saved check
+    // must carry a position and a correct answer, else it can't be graded
+    // server-side and the integrity claim would be false.
+    const checks = cfg?.attention_checks;
+    if (Array.isArray(checks) && checks.length > 0) {
+      const checksValid = checks.every(
+        (c) =>
+          c &&
+          typeof c.position === "string" &&
+          typeof c.correct_answer === "string" &&
+          c.correct_answer.trim().length > 0,
+      );
+      out.push({
+        name: "주의검사(attention check) 설정",
+        level: "required_for_activation",
+        filled: checksValid,
+        hint: "각 주의검사에 위치와 정답이 모두 입력돼야 활성화할 수 있어요",
+      });
+    }
   }
 
   return out;
