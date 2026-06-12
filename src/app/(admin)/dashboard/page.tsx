@@ -8,6 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { NotionHealthCard } from "@/components/notion-health-card";
 import { PendingWorkCard } from "@/components/pending-work-card";
+import {
+  BookingStatusBar,
+  type BookingStatusCounts,
+} from "@/components/dashboard/booking-status-bar";
 
 export const dynamic = "force-dynamic";
 
@@ -75,12 +79,31 @@ export default async function DashboardPage() {
       : Promise.resolve({ data: [] as { experiment_id: string; status: string }[] }),
   ]);
 
-  const countsByExp: Record<string, { confirmed: number; total: number }> = {};
+  // Full per-experiment status distribution. The myCounts query already pulls
+  // every (experiment_id, status) row for these experiments, so we expand the
+  // old {confirmed,total} reduction into a per-status tally with no new query.
+  const countsByExp: Record<string, BookingStatusCounts> = {};
+  const emptyCounts = (): BookingStatusCounts => ({
+    confirmed: 0,
+    completed: 0,
+    running: 0,
+    cancelled: 0,
+    no_show: 0,
+    total: 0,
+  });
   for (const b of (myCounts as unknown as { experiment_id: string; status: string }[]) ?? []) {
     const k = b.experiment_id;
-    if (!countsByExp[k]) countsByExp[k] = { confirmed: 0, total: 0 };
+    if (!countsByExp[k]) countsByExp[k] = emptyCounts();
     countsByExp[k].total++;
-    if (b.status === "confirmed") countsByExp[k].confirmed++;
+    if (
+      b.status === "confirmed" ||
+      b.status === "completed" ||
+      b.status === "running" ||
+      b.status === "cancelled" ||
+      b.status === "no_show"
+    ) {
+      countsByExp[k][b.status]++;
+    }
   }
 
   const active = (myExperiments ?? []).filter((e) => e.status === "active");
@@ -280,7 +303,7 @@ export default async function DashboardPage() {
           ) : (
             <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {active.map((e) => {
-                const c = countsByExp[e.id] ?? { confirmed: 0, total: 0 };
+                const c = countsByExp[e.id] ?? emptyCounts();
                 return (
                   <li key={e.id}>
                     <Link
@@ -290,20 +313,12 @@ export default async function DashboardPage() {
                       <div className="mb-2 truncate text-sm font-semibold text-foreground">
                         {e.title}
                       </div>
-                      <div className="mb-2 text-xs text-muted">
+                      <div className="mb-3 text-xs text-muted">
                         {e.start_date} ~ {e.end_date}
                         {" · "}
                         {e.session_type === "multi" ? `다중 ${e.required_sessions}회차` : "단일 세션"}
                       </div>
-                      <div className="text-xs text-muted">
-                        확정 <span className="font-semibold text-foreground">{c.confirmed}</span>
-                        {c.total > 0 && (
-                          <span>
-                            {" / 취소·기타 "}
-                            <span className="font-semibold text-foreground">{c.total - c.confirmed}</span>
-                          </span>
-                        )}
-                      </div>
+                      <BookingStatusBar counts={c} />
                     </Link>
                   </li>
                 );
