@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Notice } from "@/components/ui/notice";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import type { NotionDriftReport } from "@/lib/notion/schema";
 
@@ -74,7 +75,7 @@ export async function NotionHealthCard() {
         </div>
 
         {drift && !drift.healthy && isDriftReport(drift.report) && (
-          <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <Notice tone="warning" className="mt-4">
             <p className="font-semibold">스키마 불일치 감지</p>
             <ul className="mt-1 list-inside list-disc text-xs">
               {drift.report.items
@@ -92,7 +93,7 @@ export async function NotionHealthCard() {
               </code>
               를 실행하면 누락 컬럼이 자동 추가됩니다 (기존 데이터 보존).
             </p>
-          </div>
+          </Notice>
         )}
       </CardContent>
     </Card>

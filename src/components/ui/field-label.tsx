@@ -14,11 +14,11 @@ const SUFFIX: Record<FieldRequirement, { text: string; cls: string } | null> = {
   required: { text: "*", cls: "text-danger" },
   required_for_activation: {
     text: "* (활성화 전 필수)",
-    cls: "ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-2xs font-medium text-amber-800 border border-amber-200",
+    cls: "ml-1 rounded bg-warning-50 px-1.5 py-0.5 text-2xs font-medium text-warning-800 border border-warning-200",
   },
   recommended: {
     text: "권장",
-    cls: "ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-2xs font-medium text-sky-800 border border-sky-200",
+    cls: "ml-1 rounded bg-info-50 px-1.5 py-0.5 text-2xs font-medium text-info-800 border border-info-200",
   },
   optional: { text: "(선택)", cls: "ml-1 text-xs text-muted font-normal" },
 };

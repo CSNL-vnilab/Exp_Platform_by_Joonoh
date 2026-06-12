@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { Notice } from "@/components/ui/notice";
 import { useToast } from "@/components/ui/toast";
 import { ExperimentForm } from "@/components/experiment-form";
 import { ExperimentFormCompleteness } from "@/components/experiment-form-completeness";
@@ -377,10 +378,7 @@ export function ExperimentDetail({
           inline error otherwise". Disabled button alone isn't discoverable
           on mobile / keyboard users. */}
       {experiment.status === "draft" && !activationReady && (
-        <div
-          role="alert"
-          className="mb-5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-        >
+        <Notice tone="warning" role="alert" className="mb-5">
           <p className="font-semibold">활성화 전 필수 입력 항목이 남아 있습니다.</p>
           <ul className="mt-1 list-inside list-disc text-xs">
             {!hasCodeRepo && <li>분석 코드 저장소 (code_repo_url)</li>}
@@ -390,12 +388,12 @@ export function ExperimentDetail({
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="font-medium text-amber-900 underline hover:text-amber-700"
+              className="font-medium text-warning-800 underline hover:text-warning-700"
             >
               실험 수정에서 입력하기 →
             </button>
           </p>
-        </div>
+        </Notice>
       )}
 
       {/* Post-activation metadata reminder — lightweight nudge for
@@ -405,10 +403,7 @@ export function ExperimentDetail({
           above; this is for ongoing experiments. User directive
           2026-04-23: per-researcher reminder notes for unrecorded info. */}
       {experiment.status !== "draft" && metadataGaps.length > 0 && (
-        <div
-          role="status"
-          className="mb-5 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900"
-        >
+        <Notice tone="info" role="status" className="mb-5">
           <p className="font-semibold">
             이 실험에 아직 기록되지 않은 연구 메타데이터가 있습니다.
           </p>
@@ -421,21 +416,18 @@ export function ExperimentDetail({
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="font-medium text-sky-900 underline hover:text-sky-700"
+              className="font-medium text-info-800 underline hover:text-info-700"
             >
               실험 수정에서 입력하기 →
             </button>
           </p>
-        </div>
+        </Notice>
       )}
 
       {/* Notion mirror retry banner — shows when an activation attempt
           tried to push to Notion but never got a page_id back. */}
       {notionNeedsRetry && (
-        <div
-          role="status"
-          className="mb-5 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900"
-        >
+        <Notice tone="info" role="status" className="mb-5">
           <div className="flex flex-wrap items-center gap-3">
             <p className="flex-1 font-semibold">
               Notion 동기화가 완료되지 않았습니다.
@@ -449,12 +441,12 @@ export function ExperimentDetail({
               {notionResyncing ? "재시도 중..." : "Notion 재동기화"}
             </Button>
           </div>
-          <p className="mt-1 text-xs text-sky-800">
+          <p className="mt-1 text-xs text-info-800">
             이전 활성화 시 Notion 페이지 생성이 실패했거나 writeback이 끊겼습니다.
             재시도 버튼으로 다시 시도할 수 있으며, 동일한 실험에 대해 중복 페이지가
             생성되지 않도록 보호됩니다.
           </p>
-        </div>
+        </Notice>
       )}
 
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

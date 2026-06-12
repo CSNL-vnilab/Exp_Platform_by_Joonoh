@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth/role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { Notice } from "@/components/ui/notice";
 import { MetadataFillList } from "./metadata-fill-list";
 
 export const dynamic = "force-dynamic";
@@ -81,18 +82,18 @@ export default async function MetadataFillPage() {
           저장합니다. 각 카드의 <b>저장</b> 버튼은 그 실험만 갱신합니다 —
           한 번에 다 채우지 않아도 됩니다.
         </p>
-        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <Notice tone="warning" size="sm" className="mt-2">
           💡 pilot · 장비 테스트 · 일회성 예약처럼 정식 프로젝트가 아닌 항목은
           카드 우측 상단의 <b>&quot;프로젝트 아님 (면제)&quot;</b> 버튼으로
           면제 처리하실 수 있습니다. 면제된 실험은 다음 안내부터 자동으로
           제외됩니다.
-        </p>
+        </Notice>
         {labIrbBaseUrl && (
-          <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+          <Notice tone="info" size="sm" className="mt-2">
             📎 관리자가 등록한 공용 IRB 문서 URL 이 있습니다. 각 카드의
             IRB 입력 칸 옆 <b>&quot;관리자 등록 IRB 사용&quot;</b> 버튼으로
             한 번에 채워넣을 수 있습니다.
-          </p>
+          </Notice>
         )}
       </div>
       <MetadataFillList

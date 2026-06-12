@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { OnlineRuntimeConfig } from "@/types/database";
 import { RunShell } from "@/components/run/run-shell";
 import { RunErrorBoundary } from "@/components/run/run-error-boundary";
+import { Notice } from "@/components/ui/notice";
 
 export const dynamic = "force-dynamic";
 
@@ -58,21 +59,17 @@ export default async function PreviewRunPage({
 
   return (
     <div className="space-y-3">
-      <div
-        className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-        role="status"
-        aria-live="polite"
-      >
+      <Notice tone="warning" role="status" aria-live="polite">
         <strong>연구원 프리뷰 모드</strong> — 이 화면은 참여자가 보게 될 흐름을 그대로
         보여주지만, 제출된 응답은 서버에 저장되지 않습니다. 실제 실험 링크는 예약이
         완료된 참여자에게 이메일로 발송됩니다.
         <Link
           href={`/experiments/${experimentId}`}
-          className="ml-2 underline hover:text-amber-700"
+          className="ml-2 underline hover:text-warning-700"
         >
           돌아가기
         </Link>
-      </div>
+      </Notice>
       <RunErrorBoundary>
         <RunShell
           token="preview-token-never-valid"

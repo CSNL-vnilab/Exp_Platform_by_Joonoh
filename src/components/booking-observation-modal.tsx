@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { Notice } from "@/components/ui/notice";
 import { useToast } from "@/components/ui/toast";
 
 /**
@@ -185,13 +186,10 @@ export function BookingObservationModal({
         ) : (
           <>
             {needsBackfill && (
-              <div
-                role="alert"
-                className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800"
-              >
+              <Notice tone="warning" size="sm" role="alert">
                 실험 시간이 아직 지나지 않았습니다. 사전에만 기록하는 경우
                 backfill 플래그로 저장됩니다.
-              </div>
+              </Notice>
             )}
 
             {completedTick && (

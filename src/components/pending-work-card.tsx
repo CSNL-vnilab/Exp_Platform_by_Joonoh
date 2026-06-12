@@ -210,9 +210,11 @@ function toneBg(t: Tone): string {
   return {
     default: "border-border bg-card",
     danger: "border-danger-200 bg-danger-50",
-    info: "border-sky-200 bg-sky-50",
+    info: "border-info-200 bg-info-50",
+    // success=emerald is a pending user taste-fork — left as raw emerald
+    // (intentionally not tokenized this round).
     success: "border-emerald-200 bg-emerald-50",
-    warning: "border-amber-200 bg-amber-50",
+    warning: "border-warning-200 bg-warning-50",
   }[t];
 }
 
@@ -220,8 +222,9 @@ function toneText(t: Tone): string {
   return {
     default: "text-foreground",
     danger: "text-danger-700",
-    info: "text-sky-700",
+    info: "text-info-700",
+    // success=emerald held as taste-fork (see toneBg note).
     success: "text-emerald-700",
-    warning: "text-amber-800",
+    warning: "text-warning-800",
   }[t];
 }

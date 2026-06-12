@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Notice } from "@/components/ui/notice";
 import { useToast } from "@/components/ui/toast";
 import type { PaymentStatus } from "@/types/database";
 
@@ -546,11 +547,11 @@ export function PaymentPanel({
         </div>
 
         {rows.length === 0 ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <Notice tone="warning">
             정산 정보 행이 없습니다. 참여비가 있는 실험에서 행이 안 보이면
             상단의 <b>누락된 정산 행 채우기</b> 버튼을 눌러 빠진 행을 만들어
             주세요. (이미 있는 행은 건너뜁니다.)
-          </div>
+          </Notice>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -809,7 +810,7 @@ export function PaymentPanel({
                 </ul>
               </div>
 
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              <Notice tone="warning" size="sm">
                 <strong>발송 정보:</strong>
                 <ul className="mt-1 space-y-0.5">
                   <li>• 발신: vnilab@gmail.com (랩 공용)</li>
@@ -829,7 +830,7 @@ export function PaymentPanel({
                     <li>• 기간: {emailModal.preview.meta.periodLabel}</li>
                   )}
                 </ul>
-              </div>
+              </Notice>
             </div>
 
             <div className="mt-5 flex justify-end gap-2">

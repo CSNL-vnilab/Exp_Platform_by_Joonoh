@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptToken, bytesFromSupabase } from "@/lib/crypto/payment-info";
 import { buildPaymentInfoEmail } from "@/lib/services/payment-info-email-template";
 import { getAppOrigin } from "@/lib/http/origin";
+import { Notice } from "@/components/ui/notice";
 import { CopyButton } from "./copy-button";
 
 export const dynamic = "force-dynamic";
@@ -163,20 +164,17 @@ export default async function PaymentInfoPreviewPage({
 
   return (
     <div className="space-y-4">
-      <div
-        className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-        role="status"
-      >
+      <Notice tone="warning" role="status">
         <strong>미리보기 모드</strong> — 이 페이지는 참여자에게 발송될 메일과 폼을 그대로
         보여주지만 메일은 발송되지 않습니다. 토큰은 DB에 이미 저장된 것을 그대로 재사용하므로
         만료 시각이 바뀌지 않습니다.
         <Link
           href={`/experiments/${experimentId}`}
-          className="ml-2 underline hover:text-amber-700"
+          className="ml-2 underline hover:text-warning-700"
         >
           돌아가기
         </Link>
-      </div>
+      </Notice>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="rounded-xl border border-border bg-white">

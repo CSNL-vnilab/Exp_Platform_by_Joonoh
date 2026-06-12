@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { Notice } from "@/components/ui/notice";
 import { useToast } from "@/components/ui/toast";
 
 // Two-row merge UI for the participants section. Used when a person has
@@ -135,7 +136,7 @@ export function ParticipantMergeModal({
   return (
     <Modal open={open} onClose={onClose} title="참여자 병합">
       <div className="space-y-4">
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+        <Notice tone="warning" size="sm">
           <p className="font-medium">⚠️ 되돌릴 수 없는 작업입니다.</p>
           <p className="mt-1">
             현재 참여자(<b>{sourceLabel}</b>)의 모든 예약·정산·클래스 이력이
@@ -143,7 +144,7 @@ export function ParticipantMergeModal({
             보통 한 인물이 한국어/영문 이름으로 두 번 등록된 경우 정리에
             사용합니다.
           </p>
-        </div>
+        </Notice>
 
         <div>
           <label className="mb-1 block text-xs font-medium text-muted">
