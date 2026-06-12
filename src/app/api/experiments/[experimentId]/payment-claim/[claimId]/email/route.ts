@@ -37,8 +37,11 @@ import { scrubPii } from "@/lib/observability/pii";
 // Subdomains are honoured: an address on a subdomain of an allowlisted
 // domain (e.g. dept.snu.ac.kr) passes because we match `endsWith("." + d)`
 // in addition to the exact `endsWith("@" + d)` apex match.
+// Default recipient allowlist confirmed by the lab operator (2026-06-12):
+// 행정실/담당자 주소가 snu.ac.kr · gmail.com · naver.com 중 하나.
+// Override per-deploy via PAYMENT_CLAIM_ALLOWED_DOMAINS (comma-separated).
 const ALLOWED_RECIPIENT_DOMAINS = (
-  process.env.PAYMENT_CLAIM_ALLOWED_DOMAINS ?? "snu.ac.kr,vnilab.local"
+  process.env.PAYMENT_CLAIM_ALLOWED_DOMAINS ?? "snu.ac.kr,gmail.com,naver.com"
 )
   .split(",")
   .map((d) => d.trim().toLowerCase())
