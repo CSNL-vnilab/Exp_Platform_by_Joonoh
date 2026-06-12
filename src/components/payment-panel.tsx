@@ -593,6 +593,7 @@ export function PaymentPanel({
                               inputMode="numeric"
                               value={editValue}
                               onChange={(e) => setEditValue(e.target.value)}
+                              aria-label="지급 금액 (원)"
                               className="w-24 rounded border border-border px-2 py-0.5 text-xs"
                               autoFocus
                             />
@@ -615,24 +616,35 @@ export function PaymentPanel({
                           </div>
                         ) : (
                           <div className="flex flex-col gap-0.5">
-                            <span
-                              className={`inline-flex items-center gap-1 ${
-                                isEditable
-                                  ? "cursor-pointer hover:underline"
-                                  : ""
-                              }`}
-                              onClick={() => isEditable && startEdit(r)}
-                              title={isEditable ? "클릭하여 수정" : undefined}
-                            >
-                              <span className="text-foreground tabular-nums">
-                                {r.amountKrw.toLocaleString()}원
-                              </span>
-                              {r.amountOverridden && (
-                                <span className="text-2xs text-amber-600">
-                                  (수동)
+                            {isEditable ? (
+                              <button
+                                type="button"
+                                className="inline-flex w-fit items-center gap-1 rounded text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
+                                onClick={() => startEdit(r)}
+                                title="클릭하여 수정"
+                                aria-label="금액 수정"
+                              >
+                                <span className="text-foreground tabular-nums">
+                                  {r.amountKrw.toLocaleString()}원
                                 </span>
-                              )}
-                            </span>
+                                {r.amountOverridden && (
+                                  <span className="text-2xs text-amber-600">
+                                    (수동)
+                                  </span>
+                                )}
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center gap-1">
+                                <span className="text-foreground tabular-nums">
+                                  {r.amountKrw.toLocaleString()}원
+                                </span>
+                                {r.amountOverridden && (
+                                  <span className="text-2xs text-amber-600">
+                                    (수동)
+                                  </span>
+                                )}
+                              </span>
+                            )}
                             <AmountRecommendation
                               row={r}
                               editable={isEditable}
@@ -699,7 +711,7 @@ export function PaymentPanel({
                   {e.exported_by_name ?? "?"} ·{" "}
                   {labelForKind(e.export_kind)} · {e.participant_count}명
                   {e.file_name && (
-                    <span className="text-2xs text-muted/70">
+                    <span className="text-2xs text-muted">
                       {" "}
                       · {e.file_name}
                     </span>

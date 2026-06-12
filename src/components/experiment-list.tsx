@@ -115,7 +115,8 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                 key={k}
                 type="button"
                 onClick={() => setFilter(k)}
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                aria-pressed={filter === k}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary ${
                   filter === k
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted hover:bg-card"
@@ -130,11 +131,13 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="제목·프로젝트 검색"
+                aria-label="제목·프로젝트 검색"
                 className="w-56 rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as Sort)}
+                aria-label="정렬 기준"
                 className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 <option value="recent">최신 등록순</option>

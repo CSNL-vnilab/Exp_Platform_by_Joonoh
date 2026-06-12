@@ -293,7 +293,8 @@ export function BookingsManager({
                 key={k}
                 type="button"
                 onClick={() => setFilter(k)}
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                aria-pressed={filter === k}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary ${
                   filter === k
                     ? "border-foreground bg-foreground text-white"
                     : "border-border text-muted hover:bg-card"
@@ -308,6 +309,7 @@ export function BookingsManager({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="이름·전화·이메일·피험자번호 검색"
+                aria-label="이름·전화·이메일·피험자번호 검색"
                 className="w-48 rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
               <Button size="sm" variant="secondary" onClick={() => copyField("email")}>

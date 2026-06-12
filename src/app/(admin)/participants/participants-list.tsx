@@ -187,7 +187,8 @@ export function ParticipantsList() {
                 type="button"
                 onClick={() => setMode(t.value)}
                 title={t.hint}
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                aria-pressed={mode === t.value}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary ${
                   mode === t.value
                     ? "border-foreground bg-foreground text-white"
                     : "border-border text-muted hover:bg-card"
@@ -203,6 +204,7 @@ export function ParticipantsList() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="이름·전화·이메일·공개 ID 검색"
+              aria-label="이름·전화·이메일·공개 ID 검색"
               className="w-64 rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
             <select
@@ -210,6 +212,7 @@ export function ParticipantsList() {
               onChange={(e) =>
                 setClassFilter(e.target.value as "" | ParticipantClass)
               }
+              aria-label="참여자 분류 필터"
               className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             >
               {CLASS_FILTERS.map((f) => (
@@ -295,7 +298,23 @@ export function ParticipantsList() {
                     <tr
                       key={r.id}
                       onClick={() => go(r.id)}
-                      className="cursor-pointer border-b border-border last:border-b-0 hover:bg-card/50"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${r.name ?? r.public_code ?? "참여자"} 상세 보기`}
+                      onKeyDown={(e) => {
+                        // Keyboard parity with the row click: Enter/Space open
+                        // the detail page. Ignore keys that originate from an
+                        // inner interactive element (e.g. the row checkbox) so
+                        // we don't hijack its own activation.
+                        if (
+                          (e.key === "Enter" || e.key === " ") &&
+                          e.target === e.currentTarget
+                        ) {
+                          e.preventDefault();
+                          go(r.id);
+                        }
+                      }}
+                      className="cursor-pointer border-b border-border last:border-b-0 hover:bg-card/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
                     >
                       <td
                         className="px-4 py-3"

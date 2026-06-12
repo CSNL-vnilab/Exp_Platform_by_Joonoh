@@ -1017,8 +1017,10 @@ export function ExperimentForm({
                 <button
                   type="button"
                   onClick={() => setSessionType("single")}
+                  aria-pressed={sessionType === "single"}
                   className={`
                     flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary
                     ${
                       sessionType === "single"
                         ? "border-primary bg-primary/10 text-primary"
@@ -1031,8 +1033,10 @@ export function ExperimentForm({
                 <button
                   type="button"
                   onClick={() => setSessionType("multi")}
+                  aria-pressed={sessionType === "multi"}
                   className={`
                     flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary
                     ${
                       sessionType === "multi"
                         ? "border-primary bg-primary/10 text-primary"
@@ -1665,6 +1669,7 @@ export function ExperimentForm({
                         <button
                           type="button"
                           onClick={() => setPrecautions(precautions.filter((_, i) => i !== index))}
+                          aria-label="확인사항 제거"
                           className="mt-2 text-muted hover:text-danger"
                         >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2154,6 +2159,7 @@ export function ExperimentForm({
                         onClick={() =>
                           setParameterSchema(parameterSchema.filter((_, i) => i !== index))
                         }
+                        aria-label="파라미터 제거"
                         className="mt-2 text-muted hover:text-danger"
                       >
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2218,6 +2224,7 @@ export function ExperimentForm({
                       <button
                         type="button"
                         onClick={() => setChecklist(checklist.filter((_, i) => i !== index))}
+                        aria-label="체크리스트 항목 제거"
                         className="mt-2 text-muted hover:text-danger"
                       >
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
