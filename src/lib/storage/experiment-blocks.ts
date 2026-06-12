@@ -37,6 +37,39 @@ function entryMeta(entry: {
   };
 }
 
+// Supabase Storage `.list` caps each page at `limit` (max 1000) and silently
+// returns only the first page — any directory with >1000 entries loses the
+// tail with no error. This helper pages through with an offset loop until a
+// short page arrives, so every level (root subject folders, blocks under a
+// subject, blocks under session_{N}/, _pilot sub-folders) sees its full
+// contents. Returns the accumulated entries with the same element shape as a
+// single `.list` call.
+type StorageListEntry = {
+  name: string;
+  metadata?: { size?: unknown } | null;
+  updated_at?: string | null;
+};
+
+const LIST_PAGE = 1000;
+
+async function listAll(
+  admin: AdminClient,
+  dir: string,
+): Promise<StorageListEntry[]> {
+  const all: StorageListEntry[] = [];
+  for (let offset = 0; ; offset += LIST_PAGE) {
+    const { data: page } = await admin.storage
+      .from("experiment-data")
+      .list(dir, { limit: LIST_PAGE, offset });
+    const batch = (page ?? []) as StorageListEntry[];
+    all.push(...batch);
+    // A short (or empty) page means we've reached the end. An exact-multiple
+    // dataset triggers one extra empty fetch, which is the correct terminator.
+    if (batch.length < LIST_PAGE) break;
+  }
+  return all;
+}
+
 // Lists every block JSON directly under `dir` plus those nested under any
 // `session_{N}/` sub-folder, returning one entry per block file.
 async function listSubjectBlocks(
@@ -44,10 +77,8 @@ async function listSubjectBlocks(
   dir: string,
 ): Promise<ExperimentBlockEntry[]> {
   const out: ExperimentBlockEntry[] = [];
-  const { data: entries } = await admin.storage
-    .from("experiment-data")
-    .list(dir, { limit: 1000 });
-  for (const e of entries ?? []) {
+  const entries = await listAll(admin, dir);
+  for (const e of entries) {
     if (!e.name) continue;
     if (e.name.endsWith(".json")) {
       // Bare block file ⇒ session 1 (legacy / single-session / round 1).
@@ -57,10 +88,8 @@ async function listSubjectBlocks(
     const m = SESSION_DIR.exec(e.name);
     if (m) {
       const session = parseInt(m[1], 10);
-      const { data: files } = await admin.storage
-        .from("experiment-data")
-        .list(`${dir}/${e.name}`, { limit: 1000 });
-      for (const blk of files ?? []) {
+      const files = await listAll(admin, `${dir}/${e.name}`);
+      for (const blk of files) {
         if (blk.name?.endsWith(".json"))
           out.push({
             path: `${dir}/${e.name}/${blk.name}`,
@@ -81,20 +110,16 @@ export async function listExperimentBlocks(
   experimentId: string,
   { includePilot = false }: { includePilot?: boolean } = {},
 ): Promise<ExperimentBlockEntry[]> {
-  const { data: rootList } = await admin.storage
-    .from("experiment-data")
-    .list(experimentId, { limit: 1000 });
+  const rootList = await listAll(admin, experimentId);
 
   const blocks: ExperimentBlockEntry[] = [];
-  for (const entry of rootList ?? []) {
+  for (const entry of rootList) {
     if (!entry.name) continue;
     if (entry.name === "_pilot") {
       if (!includePilot) continue;
       // recurse one level into _pilot/{sbj}, then session-aware below it
-      const { data: pilotSubs } = await admin.storage
-        .from("experiment-data")
-        .list(`${experimentId}/_pilot`, { limit: 1000 });
-      for (const ps of pilotSubs ?? []) {
+      const pilotSubs = await listAll(admin, `${experimentId}/_pilot`);
+      for (const ps of pilotSubs) {
         if (!ps.name) continue;
         blocks.push(
           ...(await listSubjectBlocks(admin, `${experimentId}/_pilot/${ps.name}`)),

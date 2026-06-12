@@ -196,6 +196,48 @@ export function BookingsManager({
     URL.revokeObjectURL(url);
   }
 
+  // Analysis-ready trial-level CSV. Unlike downloadCsv (a client-side dump of
+  // the visible booking roster), this streams the server export at
+  // /api/experiments/{id}/data-export-csv — one row per trial with screener /
+  // attention / session columns. Fetch→blob→download so the auth cookie rides
+  // along and we control the filename (a bare <a href> can't set headers).
+  // Pilot rows are excluded by default (matches the server default); there is
+  // no experiment-wide pilot toggle in this view.
+  const [analysisCsvBusy, setAnalysisCsvBusy] = useState(false);
+  async function downloadAnalysisCsv() {
+    setAnalysisCsvBusy(true);
+    try {
+      const res = await fetch(
+        `/api/experiments/${experimentId}/data-export-csv`,
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        alert(body.error || "분석용 CSV를 생성하지 못했습니다");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safeTitle = (projectName ?? experimentTitle).replace(
+        /[\\/:*?"<>|]/g,
+        "_",
+      );
+      a.href = url;
+      a.download = `${safeTitle}_trials.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(
+        "오류가 발생했습니다: " +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    } finally {
+      setAnalysisCsvBusy(false);
+    }
+  }
+
   async function copyField(field: "email" | "phone") {
     const list = visible
       .map((r) => (field === "email" ? r.participants?.email : r.participants?.phone) ?? "")
@@ -275,8 +317,18 @@ export function BookingsManager({
                 {copied === "phones" ? "복사됨 ✓" : "전화 복사"}
               </Button>
               <Button size="sm" onClick={downloadCsv} disabled={visible.length === 0}>
-                CSV 다운로드
+                예약 명단 CSV
               </Button>
+              {showsOnlineCols && (
+                <Button
+                  size="sm"
+                  onClick={downloadAnalysisCsv}
+                  disabled={analysisCsvBusy}
+                  title="참여자별 trial 단위 분석용 CSV (스크리너·주의체크·세션 컬럼 포함)"
+                >
+                  {analysisCsvBusy ? "생성 중…" : "분석용 CSV"}
+                </Button>
+              )}
               {showsOnlineCols && (
                 <Button
                   size="sm"

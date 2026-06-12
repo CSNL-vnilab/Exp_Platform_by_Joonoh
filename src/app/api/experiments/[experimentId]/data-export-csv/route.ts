@@ -7,10 +7,14 @@ import { listExperimentBlocks } from "@/lib/storage/experiment-blocks";
 //
 // Researcher-only. Walks every block_*.json uploaded by participants of
 // this experiment, flattens trials into rows, and emits UTF-8 BOM CSV.
-// Keyed on `subject_number, block_index, trial_index`. Every trial key that
-// appears across the dataset becomes a column; missing values blank. Header
-// always contains: subject_number, block_index, trial_index, condition,
-// is_pilot, submitted_at, plus a dynamic set of trial-level keys.
+// Keyed on `subject_number, session, block_index, trial_index`. Every trial
+// key that appears across the dataset becomes a column; nested object/array
+// values are emitted as JSON-string cells (not "[object Object]"). Header
+// always contains: subject_number, session, block_index, trial_index,
+// condition, is_pilot, attention_fail_count, screener_passed, submitted_at,
+// block_metadata, plus a dynamic set of trial-level keys. attention_fail_count
+// and screener_passed are joined from the booking that owns each
+// (subject_number, session) pair (blank for legacy data with no match).
 //
 // Pilot rows are excluded by default; pass `?include_pilot=1` to keep them.
 // Header stays stable across runs of the same experiment (alphabetical order
@@ -23,7 +27,16 @@ const FIXED_COLS = [
   "trial_index",
   "condition",
   "is_pilot",
+  // Participant-attribute joins (denormalised per row from the booking that
+  // owns this subject_number+session). Blank when no matching booking row
+  // exists (legacy data uploaded before run-progress/screener tracking).
+  "attention_fail_count",
+  "screener_passed",
   "submitted_at",
+  // block_metadata is the block-level config snapshot (calibration / seed /
+  // session schedule). Emitted as a single JSON-string cell so nested objects
+  // survive instead of collapsing to "[object Object]".
+  "block_metadata",
 ] as const;
 
 function csvEscape(v: unknown): string {
@@ -33,6 +46,21 @@ function csvEscape(v: unknown): string {
     return '"' + s.replace(/"/g, '""') + '"';
   }
   return s;
+}
+
+// Render a trial-level cell value. Primitives pass through (String()); nested
+// objects/arrays are JSON-stringified so a structured value (e.g. a response
+// vector) becomes a readable JSON cell instead of "[object Object]".
+function cellValue(v: unknown): unknown {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "object") {
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  }
+  return v;
 }
 
 export async function GET(
@@ -98,6 +126,106 @@ export async function GET(
     }
   }
 
+  // Participant-attribute join. A block carries (subject_number, session) but
+  // attention/screener state lives on the booking. Multi-session groups reuse
+  // the same subject_number across sessions, so we key bookings by the pair
+  // (subject_number, session_number) — same subject_number + different session
+  // ⇒ a different booking. We resolve each booking to:
+  //   attention_fail_count — experiment_run_progress.attention_fail_count
+  //   screener_passed       — true iff every *required* screener for this
+  //                           experiment has a passed=true response for the
+  //                           booking (no required screeners ⇒ true).
+  // Read-only; uses the service-role admin client (no RLS) since access was
+  // already gated by requireExperimentAccess. Missing matches ⇒ blank cells
+  // (legacy data predating run-progress / screener tracking).
+  const subjSessKey = (subject: number, session: number) => `${subject}::${session}`;
+  const attrBySubjSess = new Map<
+    string,
+    { attention_fail_count: number | null; screener_passed: boolean | null }
+  >();
+  {
+    const { data: bookingRows } = await admin
+      .from("bookings")
+      .select("id, subject_number, session_number")
+      .eq("experiment_id", experimentId);
+    const bookings = (bookingRows ?? []) as Array<{
+      id: string;
+      subject_number: number | null;
+      session_number: number;
+    }>;
+    if (bookings.length > 0) {
+      const bookingIds = bookings.map((b) => b.id);
+
+      // Which screeners are required for this experiment? screener_passed is
+      // only meaningful relative to the required set.
+      const { data: screenerRows } = await admin
+        .from("experiment_online_screeners")
+        .select("id, required")
+        .eq("experiment_id", experimentId);
+      const requiredScreenerIds = new Set(
+        ((screenerRows ?? []) as Array<{ id: string; required: boolean }>)
+          .filter((s) => s.required)
+          .map((s) => s.id),
+      );
+
+      // attention_fail_count per booking.
+      const { data: progressRows } = await admin
+        .from("experiment_run_progress")
+        .select("booking_id, attention_fail_count")
+        .in("booking_id", bookingIds);
+      const failByBooking = new Map(
+        ((progressRows ?? []) as Array<{
+          booking_id: string;
+          attention_fail_count: number | null;
+        }>).map((p) => [p.booking_id, p.attention_fail_count ?? 0]),
+      );
+
+      // Required-screener pass state per booking. Only fetch responses to
+      // required screeners; a booking passes iff it has a passed=true response
+      // for *every* required screener. A booking with no required screeners
+      // (empty set) trivially passes.
+      const passByBooking = new Map<string, boolean>();
+      if (requiredScreenerIds.size > 0) {
+        const { data: respRows } = await admin
+          .from("experiment_online_screener_responses")
+          .select("booking_id, screener_id, passed")
+          .in("booking_id", bookingIds)
+          .in("screener_id", Array.from(requiredScreenerIds));
+        const passedSetByBooking = new Map<string, Set<string>>();
+        for (const r of (respRows ?? []) as Array<{
+          booking_id: string;
+          screener_id: string;
+          passed: boolean;
+        }>) {
+          if (!r.passed) continue;
+          const set = passedSetByBooking.get(r.booking_id) ?? new Set<string>();
+          set.add(r.screener_id);
+          passedSetByBooking.set(r.booking_id, set);
+        }
+        for (const id of bookingIds) {
+          const passed = passedSetByBooking.get(id) ?? new Set<string>();
+          let all = true;
+          for (const sid of requiredScreenerIds)
+            if (!passed.has(sid)) {
+              all = false;
+              break;
+            }
+          passByBooking.set(id, all);
+        }
+      } else {
+        for (const id of bookingIds) passByBooking.set(id, true);
+      }
+
+      for (const b of bookings) {
+        if (b.subject_number == null) continue;
+        attrBySubjSess.set(subjSessKey(b.subject_number, b.session_number), {
+          attention_fail_count: failByBooking.get(b.id) ?? null,
+          screener_passed: passByBooking.get(b.id) ?? null,
+        });
+      }
+    }
+  }
+
   // Collect dynamic trial-level keys (union across all trials)
   const dynamicKeys = new Set<string>();
   for (const b of blocks)
@@ -127,17 +255,35 @@ export async function GET(
       controller.enqueue(encoder.encode("﻿"));
       controller.enqueue(encoder.encode(header.map(csvEscape).join(",") + "\n"));
       for (const b of blocks) {
+        const session = b.session ?? 1;
+        const attr =
+          b.subject_number != null
+            ? attrBySubjSess.get(subjSessKey(b.subject_number, session))
+            : undefined;
+        // block_metadata rendered once per block as a JSON-string cell.
+        const blockMetaCell =
+          b.block_metadata != null ? cellValue(b.block_metadata) : "";
         for (const t of b.trials ?? []) {
+          // Preserve a researcher-supplied trial_index exactly — including a
+          // legitimate 0 (?? only blanks null/undefined, never 0/"").
+          const rawTrialIndex = (t as { trial_index?: unknown }).trial_index;
           const row: Record<string, unknown> = {
             subject_number: b.subject_number,
-            session: b.session ?? 1,
+            session,
             block_index: b.block_index,
-            trial_index: (t as { trial_index?: unknown }).trial_index ?? "",
+            trial_index: rawTrialIndex ?? "",
             condition: b.condition_assignment ?? "",
             is_pilot: b.is_pilot ? 1 : 0,
+            attention_fail_count: attr?.attention_fail_count ?? "",
+            screener_passed:
+              attr?.screener_passed == null ? "" : attr.screener_passed ? 1 : 0,
             submitted_at: b.submitted_at,
+            block_metadata: blockMetaCell,
           };
-          for (const k of ordered) row[k] = (t as Record<string, unknown>)[k] ?? "";
+          // Dynamic trial keys: nested objects/arrays become JSON cells
+          // (cellValue) instead of "[object Object]".
+          for (const k of ordered)
+            row[k] = cellValue((t as Record<string, unknown>)[k]);
           controller.enqueue(
             encoder.encode(header.map((k) => csvEscape(row[k])).join(",") + "\n"),
           );
