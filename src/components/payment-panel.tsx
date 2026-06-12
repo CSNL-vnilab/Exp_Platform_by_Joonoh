@@ -488,13 +488,13 @@ export function PaymentPanel({
 
   return (
     <Card>
-      <CardContent className="space-y-5 pt-6">
+      <CardContent className="space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-foreground">
               참여자비 정산
             </h2>
-            <p className="mt-0.5 text-sm text-muted">
+            <p className="mt-0.5 text-sm text-muted tabular-nums">
               미신청 {claimable.length}명 · 총 {totalClaimable.toLocaleString()}원
               {rows.length > claimable.length &&
                 ` · 전체 ${rows.length}명 중`}
@@ -577,13 +577,13 @@ export function PaymentPanel({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted">
-                  <th className="py-2 pr-3 font-medium">참가자</th>
-                  <th className="py-2 pr-3 font-medium">기간</th>
-                  <th className="py-2 pr-3 font-medium">지급액</th>
-                  <th className="py-2 pr-3 font-medium">은행</th>
-                  <th className="py-2 pr-3 font-medium">상태</th>
-                  <th className="py-2 pr-3 font-medium">안내 메일</th>
-                  <th className="py-2 font-medium" />
+                  <th className="py-2.5 pr-3 font-medium">참가자</th>
+                  <th className="py-2.5 pr-3 font-medium">기간</th>
+                  <th className="py-2.5 pr-3 font-medium">지급액</th>
+                  <th className="py-2.5 pr-3 font-medium">은행</th>
+                  <th className="py-2.5 pr-3 font-medium">상태</th>
+                  <th className="py-2.5 pr-3 font-medium">안내 메일</th>
+                  <th className="py-2.5 font-medium" />
                 </tr>
               </thead>
               <tbody>
@@ -595,18 +595,18 @@ export function PaymentPanel({
                   return (
                     <tr
                       key={r.id}
-                      className="border-b border-border/50 last:border-b-0"
+                      className="border-b border-border/50 last:border-b-0 hover:bg-neutral-100"
                     >
-                      <td className="py-2 pr-3 font-medium text-foreground">
+                      <td className="py-2.5 pr-3 font-medium text-foreground">
                         {r.participantName}
                       </td>
-                      <td className="py-2 pr-3 text-muted">
+                      <td className="py-2.5 pr-3 text-muted">
                         {r.periodStart ?? "-"}
                         {r.periodEnd && r.periodEnd !== r.periodStart
                           ? ` ~ ${r.periodEnd}`
                           : ""}
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="py-2.5 pr-3">
                         {isEditing ? (
                           <div className="flex items-center gap-1">
                             <input
@@ -622,14 +622,14 @@ export function PaymentPanel({
                               type="button"
                               disabled={pendingAction}
                               onClick={() => saveEdit(r.bookingGroupId)}
-                              className="rounded border border-primary bg-primary px-1.5 py-0.5 text-[11px] text-white disabled:opacity-50"
+                              className="rounded border border-primary bg-primary px-1.5 py-0.5 text-2xs text-white disabled:opacity-50"
                             >
                               저장
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditing(null)}
-                              className="text-[11px] text-muted hover:text-foreground"
+                              className="text-2xs text-muted hover:text-foreground"
                             >
                               취소
                             </button>
@@ -645,11 +645,11 @@ export function PaymentPanel({
                               onClick={() => isEditable && startEdit(r)}
                               title={isEditable ? "클릭하여 수정" : undefined}
                             >
-                              <span className="text-foreground">
+                              <span className="text-foreground tabular-nums">
                                 {r.amountKrw.toLocaleString()}원
                               </span>
                               {r.amountOverridden && (
-                                <span className="text-[10px] text-amber-600">
+                                <span className="text-2xs text-amber-600">
                                   (수동)
                                 </span>
                               )}
@@ -662,17 +662,17 @@ export function PaymentPanel({
                           </div>
                         )}
                       </td>
-                      <td className="py-2 pr-3 text-muted">
+                      <td className="py-2.5 pr-3 text-muted">
                         {r.bankName ?? "-"}
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="py-2.5 pr-3">
                         <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_CLASS[r.status]}`}
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-2xs font-medium ${STATUS_CLASS[r.status]}`}
                         >
                           {STATUS_LABEL[r.status]}
                         </span>
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="py-2.5 pr-3">
                         <DispatchCell
                           row={r}
                           experimentId={experimentId}
@@ -682,7 +682,7 @@ export function PaymentPanel({
                           onMarkCompleted={() => handleMarkCompleted(r)}
                         />
                       </td>
-                      <td className="py-2">
+                      <td className="py-2.5">
                         {r.status !== "pending_participant" &&
                           r.status !== "paid_offline" && (
                             <button
@@ -720,7 +720,7 @@ export function PaymentPanel({
                   {e.exported_by_name ?? "?"} ·{" "}
                   {labelForKind(e.export_kind)} · {e.participant_count}명
                   {e.file_name && (
-                    <span className="text-[10px] text-muted/70">
+                    <span className="text-2xs text-muted/70">
                       {" "}
                       · {e.file_name}
                     </span>
@@ -829,7 +829,7 @@ export function PaymentPanel({
                     <li>• Reply-To: {emailModal.preview.replyTo}</li>
                   )}
                   <li>• 실험자: {emailModal.preview.meta.researcherName}</li>
-                  <li>
+                  <li className="tabular-nums">
                     • 청구 합계:{" "}
                     {emailModal.preview.meta.totalKrw.toLocaleString("ko-KR")}원
                     ({emailModal.preview.meta.participantCount}건)
@@ -892,7 +892,7 @@ function DispatchCell({
       href={previewHref}
       target="_blank"
       rel="noopener noreferrer"
-      className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted hover:bg-muted/30"
+      className="rounded border border-border px-1.5 py-0.5 text-2xs text-muted hover:bg-muted/30"
       title="발송될 메일과 참여자 폼을 새 탭에서 미리보기"
     >
       👁 미리보기
@@ -902,7 +902,7 @@ function DispatchCell({
   // 오프라인 정산은 메일 발송이 무의미. 별도 라벨로 표시.
   if (row.status === "paid_offline") {
     return (
-      <span className="text-[11px] text-slate-500" title="플랫폼 외부에서 이미 지급된 건">
+      <span className="text-2xs text-slate-500" title="플랫폼 외부에서 이미 지급된 건">
         — (오프라인 정산)
       </span>
     );
@@ -925,7 +925,7 @@ function DispatchCell({
     });
     return (
       <div className="flex items-center gap-2">
-        <span className="text-[11px] text-foreground" title={`발송 완료: ${ts.toLocaleString("ko-KR")}`}>
+        <span className="text-2xs text-foreground" title={`발송 완료: ${ts.toLocaleString("ko-KR")}`}>
           ✉️ {niceDate}
         </span>
         <button
@@ -1075,7 +1075,7 @@ function AmountRecommendation({
       type="button"
       onClick={onApply}
       title="회차 수·참여비로 자동 계산한 권장 지급액 — 클릭하면 입력칸에 채워집니다 (저장 전까지 적용 안 됨)"
-      className="inline-flex w-fit items-center gap-1 rounded text-[10px] text-sky-700 hover:text-sky-900 hover:underline"
+      className="inline-flex w-fit items-center gap-1 rounded text-[10px] text-sky-700 hover:text-sky-900 hover:underline tabular-nums"
     >
       자동 계산 금액 {row.recommendedKrw.toLocaleString()}원{sessionSuffix}
     </button>

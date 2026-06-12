@@ -129,7 +129,7 @@ export function BlacklistRequestsList() {
               >
                 {t.label}
                 {t.value !== "all" && (
-                  <span className="ml-1 text-[10px] opacity-80">
+                  <span className="ml-1 text-2xs opacity-80">
                     ({counts[t.value] ?? 0})
                   </span>
                 )}

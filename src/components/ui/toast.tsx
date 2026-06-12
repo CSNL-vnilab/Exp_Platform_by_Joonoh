@@ -34,9 +34,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const typeClasses: Record<ToastType, string> = {
-    success: "bg-green-600 text-white",
-    error: "bg-red-600 text-white",
-    info: "bg-gray-800 text-white",
+    success: "bg-success-600 text-white",
+    error: "bg-danger-600 text-white",
+    info: "bg-neutral-800 text-white",
   };
 
   return (

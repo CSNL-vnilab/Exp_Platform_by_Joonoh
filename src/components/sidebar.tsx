@@ -32,13 +32,38 @@ export function Sidebar({ role, displayName }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const navItems = role === "admin" ? [...baseNavItems, ...adminNavItems] : baseNavItems;
+  const isAdmin = role === "admin";
 
   async function handleLogout() {
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
+  }
+
+  function renderNavItem(item: (typeof baseNavItems)[number]) {
+    const isActive =
+      pathname === item.href ||
+      (item.href !== "/dashboard" && pathname.startsWith(item.href));
+    return (
+      <li key={item.href}>
+        <Link
+          href={item.href}
+          onClick={() => setMobileOpen(false)}
+          className={`
+            flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+            ${
+              isActive
+                ? "bg-primary/10 text-primary"
+                : "text-muted hover:bg-neutral-100 hover:text-foreground"
+            }
+          `}
+        >
+          <item.icon className="h-5 w-5 shrink-0" />
+          {item.label}
+        </Link>
+      </li>
+    );
   }
 
   const navContent = (
@@ -50,31 +75,18 @@ export function Sidebar({ role, displayName }: SidebarProps) {
       </div>
       <nav className="flex-1 px-3 py-4">
         <ul className="flex flex-col gap-1">
-          {navItems.map((item) => {
-            const isActive =
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname.startsWith(item.href));
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
-                  className={`
-                    flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-                    ${
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted hover:bg-card hover:text-foreground"
-                    }
-                  `}
-                >
-                  <item.icon className="h-5 w-5 shrink-0" />
-                  {item.label}
-                </Link>
-              </li>
-            );
-          })}
+          {baseNavItems.map(renderNavItem)}
         </ul>
+        {isAdmin && (
+          <>
+            <div className="mt-4 mb-1 border-t border-border px-3 pt-4 text-2xs font-semibold uppercase tracking-wide text-neutral-500">
+              관리
+            </div>
+            <ul className="flex flex-col gap-1">
+              {adminNavItems.map(renderNavItem)}
+            </ul>
+          </>
+        )}
       </nav>
       <div className="border-t border-border p-3">
         <div className="mb-2 px-3 py-1.5">
@@ -87,7 +99,7 @@ export function Sidebar({ role, displayName }: SidebarProps) {
         </div>
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-card hover:text-foreground"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-neutral-100 hover:text-foreground"
         >
           <LogoutIcon className="h-5 w-5 shrink-0" />
           로그아웃
@@ -105,7 +117,7 @@ export function Sidebar({ role, displayName }: SidebarProps) {
         </Link>
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="rounded-lg p-2 text-muted hover:bg-card"
+          className="rounded-lg p-2 text-muted hover:bg-neutral-100"
           aria-label="메뉴 열기"
         >
           {mobileOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}

@@ -19,7 +19,7 @@ export default function PublicLayout({
                 <span className="text-lg font-semibold leading-tight text-foreground">
                   {BRAND_NAME}
                 </span>
-                <span className="text-[11px] leading-tight text-muted">
+                <span className="text-2xs leading-tight text-muted">
                   {BRAND_SUBTITLE} · {BRAND_PI}
                 </span>
               </div>

@@ -74,7 +74,7 @@ export function UsersTable({ profiles, currentUserId }: Props) {
                       {p.display_name ?? "-"}
                       {isSelf && <span className="ml-2 text-xs text-muted">(나)</span>}
                     </td>
-                    <td className="px-3 py-3 font-mono text-muted">
+                    <td className="px-3 py-3 font-mono text-xs text-muted">
                       {fromInternalEmail(p.email) ?? p.email}
                     </td>
                     <td className="px-3 py-3">

@@ -4,11 +4,11 @@ const variantClasses = {
   primary:
     "bg-primary text-white hover:bg-primary-hover focus-visible:ring-primary",
   secondary:
-    "bg-white text-foreground border border-border hover:bg-card focus-visible:ring-primary",
+    "bg-white text-foreground border border-border hover:bg-neutral-100 hover:border-neutral-300 focus-visible:ring-primary",
   danger:
-    "bg-danger text-white hover:bg-red-700 focus-visible:ring-danger",
+    "bg-danger text-white hover:bg-danger-700 focus-visible:ring-danger",
   ghost:
-    "bg-transparent text-foreground hover:bg-card focus-visible:ring-primary",
+    "bg-transparent text-foreground hover:bg-neutral-100 focus-visible:ring-primary",
 } as const;
 
 const sizeClasses = {

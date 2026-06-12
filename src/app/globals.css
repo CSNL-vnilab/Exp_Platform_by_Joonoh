@@ -10,13 +10,53 @@
   --color-foreground: var(--foreground);
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-800: #1e40af;
   --color-danger: #dc2626;
+  --color-danger-50: #fef2f2;
+  --color-danger-100: #fee2e2;
+  --color-danger-200: #fecaca;
+  --color-danger-600: #dc2626;
+  --color-danger-700: #b91c1c;
+  --color-danger-800: #991b1b;
   --color-success: #15803d;
+  --color-success-50: #f0fdf4;
+  --color-success-100: #dcfce7;
+  --color-success-200: #bbf7d0;
+  --color-success-600: #16a34a;
+  --color-success-700: #15803d;
+  --color-success-800: #166534;
   --color-warning: #b45309;
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+  --color-warning-800: #92400e;
   --color-info: #0369a1;
+  --color-info-50: #f0f9ff;
+  --color-info-100: #e0f2fe;
+  --color-info-200: #bae6fd;
+  --color-info-600: #0284c7;
+  --color-info-700: #0369a1;
+  --color-info-800: #075985;
+  --color-info-900: #0c4a6e;
   --color-muted: #6b7280;
   --color-border: #e5e7eb;
   --color-card: #f9fafb;
+  --color-neutral-50: #f9fafb;
+  --color-neutral-100: #f3f4f6;
+  --color-neutral-200: #e5e7eb;
+  --color-neutral-300: #d1d5db;
+  --color-neutral-400: #9ca3af;
+  --color-neutral-500: #6b7280;
+  --color-neutral-600: #4b5563;
+  --color-neutral-700: #374151;
+  --color-neutral-800: #1f2937;
+  --color-neutral-900: #111827;
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1.45;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -30,4 +70,21 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   word-break: keep-all;
+  /* Safety net for keep-all: long email/token strings can still wrap when they
+     overflow, while Korean word-keeping is unchanged. */
+  overflow-wrap: break-word;
+}
+
+/* Global heading rhythm: tighter leading + slight negative tracking so page
+   titles stay crisp without per-page leading-tight/tracking utilities. */
+h1,
+h2,
+h3 {
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+/* Tables align their numeric columns (전화/시각/카운트/금액) app-wide. */
+table {
+  font-variant-numeric: tabular-nums;
 }

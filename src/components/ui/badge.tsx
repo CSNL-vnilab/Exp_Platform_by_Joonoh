@@ -5,18 +5,18 @@ interface BadgeProps {
 }
 
 const variantClasses = {
-  default: "bg-gray-100 text-gray-700",
-  success: "bg-green-50 text-green-800",
-  danger: "bg-red-50 text-red-700",
-  info: "bg-sky-50 text-sky-800",
-  warning: "bg-amber-50 text-amber-800",
+  default: "bg-neutral-100 text-neutral-700 ring-1 ring-inset ring-neutral-200",
+  success: "bg-success-50 text-success-800 ring-1 ring-inset ring-success-600/20",
+  danger: "bg-danger-50 text-danger-700 ring-1 ring-inset ring-danger-600/20",
+  info: "bg-info-50 text-info-800 ring-1 ring-inset ring-info-600/20",
+  warning: "bg-warning-50 text-warning-800 ring-1 ring-inset ring-warning-600/20",
 } as const;
 
 export function Badge({ variant = "default", children, className = "" }: BadgeProps) {
   return (
     <span
       className={`
-        inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
+        inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums
         ${variantClasses[variant]}
         ${className}
       `}

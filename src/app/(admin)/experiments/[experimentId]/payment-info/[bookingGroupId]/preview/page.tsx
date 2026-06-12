@@ -210,7 +210,7 @@ export default async function PaymentInfoPreviewPage({
               </p>
             ) : (
               <>
-                <div className="mt-3 break-all rounded-md border border-border bg-muted/20 px-3 py-2 text-[11px] font-mono text-foreground">
+                <div className="mt-3 break-all rounded-md border border-border bg-muted/20 px-3 py-2 text-2xs font-mono text-foreground">
                   {paymentUrl}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -224,7 +224,7 @@ export default async function PaymentInfoPreviewPage({
                   </a>
                   <CopyButton text={paymentUrl} />
                 </div>
-                <p className="mt-3 text-[11px] text-muted">
+                <p className="mt-3 text-2xs text-muted">
                   열림 기록(<code>first_opened_at</code>)은 폼을 처음 GET 할 때 갱신됩니다.
                   미리보기에서 열어보면 실제 참여자가 열기 전에 카운터가 올라가니
                   주의해 주세요.
@@ -264,7 +264,7 @@ export default async function PaymentInfoPreviewPage({
             />
             <Meta label="상태" value={row.status} />
             {row.payment_link_sent_at && (
-              <p className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-900">
+              <p className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-2xs text-blue-900">
                 이 행은 이미 한 번 발송된 적이 있어 메일 본문이
                 <em>(재안내)</em> 모드로 렌더링됩니다.
               </p>

@@ -278,7 +278,7 @@ export default async function DashboardPage() {
               진행 중인 실험이 없습니다.
             </p>
           ) : (
-            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {active.map((e) => {
                 const c = countsByExp[e.id] ?? { confirmed: 0, total: 0 };
                 return (

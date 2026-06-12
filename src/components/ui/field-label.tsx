@@ -11,14 +11,14 @@ export type FieldRequirement =
   | "optional";
 
 const SUFFIX: Record<FieldRequirement, { text: string; cls: string } | null> = {
-  required: { text: "*", cls: "text-rose-600" },
+  required: { text: "*", cls: "text-danger" },
   required_for_activation: {
     text: "* (활성화 전 필수)",
-    cls: "ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 border border-amber-200",
+    cls: "ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-2xs font-medium text-amber-800 border border-amber-200",
   },
   recommended: {
     text: "권장",
-    cls: "ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 border border-sky-200",
+    cls: "ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-2xs font-medium text-sky-800 border border-sky-200",
   },
   optional: { text: "(선택)", cls: "ml-1 text-xs text-muted font-normal" },
 };
@@ -49,7 +49,7 @@ export function FieldLabel({ htmlFor, children, requirement, help }: Props) {
             <span className={suffix.cls}>{suffix.text}</span>
           ))}
       </label>
-      {help && <span className="text-xs text-muted">{help}</span>}
+      {help && <span className="text-xs text-neutral-600">{help}</span>}
     </div>
   );
 }

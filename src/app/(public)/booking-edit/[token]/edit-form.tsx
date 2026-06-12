@@ -214,7 +214,7 @@ export function BookingEditForm(props: Props) {
                   <p className="text-sm font-semibold text-gray-900">
                     {row.session_number}회차
                     <span
-                      className={`ml-2 inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.color}`}
+                      className={`ml-2 inline-block rounded-full border px-2 py-0.5 text-2xs font-medium ${status.color}`}
                     >
                       {status.text}
                     </span>
@@ -246,7 +246,7 @@ export function BookingEditForm(props: Props) {
                 )}
 
                 {!editable && row.status === "confirmed" && (
-                  <span className="shrink-0 text-[12px] text-gray-500">
+                  <span className="shrink-0 text-xs text-gray-500">
                     시작 {editCutoffHours}시간 이내 — 변경 불가
                   </span>
                 )}
@@ -264,7 +264,7 @@ export function BookingEditForm(props: Props) {
                     disabled={isBusy}
                     className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
-                  <p className="mt-1 text-[11px] text-gray-500">
+                  <p className="mt-1 text-2xs text-gray-500">
                     실험 운영 요일: {allowedWeekdaysLabel} · 회차 길이{" "}
                     {sessionDurationMinutes}분 (종료 시간은 자동 계산됩니다)
                   </p>
