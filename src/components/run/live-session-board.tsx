@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  ParticipantProgress,
+  type ProgressTone,
+} from "@/components/run/participant-progress";
 
 interface Row {
   booking_id: string;
@@ -27,6 +31,40 @@ interface Row {
 // This view is researcher-only (enforced by the page wrapper's auth check).
 
 const IDLE_MS = 5 * 60 * 1000;
+
+// Single source of truth for a row's lifecycle state, so the dot, label,
+// row tint, and progress-bar fill all stay semantically in sync. Colour
+// follows the app's semantic ramp (R3 convention), never colour alone —
+// every state carries a text label too:
+//   verified  → success  (확인됨)
+//   completed → info     (완료 — 코드 발급, 확인 대기)
+//   idle      → warning  (멈춤(응답 끊김) — attention, not error)
+//   running   → info     (진행 중)
+//   waiting   → neutral  (시작 전)
+type SessionState = "verified" | "completed" | "idle" | "running" | "waiting";
+
+function resolveState(row: Row, now: number): SessionState {
+  if (row.verified_at) return "verified";
+  if (row.completion_code) return "completed";
+  if (row.blocks_submitted > 0) {
+    const ms = row.last_block_at
+      ? now - new Date(row.last_block_at).getTime()
+      : Infinity;
+    return ms > IDLE_MS ? "idle" : "running";
+  }
+  return "waiting";
+}
+
+const STATE_META: Record<
+  SessionState,
+  { label: string; dot: string; text: string; tone: ProgressTone }
+> = {
+  verified: { label: "확인됨", dot: "bg-success", text: "text-success-700", tone: "success" },
+  completed: { label: "완료 (확인 대기)", dot: "bg-info-600", text: "text-info-700", tone: "success" },
+  idle: { label: "멈춤(응답 끊김)", dot: "bg-warning-600", text: "text-warning-700", tone: "warning" },
+  running: { label: "진행 중", dot: "bg-info-600", text: "text-info-700", tone: "info" },
+  waiting: { label: "시작 전", dot: "bg-neutral-300", text: "text-neutral-500", tone: "neutral" },
+};
 
 export function LiveSessionBoard({
   experimentId,
@@ -99,14 +137,19 @@ export function LiveSessionBoard({
     let completed = 0;
     let verified = 0;
     for (const r of rows) {
-      if (r.verified_at) verified++;
-      else if (r.completion_code) completed++;
-      else if (r.blocks_submitted > 0) {
-        const ms = r.last_block_at
-          ? now - new Date(r.last_block_at).getTime()
-          : Infinity;
-        if (ms > IDLE_MS) idle++;
-        else running++;
+      switch (resolveState(r, now)) {
+        case "verified":
+          verified++;
+          break;
+        case "completed":
+          completed++;
+          break;
+        case "idle":
+          idle++;
+          break;
+        case "running":
+          running++;
+          break;
       }
     }
     return { running, idle, completed, verified, total: rows.length };
@@ -116,28 +159,28 @@ export function LiveSessionBoard({
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <StatCard label="총 세션" value={stats.total} />
-        <StatCard label="진행 중" value={stats.running} tone="emerald" />
-        <StatCard label="멈춤(응답 끊김)" value={stats.idle} tone="amber" />
-        <StatCard label="코드 발급" value={stats.completed} tone="sky" />
-        <StatCard label="확인 완료" value={stats.verified} tone="violet" />
+        <StatCard label="진행 중" value={stats.running} tone="info" dot="bg-info-600" />
+        <StatCard label="멈춤(응답 끊김)" value={stats.idle} tone="warning" dot="bg-warning-600" />
+        <StatCard label="코드 발급" value={stats.completed} tone="info" dot="bg-info-600" />
+        <StatCard label="확인 완료" value={stats.verified} tone="success" dot="bg-success" />
       </div>
 
       {sorted.length === 0 ? (
-        <div className="rounded-xl border border-border bg-white p-10 text-center text-sm text-muted">
-          아직 시작된 세션이 없습니다.
+        <div className="rounded-xl border border-border bg-neutral-50 p-10 text-center text-sm text-neutral-500">
+          아직 시작한 참여자가 없습니다.
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-white">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-card text-xs text-muted">
-                <th className="px-4 py-3 text-left font-medium">피험자</th>
-                <th className="px-4 py-3 text-left font-medium">참여자</th>
-                <th className="px-4 py-3 text-left font-medium">예약 시간</th>
-                <th className="px-4 py-3 text-left font-medium">진행</th>
-                <th className="px-4 py-3 text-left font-medium">마지막 신호</th>
-                <th className="px-4 py-3 text-left font-medium">상태</th>
-                <th className="px-4 py-3 text-left font-medium">플래그</th>
+              <tr className="border-b border-border bg-card text-2xs tracking-wide text-neutral-500 uppercase">
+                <th className="px-4 py-2.5 text-left font-medium">피험자</th>
+                <th className="px-4 py-2.5 text-left font-medium">참여자</th>
+                <th className="px-4 py-2.5 text-left font-medium">예약 시간</th>
+                <th className="px-4 py-2.5 text-left font-medium">진행</th>
+                <th className="px-4 py-2.5 text-left font-medium">마지막 신호</th>
+                <th className="px-4 py-2.5 text-left font-medium">상태</th>
+                <th className="px-4 py-2.5 text-left font-medium">플래그</th>
               </tr>
             </thead>
             <tbody>
@@ -156,25 +199,30 @@ function StatCard({
   label,
   value,
   tone,
+  dot,
 }: {
   label: string;
   value: number;
-  tone?: "emerald" | "amber" | "sky" | "violet";
+  tone?: "info" | "warning" | "success";
+  dot?: string;
 }) {
   const color =
-    tone === "emerald"
-      ? "text-emerald-600"
-      : tone === "amber"
-        ? "text-amber-600"
-        : tone === "sky"
-          ? "text-sky-600"
-          : tone === "violet"
-            ? "text-violet-600"
-            : "text-foreground";
+    tone === "info"
+      ? "text-info-700"
+      : tone === "warning"
+        ? "text-warning-700"
+        : tone === "success"
+          ? "text-success-700"
+          : "text-foreground";
   return (
     <div className="rounded-xl border border-border bg-white p-4">
-      <div className="text-xs text-muted">{label}</div>
-      <div className={`mt-0.5 text-2xl font-bold ${color}`}>{value}</div>
+      <div className="flex items-center gap-1.5 text-2xs text-neutral-500">
+        {dot && (
+          <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+        )}
+        {label}
+      </div>
+      <div className={`mt-0.5 text-2xl font-bold tabular-nums ${color}`}>{value}</div>
     </div>
   );
 }
@@ -191,43 +239,23 @@ function Row({
   const lastMs = row.last_block_at
     ? now - new Date(row.last_block_at).getTime()
     : null;
-  const idle =
-    !row.verified_at &&
-    !row.completion_code &&
-    row.blocks_submitted > 0 &&
-    (lastMs === null || lastMs > IDLE_MS);
-  const statusLabel = row.verified_at
-    ? "확인됨"
-    : row.completion_code
-      ? "완료 (확인 대기)"
-      : row.blocks_submitted > 0
-        ? idle
-          ? "멈춤(응답 끊김)"
-          : "진행 중"
-        : "시작 전";
-  const statusColor = row.verified_at
-    ? "text-violet-700"
-    : row.completion_code
-      ? "text-sky-700"
-      : idle
-        ? "text-amber-700"
-        : row.blocks_submitted > 0
-          ? "text-emerald-700"
-          : "text-muted";
+  const state = resolveState(row, now);
+  const meta = STATE_META[state];
+  const idle = state === "idle";
 
   return (
     <tr
       className={`border-b border-border last:border-b-0 ${
-        idle ? "bg-amber-50/40" : ""
+        idle ? "bg-warning-50" : ""
       }`}
     >
-      <td className="px-4 py-3 whitespace-nowrap text-foreground">
+      <td className="px-4 py-3 whitespace-nowrap tabular-nums text-foreground">
         {row.subject_number != null ? `피험자${row.subject_number}번` : "-"}
       </td>
       <td className="px-4 py-3 font-medium text-foreground">
         {row.participant_name}
       </td>
-      <td className="px-4 py-3 whitespace-nowrap text-xs text-muted">
+      <td className="px-4 py-3 whitespace-nowrap text-xs tabular-nums text-muted">
         {row.slot_start
           ? new Intl.DateTimeFormat("ko-KR", {
               timeZone: "Asia/Seoul",
@@ -239,11 +267,14 @@ function Row({
             }).format(new Date(row.slot_start))
           : "-"}
       </td>
-      <td className="px-4 py-3 text-foreground">
-        {row.blocks_submitted}
-        {blockCount !== null ? `/${blockCount}` : ""} 블록
+      <td className="px-4 py-3 align-middle">
+        <ParticipantProgress
+          submitted={row.blocks_submitted}
+          total={blockCount}
+          tone={meta.tone}
+        />
       </td>
-      <td className="px-4 py-3 text-xs text-muted tabular-nums">
+      <td className="px-4 py-3 text-xs tabular-nums text-muted">
         {lastMs === null
           ? "-"
           : lastMs < 60_000
@@ -252,23 +283,31 @@ function Row({
               ? `${Math.round(lastMs / 60_000)}m 전`
               : `${Math.round(lastMs / 3_600_000)}h 전`}
       </td>
-      <td className={`px-4 py-3 font-medium ${statusColor}`}>{statusLabel}</td>
       <td className="px-4 py-3">
-        <div className="flex flex-wrap gap-1 text-[10px]">
+        <span className={`inline-flex items-center gap-1.5 font-medium ${meta.text}`}>
+          <span
+            className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`}
+            aria-hidden
+          />
+          {meta.label}
+        </span>
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap gap-1 text-2xs">
           {row.is_pilot && (
-            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700">
+            <span className="rounded-full bg-warning-100 px-1.5 py-0.5 font-medium text-warning-700">
               파일럿
             </span>
           )}
           {row.condition_assignment && (
-            <span className="rounded-full bg-purple-100 px-1.5 py-0.5 font-medium text-purple-700">
+            <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 font-medium text-neutral-700">
               {row.condition_assignment}
             </span>
           )}
           {typeof row.attention_fail_count === "number" &&
             row.attention_fail_count > 0 && (
               <span
-                className="rounded-full bg-red-100 px-1.5 py-0.5 font-medium text-red-700"
+                className="rounded-full bg-danger-100 px-1.5 py-0.5 font-medium text-danger-700"
                 title="집중도 확인 문항에서 틀린 누적 횟수"
               >
                 집중 실패 {row.attention_fail_count}회
