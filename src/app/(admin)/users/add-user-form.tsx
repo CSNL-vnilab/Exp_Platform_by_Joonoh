@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { USERNAME_REGEX, PASSWORD_REGEX } from "@/lib/auth/username";
@@ -206,15 +207,14 @@ function AddUserModal({ open, onClose }: { open: boolean; onClose: () => void })
             <label htmlFor="new-role" className="text-sm font-medium text-foreground">
               역할
             </label>
-            <select
+            <Select
               id="new-role"
               value={role}
               onChange={(e) => onRoleChange(e.target.value as UserRole)}
-              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             >
               <option value="researcher">연구원</option>
               <option value="admin">관리자</option>
-            </select>
+            </Select>
           </div>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="new-password" className="text-sm font-medium text-foreground">

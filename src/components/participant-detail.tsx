@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
+import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { ClassBadge } from "@/components/class-badge";
 import { ParticipantMergeModal } from "@/components/participant-merge-modal";
@@ -526,11 +527,11 @@ function ClassEditModal({
           >
             클래스
           </label>
-          <select
+          <Select
             id="class-select"
             value={chosen}
             onChange={(e) => setChosen(e.target.value as ParticipantClass)}
-            className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="mt-1"
           >
             {CLASS_OPTIONS.map((opt) => (
               <option
@@ -542,7 +543,7 @@ function ClassEditModal({
                 {opt.adminOnly && !isAdmin ? " (관리자 전용)" : ""}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
 
         <div>

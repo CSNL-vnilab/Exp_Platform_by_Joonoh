@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import type { ExperimentChecklistItem } from "@/types/database";
 
@@ -254,11 +255,10 @@ export function MetadataFillList({
                   >
                     장소
                   </label>
-                  <select
+                  <Select
                     id={`loc-${e.id}`}
                     value={f.location_id}
                     onChange={(ev) => patch(e.id, "location_id", ev.target.value)}
-                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
                     <option value="">선택 안 함</option>
                     {locations.map((l) => (
@@ -266,7 +266,7 @@ export function MetadataFillList({
                         {l.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
                 <Input
                   id={`fee-${e.id}`}

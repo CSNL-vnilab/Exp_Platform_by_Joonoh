@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 
 // Recruitment ("홍보") blast modal. Flow:
@@ -206,7 +207,7 @@ export function PromoEmailModal({
               <label className="mb-1 block text-sm font-medium text-foreground">
                 홍보할 실험 (진행 중)
               </label>
-              <select
+              <Select
                 value={selectedExp}
                 disabled={loadingExps || sending}
                 onChange={(e) => {
@@ -220,7 +221,6 @@ export function PromoEmailModal({
                     setCounts(null);
                   }
                 }}
-                className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 <option value="">
                   {loadingExps ? "불러오는 중…" : "실험을 선택하세요"}
@@ -231,7 +231,7 @@ export function PromoEmailModal({
                     {e.project_name ? ` · ${e.project_name}` : ""}
                   </option>
                 ))}
-              </select>
+              </Select>
               {!loadingExps && experiments.length === 0 && (
                 <p className="mt-1 text-xs text-muted">
                   진행 중(active)인 실험이 없습니다. 실험을 먼저 활성화하세요.

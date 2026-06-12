@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Select } from "@/components/ui/select";
 import { ClassBadge } from "@/components/class-badge";
 import { PromoEmailModal } from "@/components/promo-email-modal";
 import { BlacklistRequestModal } from "@/components/blacklist-request-modal";
@@ -207,20 +208,20 @@ export function ParticipantsList() {
               aria-label="이름·전화·이메일·공개 ID 검색"
               className="w-64 rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
-            <select
+            <Select
               value={classFilter}
               onChange={(e) =>
                 setClassFilter(e.target.value as "" | ParticipantClass)
               }
               aria-label="참여자 분류 필터"
-              className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-auto py-1.5"
             >
               {CLASS_FILTERS.map((f) => (
                 <option key={f.value || "all"} value={f.value}>
                   {f.label}
                 </option>
               ))}
-            </select>
+            </Select>
             <div className="ml-auto text-xs text-muted">{rangeLabel}</div>
           </div>
         </CardContent>

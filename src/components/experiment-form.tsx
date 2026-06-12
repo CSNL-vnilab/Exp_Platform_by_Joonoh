@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
@@ -850,18 +851,17 @@ export function ExperimentForm({
                 <label htmlFor="session_duration" className="text-sm font-medium text-foreground">
                   세션 시간
                 </label>
-                <select
+                <Select
                   id="session_duration"
                   value={sessionDuration}
                   onChange={(e) => setSessionDuration(Number(e.target.value))}
-                  className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                 >
                   {SESSION_DURATIONS.map((d) => (
                     <option key={d.value} value={d.value}>
                       {d.label}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {errors.session_duration_minutes && (
                   <p className="text-xs text-danger">{errors.session_duration_minutes}</p>
                 )}
@@ -1203,16 +1203,15 @@ export function ExperimentForm({
                   <label className="mb-1 block text-sm font-medium text-foreground">
                     참여 완료 인증 코드 형식
                   </label>
-                  <select
+                  <Select
                     value={completionTokenFormat}
                     onChange={(e) => setCompletionTokenFormat(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
                     <option value="uuid">UUID (권장)</option>
                     <option value="alphanumeric:8">영숫자 8자리</option>
                     <option value="alphanumeric:12">영숫자 12자리</option>
                     <option value="alphanumeric:16">영숫자 16자리</option>
-                  </select>
+                  </Select>
                 </div>
                 {/* SRI hash — optional, protects against CDN payload swap */}
                 <div className="sm:col-span-2">
@@ -1347,7 +1346,7 @@ export function ExperimentForm({
                 <div className="mt-3 grid gap-3 sm:grid-cols-3">
                   <div>
                     <label className="mb-1 block text-sm font-medium text-foreground">방식</label>
-                    <select
+                    <Select
                       value={counterbalanceKind}
                       onChange={(e) =>
                         setCounterbalanceKind(
@@ -1358,13 +1357,12 @@ export function ExperimentForm({
                             | "random",
                         )
                       }
-                      className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
                     >
                       <option value="">미사용</option>
                       <option value="latin_square">라틴 방격 (순환 배정)</option>
                       <option value="block_rotation">블록 단위 순환</option>
                       <option value="random">고정 무작위 (재현 가능)</option>
-                    </select>
+                    </Select>
                   </div>
                   {counterbalanceKind && (
                     <Input
@@ -1490,7 +1488,7 @@ export function ExperimentForm({
                               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
                             />
                             <div className="grid gap-2 sm:grid-cols-3">
-                              <select
+                              <Select
                                 value={c.kind}
                                 onChange={(e) =>
                                   setAttentionChecks((cs) =>
@@ -1506,12 +1504,12 @@ export function ExperimentForm({
                                     ),
                                   )
                                 }
-                                className="rounded-lg border border-border px-3 py-1.5 text-sm"
+                                className="py-1.5"
                               >
                                 <option value="yes_no">예/아니오</option>
                                 <option value="single_choice">단일선택</option>
-                              </select>
-                              <select
+                              </Select>
+                              <Select
                                 value={c.position}
                                 onChange={(e) =>
                                   setAttentionChecks((cs) =>
@@ -1520,7 +1518,7 @@ export function ExperimentForm({
                                     ),
                                   )
                                 }
-                                className="rounded-lg border border-border px-3 py-1.5 text-sm"
+                                className="py-1.5"
                               >
                                 <option value="random">랜덤 (아무 블록 후)</option>
                                 {Array.from(
@@ -1531,7 +1529,7 @@ export function ExperimentForm({
                                     </option>
                                   ),
                                 )}
-                              </select>
+                              </Select>
                               <input
                                 value={c.correct_answer}
                                 onChange={(e) =>
@@ -1737,11 +1735,11 @@ export function ExperimentForm({
               <p className="text-xs text-muted">
                 참여자가 예약 완료 시 선택한 장소의 주소와 지도 링크가 표시됩니다.
               </p>
-              <select
+              <Select
                 id="location_id"
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="mt-1"
               >
                 <option value="">(선택 안 함)</option>
                 {locations.map((loc) => (
@@ -1749,7 +1747,7 @@ export function ExperimentForm({
                     {loc.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           </CardContent>
         </Card>
@@ -1782,11 +1780,10 @@ export function ExperimentForm({
                 </>
               ) : (
                 <>
-                  <select
+                  <Select
                     id="google_calendar_id"
                     value={googleCalendarId}
                     onChange={(e) => setGoogleCalendarId(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
                     <option value="">(사용 안 함)</option>
                     {calendars.map((c) => (
@@ -1798,7 +1795,7 @@ export function ExperimentForm({
                     {googleCalendarId && !calendars.some((c) => c.id === googleCalendarId) && (
                       <option value={googleCalendarId}>{googleCalendarId} (외부)</option>
                     )}
-                  </select>
+                  </Select>
                   {calendars.length === 0 && (
                     <>
                       <p className="text-xs text-danger">
@@ -2079,7 +2076,7 @@ export function ExperimentForm({
                         placeholder="변수 이름 (예: stim_contrast)"
                         className="min-w-[12rem] flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                       />
-                      <select
+                      <Select
                         value={param.type}
                         onChange={(e) => {
                           const next = [...parameterSchema];
@@ -2093,12 +2090,12 @@ export function ExperimentForm({
                           };
                           setParameterSchema(next);
                         }}
-                        className="rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        className="w-auto"
                       >
                         <option value="string">string</option>
                         <option value="number">number</option>
                         <option value="enum">enum</option>
-                      </select>
+                      </Select>
                       {param.type === "enum" ? (
                         <input
                           value={(param.options ?? []).join(", ")}

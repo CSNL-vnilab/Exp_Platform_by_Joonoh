@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Select } from "@/components/ui/select";
 
 export interface ExperimentListRow {
   id: string;
@@ -134,17 +135,17 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                 aria-label="제목·프로젝트 검색"
                 className="w-56 rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
-              <select
+              <Select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as Sort)}
                 aria-label="정렬 기준"
-                className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-auto py-1.5"
               >
                 <option value="recent">최신 등록순</option>
                 <option value="oldest">오래된 순</option>
                 <option value="title">이름순</option>
                 <option value="starts">시작일 순</option>
-              </select>
+              </Select>
             </div>
           </div>
         </CardContent>
