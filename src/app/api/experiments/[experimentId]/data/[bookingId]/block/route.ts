@@ -373,6 +373,13 @@ export async function POST(
     submitted_at: ingest.accepted_at,
     completed_at: parsed.data.completed_at ?? null,
     subject_number: booking.subject_number,
+    // Immutable booking identity. The CSV export joins per-participant
+    // attributes (attention_fail_count / screener_passed) on this rather than
+    // on (subject_number, session_number): session_number is mutated by
+    // renumberSessionsInGroup when any sibling in a multi-session group is
+    // rescheduled, which would otherwise desync the path-derived session from
+    // the booking row and silently blank/misattribute those columns.
+    booking_id: bookingId,
     is_pilot: progress.is_pilot,
     condition_assignment: progress.condition_assignment,
   };

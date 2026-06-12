@@ -109,6 +109,10 @@ export async function GET(
     subject_number: number | null;
     is_pilot?: boolean;
     condition_assignment?: string | null;
+    // Immutable booking identity (added 2026-06-12). Primary join key for the
+    // participant-attribute columns. Absent on legacy blocks ⇒ (subject,session)
+    // fallback.
+    booking_id?: string;
     // Session is derived from the storage path (see listSubjectBlocks), not
     // the block body — older block JSONs don't carry it.
     session?: number;
@@ -126,23 +130,26 @@ export async function GET(
     }
   }
 
-  // Participant-attribute join. A block carries (subject_number, session) but
-  // attention/screener state lives on the booking. Multi-session groups reuse
-  // the same subject_number across sessions, so we key bookings by the pair
-  // (subject_number, session_number) — same subject_number + different session
-  // ⇒ a different booking. We resolve each booking to:
+  // Participant-attribute join. attention/screener state lives on the booking,
+  // resolved to:
   //   attention_fail_count — experiment_run_progress.attention_fail_count
   //   screener_passed       — true iff every *required* screener for this
   //                           experiment has a passed=true response for the
   //                           booking (no required screeners ⇒ true).
+  // Primary join key is the immutable booking_id embedded in each block body.
+  // We do NOT key on (subject_number, session_number): session_number is
+  // rewritten by renumberSessionsInGroup whenever a sibling in a multi-session
+  // group is rescheduled, while the already-written block keeps its original
+  // session_{N}/ storage path — so a (subject_number, session) key would
+  // silently blank or misattribute these columns for rescheduled participants.
+  // The (subject_number, session) map is retained ONLY as a fallback for legacy
+  // blocks written before booking_id was embedded in the body.
   // Read-only; uses the service-role admin client (no RLS) since access was
-  // already gated by requireExperimentAccess. Missing matches ⇒ blank cells
-  // (legacy data predating run-progress / screener tracking).
+  // already gated by requireExperimentAccess. Missing matches ⇒ blank cells.
+  type Attr = { attention_fail_count: number | null; screener_passed: boolean | null };
   const subjSessKey = (subject: number, session: number) => `${subject}::${session}`;
-  const attrBySubjSess = new Map<
-    string,
-    { attention_fail_count: number | null; screener_passed: boolean | null }
-  >();
+  const attrBySubjSess = new Map<string, Attr>();
+  const attrByBookingId = new Map<string, Attr>();
   {
     const { data: bookingRows } = await admin
       .from("bookings")
@@ -217,11 +224,15 @@ export async function GET(
       }
 
       for (const b of bookings) {
-        if (b.subject_number == null) continue;
-        attrBySubjSess.set(subjSessKey(b.subject_number, b.session_number), {
+        const attr: Attr = {
           attention_fail_count: failByBooking.get(b.id) ?? null,
           screener_passed: passByBooking.get(b.id) ?? null,
-        });
+        };
+        // Primary key: immutable booking_id (works even for null subject_number).
+        attrByBookingId.set(b.id, attr);
+        // Fallback key for legacy blocks that predate body booking_id.
+        if (b.subject_number != null)
+          attrBySubjSess.set(subjSessKey(b.subject_number, b.session_number), attr);
       }
     }
   }
@@ -256,10 +267,13 @@ export async function GET(
       controller.enqueue(encoder.encode(header.map(csvEscape).join(",") + "\n"));
       for (const b of blocks) {
         const session = b.session ?? 1;
+        // Prefer the immutable booking_id join; fall back to (subject, session)
+        // only for legacy blocks written before booking_id was embedded.
         const attr =
-          b.subject_number != null
+          (b.booking_id != null ? attrByBookingId.get(b.booking_id) : undefined) ??
+          (b.subject_number != null
             ? attrBySubjSess.get(subjSessKey(b.subject_number, session))
-            : undefined;
+            : undefined);
         // block_metadata rendered once per block as a JSON-string cell.
         const blockMetaCell =
           b.block_metadata != null ? cellValue(b.block_metadata) : "";

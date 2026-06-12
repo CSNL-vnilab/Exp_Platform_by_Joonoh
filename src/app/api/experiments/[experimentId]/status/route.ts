@@ -49,13 +49,19 @@ function assertOnlineActivationReady(
   // (e.g. from a manual DB edit) must not slip past as "ready".
   const spec = config.counterbalance_spec;
   if (spec !== undefined && spec !== null) {
+    const conditions = (spec as { conditions?: unknown }).conditions;
     if (
       typeof spec !== "object" ||
       !KNOWN_COUNTERBALANCE_KINDS.includes(
         (spec as { kind?: string }).kind as (typeof KNOWN_COUNTERBALANCE_KINDS)[number],
-      )
+      ) ||
+      // rpc_assign_condition returns NULL for an empty/missing conditions array
+      // (migration 00033) — a "ready" experiment would then silently run
+      // un-counterbalanced. Require a non-empty conditions array here too.
+      !Array.isArray(conditions) ||
+      conditions.length === 0
     ) {
-      return "조건 배정(counterbalance) 설정 형식이 올바르지 않습니다. 실험 수정에서 다시 저장해주세요.";
+      return "조건 배정(counterbalance) 설정 형식이 올바르지 않습니다. 조건 목록(conditions)이 비어 있지 않은지 실험 수정에서 확인해주세요.";
     }
   }
 
