@@ -191,7 +191,7 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                         {isBackfill && (
                           <span
                             title="캘린더에서 일괄 import된 과거 실험. 일부 메타데이터(protocol_version 등) 보완이 필요할 수 있습니다."
-                            className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+                            className="rounded-full border border-warning-300 bg-warning-50 px-2 py-0.5 text-[10px] font-medium text-warning-800"
                           >
                             백필
                           </span>
@@ -199,7 +199,7 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                         {experiment.protocol_version && (
                           <span
                             title={`protocol_version: ${experiment.protocol_version}`}
-                            className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800"
+                            className="rounded-full border border-info-200 bg-info-50 px-2 py-0.5 text-[10px] font-medium text-info-800"
                           >
                             {experiment.protocol_version}
                           </span>
@@ -219,7 +219,7 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                       <span title={`확정 ${c.confirmed} · 완료 ${c.completed} · 취소 ${c.cancelled}`}>
                         예약 {c.total}건
                         {c.completed > 0 && (
-                          <span className="ml-1 text-sky-700">(완료 {c.completed})</span>
+                          <span className="ml-1 text-info-700">(완료 {c.completed})</span>
                         )}
                         {c.cancelled > 0 && (
                           <span className="ml-1 text-danger-600">(취소 {c.cancelled})</span>

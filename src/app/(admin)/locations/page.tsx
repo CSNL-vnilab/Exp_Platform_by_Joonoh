@@ -18,7 +18,7 @@ export default async function LocationsPage() {
 
   return (
     <div>
-      <div className="mb-8 flex items-start justify-between gap-4">
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">실험 장소 관리</h1>
           <p className="mt-1 text-sm text-muted">

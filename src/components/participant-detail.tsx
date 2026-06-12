@@ -133,13 +133,13 @@ export function ParticipantDetail({ data, role }: Props) {
         </div>
 
         <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-800">
+          <span className="rounded-full bg-info-50 px-3 py-1 text-info-800">
             완료 {data.stats.completed}
           </span>
           <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-800">
             예정 {data.stats.confirmed}
           </span>
-          <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-800">
+          <span className="rounded-full bg-warning-50 px-3 py-1 text-warning-800">
             불참(노쇼) {data.stats.no_show}
           </span>
           <span className="rounded-full bg-danger-50 px-3 py-1 text-danger-800">

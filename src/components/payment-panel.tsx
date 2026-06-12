@@ -117,7 +117,7 @@ const STATUS_LABEL: Record<PaymentStatus, string> = {
 };
 
 const STATUS_CLASS: Record<PaymentStatus, string> = {
-  pending_participant: "bg-amber-50 text-amber-800 border-amber-200",
+  pending_participant: "bg-warning-50 text-warning-800 border-warning-200",
   submitted_to_admin: "bg-info-50 text-info-800 border-info-200",
   claimed: "bg-emerald-50 text-emerald-800 border-emerald-200",
   paid: "bg-emerald-50 text-emerald-800 border-emerald-200",
@@ -554,14 +554,14 @@ export function PaymentPanel({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-xs text-muted">
-                  <th className="py-2.5 pr-3 font-medium">참가자</th>
-                  <th className="py-2.5 pr-3 font-medium">기간</th>
-                  <th className="py-2.5 pr-3 font-medium">지급액</th>
-                  <th className="py-2.5 pr-3 font-medium">은행</th>
-                  <th className="py-2.5 pr-3 font-medium">상태</th>
-                  <th className="py-2.5 pr-3 font-medium">안내 메일</th>
-                  <th className="py-2.5 font-medium" />
+                <tr className="border-b border-border bg-card text-left">
+                  <th className="py-2.5 pr-3 font-medium text-muted">참가자</th>
+                  <th className="py-2.5 pr-3 font-medium text-muted">기간</th>
+                  <th className="py-2.5 pr-3 font-medium text-muted">지급액</th>
+                  <th className="py-2.5 pr-3 font-medium text-muted">은행</th>
+                  <th className="py-2.5 pr-3 font-medium text-muted">상태</th>
+                  <th className="py-2.5 pr-3 font-medium text-muted">안내 메일</th>
+                  <th className="py-2.5 font-medium text-muted" />
                 </tr>
               </thead>
               <tbody>
@@ -627,7 +627,7 @@ export function PaymentPanel({
                                   {r.amountKrw.toLocaleString()}원
                                 </span>
                                 {r.amountOverridden && (
-                                  <span className="text-2xs text-amber-600">
+                                  <span className="text-2xs text-warning-600">
                                     (수동)
                                   </span>
                                 )}
@@ -638,7 +638,7 @@ export function PaymentPanel({
                                   {r.amountKrw.toLocaleString()}원
                                 </span>
                                 {r.amountOverridden && (
-                                  <span className="text-2xs text-amber-600">
+                                  <span className="text-2xs text-warning-600">
                                     (수동)
                                   </span>
                                 )}
@@ -983,7 +983,7 @@ function DispatchCell({
           type="button"
           disabled={busy}
           onClick={onResend}
-          className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+          className="rounded border border-warning-300 bg-warning-50 px-1.5 py-0.5 text-[10px] text-warning-800 hover:bg-warning-100 disabled:opacity-50"
         >
           {busy ? "발송 중…" : "수동 발송"}
         </button>
@@ -1065,7 +1065,7 @@ function AmountRecommendation({
       type="button"
       onClick={onApply}
       title="회차 수·참여비로 자동 계산한 권장 지급액 — 클릭하면 입력칸에 채워집니다 (저장 전까지 적용 안 됨)"
-      className="inline-flex w-fit items-center gap-1 rounded text-[10px] text-sky-700 hover:text-sky-900 hover:underline tabular-nums"
+      className="inline-flex w-fit items-center gap-1 rounded text-2xs text-info-700 hover:text-info-900 hover:underline tabular-nums"
     >
       자동 계산 금액 {row.recommendedKrw.toLocaleString()}원{sessionSuffix}
     </button>

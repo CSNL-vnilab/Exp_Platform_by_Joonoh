@@ -52,15 +52,15 @@ export function UsersTable({ profiles, currentUserId }: Props) {
     <Card>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead className="border-b border-border text-left text-xs uppercase text-muted">
-            <tr>
-              <th className="px-3 py-2">이름</th>
-              <th className="px-3 py-2">ID</th>
-              <th className="px-3 py-2">역할</th>
-              <th className="px-3 py-2">상태</th>
-              <th className="px-3 py-2">Notion</th>
-              <th className="px-3 py-2">가입일</th>
-              <th className="px-3 py-2 text-right">작업</th>
+          <thead>
+            <tr className="border-b border-border bg-card text-left">
+              <th className="px-3 py-2 font-medium text-muted">이름</th>
+              <th className="px-3 py-2 font-medium text-muted">ID</th>
+              <th className="px-3 py-2 font-medium text-muted">역할</th>
+              <th className="px-3 py-2 font-medium text-muted">상태</th>
+              <th className="px-3 py-2 font-medium text-muted">Notion</th>
+              <th className="px-3 py-2 font-medium text-muted">가입일</th>
+              <th className="px-3 py-2 text-right font-medium text-muted">작업</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">

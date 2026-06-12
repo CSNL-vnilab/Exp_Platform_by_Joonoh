@@ -165,7 +165,7 @@ function DriftBlock({
         {row.schema_hash ? ` · hash ${row.schema_hash}` : ""}
       </p>
       {stale && (
-        <p className="mt-1 text-xs text-amber-800">
+        <p className="mt-1 text-xs text-warning-800">
           검사가 2일 이상 실행되지 않았습니다. 크론 상태를 확인하세요.
         </p>
       )}
@@ -214,7 +214,7 @@ function RetryBlock({
         {typeof r.skipped === "number" ? ` / skip ${r.skipped}` : ""}
       </p>
       {stale && (
-        <p className="mt-1 text-xs text-amber-800">
+        <p className="mt-1 text-xs text-warning-800">
           스윕이 2시간 이상 실행되지 않았습니다. 크론 상태를 확인하세요.
         </p>
       )}

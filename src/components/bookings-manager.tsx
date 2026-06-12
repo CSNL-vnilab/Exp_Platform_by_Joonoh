@@ -260,8 +260,8 @@ export function BookingsManager({
           [
             ["확정", counts.confirmed, "text-emerald-600"],
             ["취소", counts.cancelled, "text-danger-600"],
-            ["완료", counts.completed, "text-sky-600"],
-            ["불참(노쇼)", counts.no_show, "text-amber-600"],
+            ["완료", counts.completed, "text-info-600"],
+            ["불참(노쇼)", counts.no_show, "text-warning-600"],
           ] as const
         ).map(([label, n, color]) => (
           <Card key={label}>
@@ -714,7 +714,7 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
   const badges = (
     <div className="flex flex-wrap items-center gap-1">
       {p.is_pilot && (
-        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+        <span className="rounded-full bg-warning-100 px-1.5 py-0.5 text-[10px] font-medium text-warning-700">
           파일럿
         </span>
       )}
@@ -760,7 +760,7 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
         <div className="font-mono text-[11px] font-semibold text-foreground break-all">
           {p.completion_code}
         </div>
-        <div className="text-amber-700">확인 대기</div>
+        <div className="text-warning-700">확인 대기</div>
         {badges}
       </div>
     );

@@ -34,7 +34,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
           type="button"
           onClick={onClose}
           aria-label="닫기"
-          className="rounded-lg p-1 text-muted hover:bg-gray-100 hover:text-foreground"
+          className="rounded-lg p-1 text-muted hover:bg-neutral-100 hover:text-foreground"
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

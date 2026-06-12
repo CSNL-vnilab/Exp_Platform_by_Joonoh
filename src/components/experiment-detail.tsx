@@ -786,7 +786,7 @@ export function ExperimentDetail({
                         </span>
                       )}
                       {bookingBreakdown.completed > 0 && (
-                        <span className="ml-1 text-sky-700">
+                        <span className="ml-1 text-info-700">
                           (완료 {bookingBreakdown.completed})
                         </span>
                       )}

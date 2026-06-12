@@ -1423,7 +1423,7 @@ export function ExperimentForm({
                     <p className="mt-1 text-[11px] text-muted">
                       {valid.length}개 인식됨
                       {dropped > 0 && (
-                        <span className="ml-1 text-amber-700">
+                        <span className="ml-1 text-warning-700">
                           · {dropped}개는 고유 ID 형식이 아니어서 저장되지 않습니다
                         </span>
                       )}
@@ -1618,7 +1618,7 @@ export function ExperimentForm({
                   <button
                     type="button"
                     onClick={() => setIrbDocumentUrl(labIrbBaseUrl)}
-                    className="mt-1 inline-flex items-center gap-1 text-xs text-sky-700 underline-offset-2 hover:underline"
+                    className="mt-1 inline-flex items-center gap-1 text-xs text-info-700 underline-offset-2 hover:underline"
                     title={labIrbBaseUrl}
                   >
                     📎 관리자 등록 IRB 사용
@@ -1765,7 +1765,7 @@ export function ExperimentForm({
                 예약 동기화 캘린더 (선택)
               </label>
               {calendarsLoading ? (
-                <div className="h-10 animate-pulse rounded-lg bg-gray-100" />
+                <div className="h-10 animate-pulse rounded-lg bg-neutral-100" />
               ) : calendarsError ? (
                 <>
                   <Input
@@ -2004,7 +2004,7 @@ export function ExperimentForm({
                   {dataPath ? (
                     <code className="text-foreground">{dataPath}</code>
                   ) : (
-                    <span className="text-amber-700">자동 생성 시 results/ 추정 사용</span>
+                    <span className="text-warning-700">자동 생성 시 results/ 추정 사용</span>
                   )}
                 </span>
               </div>

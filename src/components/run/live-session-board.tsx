@@ -172,7 +172,7 @@ export function LiveSessionBoard({
         <div className="overflow-x-auto rounded-xl border border-border bg-white">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-card text-2xs tracking-wide text-neutral-500 uppercase">
+              <tr className="border-b border-border bg-card text-2xs tracking-wide text-muted uppercase">
                 <th className="px-4 py-2.5 text-left font-medium">피험자</th>
                 <th className="px-4 py-2.5 text-left font-medium">참여자</th>
                 <th className="px-4 py-2.5 text-left font-medium">예약 시간</th>

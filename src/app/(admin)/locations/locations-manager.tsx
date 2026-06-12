@@ -175,7 +175,7 @@ function LocationModal({ open, onClose, initial, onSaved }: LocationModalProps) 
                   <button
                     type="button"
                     onClick={() => removeLine(idx)}
-                    className="flex-shrink-0 rounded-lg px-2 py-1 text-muted hover:bg-gray-100 hover:text-danger text-sm"
+                    className="flex-shrink-0 rounded-lg px-2 py-1 text-muted hover:bg-neutral-100 hover:text-danger text-sm"
                     aria-label="줄 제거"
                   >
                     &times;

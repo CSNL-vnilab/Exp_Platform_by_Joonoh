@@ -304,7 +304,7 @@ export function MetadataFillList({
                     <button
                       type="button"
                       onClick={() => patch(e.id, "irb_document_url", labIrbBaseUrl)}
-                      className="mt-1 inline-flex items-center gap-1 text-xs text-sky-700 underline-offset-2 hover:underline"
+                      className="mt-1 inline-flex items-center gap-1 text-xs text-info-700 underline-offset-2 hover:underline"
                       title={labIrbBaseUrl}
                     >
                       📎 관리자 등록 IRB 사용
