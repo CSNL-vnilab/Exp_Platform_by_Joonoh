@@ -6,6 +6,24 @@ Synthesis of 6-lens diagnosis (authoring · run-shell · data-ingest · lifecycl
 
 ---
 
+## 0) Self-evolve progress — P0 + P1 tier COMPLETE (2026-06-12)
+
+The entire "must be true before a real recruited study can run" set (§2 P0-1…P1-7) is **implemented, adversarially reviewed, and deployed to production**. Each step: build → refute-biased review (must-fix loop) → tsc + regression suites (notify 41 / backfill 20 / schema 11) → commit → Vercel READY verified.
+
+| Step | What landed | Commit | Deploy |
+|---|---|---|---|
+| **P0-1** | Phase-2 config zod persists (counterbalance/attention/preflight/exclude/SRI no longer stripped) | `ea7ee7a` | READY |
+| **P0-2** | Attention graded server-side; `correct_answer` no longer shipped to browser | `ea7ee7a` | READY |
+| **P0-3** | Ingest eligibility gate at `block_index===0` (required-screener pass + `exclude_experiment_ids` re-check, mirroring `book_slot` incl. `no_show`) — curl-bypass closed | `cff954c` | READY |
+| **P0-4** | Multi-session storage path `session_{N}/` segment (5-day paradigm no longer rolls back); shared `listExperimentBlocks` helper, both exports session-aware | `cff954c` | READY |
+| **P1-5** | Counterbalanced condition auto-assigned at `/run` SSR (idempotent `rpc_assign_condition`); was silently null on happy path | `c4c91b3` | READY |
+| **P1-6** | Analysis CSV reachable from UI ("분석용 CSV" button) + `.list` pagination (no >1000 silent loss) + columns (session/attention_fail_count/screener_passed/block_metadata, JSON-celled nested values) | `18ac433` | READY |
+| **P1-7** | Online activation readiness gate (entry_url + config shape) + honest completeness signal (sidebar reads persisted config) | `298c5b3` | READY |
+
+**Maturity now:** online studies created through this UI are trustworthy for single- and multi-session recruited research. Remaining work is the **§3 Step H / §2 P2-8…9 ops tier** (revoke writer, entry_url versioning/pinning, `sessionIndex` bridge, preflight psychophysics rigor) — lower priority, "after integrity is solid," and **gated on the §4 researcher decisions** (esp. #1 timing-precision target and #3 SRI mandatory-vs-advisory). These are surfaced for the user rather than driven autonomously: #2 (export format) and #5 (eligibility strictness) were resolved by reasonable defaults during P1-6/P0-3; #1, #3, #4 (multi-session identity → resolved as booking `session_number` authoritative in P0-4) remain partly open for P2.
+
+---
+
 ## 1) Current status at a glance
 
 | Capability | Status | Evidence |
