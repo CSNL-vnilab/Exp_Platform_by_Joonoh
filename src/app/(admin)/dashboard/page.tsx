@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { NotionHealthCard } from "@/components/notion-health-card";
 import { PendingWorkCard } from "@/components/pending-work-card";
@@ -150,9 +151,7 @@ export default async function DashboardPage() {
               <span className="text-xs text-muted">{upcomingRows.length}건</span>
             </div>
             {upcomingRows.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted">
-                앞으로 7일 이내 확정된 예약이 없습니다.
-              </p>
+              <EmptyState title="앞으로 7일 이내 확정된 예약이 없습니다." inset="card" />
             ) : (
               <ul className="divide-y divide-border">
                 {upcomingRows.map((b) => (
@@ -191,9 +190,7 @@ export default async function DashboardPage() {
           <CardContent>
             <h2 className="mb-4 text-lg font-semibold text-foreground">최근 활동</h2>
             {(recent ?? []).length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted">
-                활동 기록이 없습니다.
-              </p>
+              <EmptyState title="활동 기록이 없습니다." inset="card" />
             ) : (
               <ul className="space-y-3 text-sm">
                 {(recent ?? []).map((b) => {
@@ -297,9 +294,7 @@ export default async function DashboardPage() {
             <span className="text-xs text-muted">{active.length}개</span>
           </div>
           {active.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted">
-              진행 중인 실험이 없습니다.
-            </p>
+            <EmptyState title="진행 중인 실험이 없습니다." inset="card" />
           ) : (
             <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {active.map((e) => {

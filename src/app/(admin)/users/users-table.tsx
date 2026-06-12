@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { fromInternalEmail } from "@/lib/auth/username";
 import { NotionLinkInput } from "@/components/notion-link-input";
@@ -42,7 +43,7 @@ export function UsersTable({ profiles, currentUserId }: Props) {
   if (profiles.length === 0) {
     return (
       <Card>
-        <p className="text-sm text-muted">등록된 사용자가 없습니다.</p>
+        <EmptyState title="등록된 사용자가 없습니다." inset="card" />
       </Card>
     );
   }

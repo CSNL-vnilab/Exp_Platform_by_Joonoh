@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import type { ExperimentLocation } from "@/types/database";
 
@@ -287,9 +288,11 @@ export function LocationsManager({ initialLocations }: LocationsManagerProps) {
   if (initialLocations.length === 0) {
     return (
       <Card>
-        <p className="text-sm text-muted text-center py-4">
-          등록된 장소가 없습니다. 오른쪽 상단의 &quot;장소 추가&quot; 버튼으로 추가해 보세요.
-        </p>
+        <EmptyState
+          title="등록된 장소가 없습니다."
+          description={'오른쪽 상단의 "장소 추가" 버튼으로 추가해 보세요.'}
+          inset="card"
+        />
       </Card>
     );
   }
