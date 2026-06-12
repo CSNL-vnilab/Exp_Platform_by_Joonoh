@@ -174,6 +174,28 @@ export default async function RunPage({ params, searchParams }: PageProps) {
     );
   }
 
+  // Counterbalanced condition auto-assignment (P1-5). On the happy path the
+  // run-shell never calls the /session endpoint, so a counterbalanced study's
+  // condition would stay null and the bridge would expose condition=null —
+  // the participant runs un-counterbalanced with a green "ready" signal.
+  // Assign here at SSR, before the shell renders, whenever the experiment
+  // declares a counterbalance_spec and the booking has no condition yet.
+  // rpc_assign_condition is idempotent and row-locked (migrations 00032/00033):
+  // concurrent reloads serialize on the progress row and return the same stored
+  // value, so it is safe to call on every fresh load. The RPC reads
+  // counterbalance_spec from the stored experiment row itself, so sanitizing the
+  // spec out of the shell payload below does not affect assignment. Experiments
+  // without a spec skip the call entirely — their path is unchanged.
+  let resolvedCondition = progress.condition_assignment ?? null;
+  if (resolvedCondition == null && exp.online_runtime_config.counterbalance_spec) {
+    const { data: assigned } = await supabase.rpc("rpc_assign_condition", {
+      p_booking_id: booking.id,
+    });
+    if (typeof assigned === "string" && assigned.length > 0) {
+      resolvedCondition = assigned;
+    }
+  }
+
   // Fetch online screeners + prior passed/failed responses. Shell uses these
   // to render the screening step.
   const { data: screenerRows } = await supabase
@@ -201,7 +223,7 @@ export default async function RunPage({ params, searchParams }: PageProps) {
           id: booking.id,
           subject_number: booking.subject_number ?? 0,
           is_pilot: progress.is_pilot ?? false,
-          condition: progress.condition_assignment ?? null,
+          condition: resolvedCondition,
         }}
         experiment={{
           id: exp.id,
