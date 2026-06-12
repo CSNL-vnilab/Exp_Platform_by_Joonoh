@@ -15,7 +15,12 @@ import { verifyRunToken, hashToken, TokenError } from "@/lib/experiments/run-tok
 //
 // The block body is stored append-only in Supabase Storage under
 //   experiment-data/{experiment_id}/{subject_number}/block_{N}.json
+//   (single-session / session 1 — legacy-compatible bare path), or
+//   experiment-data/{experiment_id}/{subject_number}/session_{S}/block_{N}.json
+//   (multi-session rounds 2+, keyed by the booking's session_number)
 // with service-role credentials (researcher-readable via RLS policy).
+// The session segment prevents multi-session groups (which share one
+// subject_number) from colliding day-over-day at the same object path.
 //
 // No PII is accepted — payloads reference the participant by subject_number
 // only. The route strips any top-level fields matching a blocklist as
@@ -164,7 +169,7 @@ export async function POST(
   const { data: booking, error: bookingErr } = await supabase
     .from("bookings")
     .select(
-      "id, experiment_id, subject_number, experiments(id, experiment_mode, online_runtime_config)",
+      "id, experiment_id, participant_id, subject_number, session_number, experiments(id, experiment_mode, online_runtime_config)",
     )
     .eq("id", bookingId)
     .maybeSingle();
@@ -180,6 +185,7 @@ export async function POST(
     online_runtime_config: {
       completion_token_format?: string;
       block_count?: number;
+      exclude_experiment_ids?: string[];
     } | null;
   } | null;
   if (!exp || exp.experiment_mode === "offline") {
@@ -195,6 +201,109 @@ export async function POST(
       { error: "BLOCK_INDEX_OUT_OF_RANGE" },
       { status: 409 },
     );
+  }
+
+  // ── Eligibility gate (P0-3) ───────────────────────────────────────────────
+  // The /run shell runs the screener as a client-side phase machine; a valid
+  // token + curl can therefore skip it entirely and curl block_0 straight into
+  // the dataset (and mint a completion code). Screening must be an INGEST-side
+  // guarantee, not a UX nudge. We gate ONLY the first block (block_index === 0):
+  // later blocks are already-past this point (monotonic ordering means
+  // block_index>0 implies block_0 was accepted, which means the gate passed),
+  // and re-running the queries on every block would be wasted work. The gate
+  // sits BEFORE rpc_ingest_block so no counter/rate-limit slot moves for an
+  // ineligible participant.
+  if (parsed.data.block_index === 0) {
+    // (1) Required-screener gate. Every screener marked required=true must have
+    //     a server-graded passed=true response row for THIS booking. Optional
+    //     (required=false) screeners are not gated (lab policy: required
+    //     screeners are the eligibility contract; optional ones are advisory).
+    const { data: requiredScreeners, error: screenerErr } = await supabase
+      .from("experiment_online_screeners")
+      .select("id")
+      .eq("experiment_id", exp.id)
+      .eq("required", true);
+    if (screenerErr) {
+      return NextResponse.json(
+        { error: "ELIGIBILITY_CHECK_FAILED" },
+        { status: 500 },
+      );
+    }
+    if (requiredScreeners && requiredScreeners.length > 0) {
+      const requiredIds = requiredScreeners.map((s) => s.id);
+      // Only count rows that this booking actually PASSED. A missing row or a
+      // passed=false row both fail the gate.
+      const { data: passedRows, error: respErr } = await supabase
+        .from("experiment_online_screener_responses")
+        .select("screener_id")
+        .eq("booking_id", bookingId)
+        .eq("passed", true)
+        .in("screener_id", requiredIds);
+      if (respErr) {
+        return NextResponse.json(
+          { error: "ELIGIBILITY_CHECK_FAILED" },
+          { status: 500 },
+        );
+      }
+      const passedSet = new Set((passedRows ?? []).map((r) => r.screener_id));
+      const allPassed = requiredIds.every((id) => passedSet.has(id));
+      if (!allPassed) {
+        return NextResponse.json(
+          { error: "SCREENER_NOT_PASSED" },
+          { status: 403 },
+        );
+      }
+    }
+
+    // (2) Cross-study exclusion re-check. exclude_experiment_ids is enforced at
+    //     booking time (book_slot / bookings POST), but the booking could have
+    //     been created before the exclusion was configured, or the participant
+    //     could have enrolled in an excluded study AFTER booking. Re-checking
+    //     here closes the booking-time-only window. This MUST mirror the
+    //     authoritative booking-time enforcement exactly: book_slot
+    //     (00045:158) matches participant_id against FOUR statuses —
+    //     ('confirmed','running','completed','no_show'). no_show is included
+    //     deliberately (00045:132-135): a participant who intended to take part
+    //     but didn't appear is still "already engaged" for cross-study
+    //     exclusion. Dropping no_show here would fail open precisely on the
+    //     no_show population this re-check exists to catch.
+    const rawExclude = exp.online_runtime_config?.exclude_experiment_ids;
+    const excludeIds = Array.isArray(rawExclude)
+      ? rawExclude.filter((id) => typeof id === "string" && isValidUUID(id))
+      : [];
+    // Never let a participant's OWN current experiment exclude itself.
+    const otherExcludeIds = excludeIds.filter((id) => id !== exp.id);
+    if (otherExcludeIds.length > 0) {
+      // participant_id is NOT NULL in schema and book_slot always inserts it;
+      // a missing value here means corruption. Fail closed rather than
+      // silently skipping the exclusion, keeping a uniform fail-closed stance
+      // with the screener gate and DB-error paths above.
+      if (!booking.participant_id) {
+        return NextResponse.json(
+          { error: "ELIGIBILITY_CHECK_FAILED" },
+          { status: 500 },
+        );
+      }
+      const { data: priorBookings, error: priorErr } = await supabase
+        .from("bookings")
+        .select("id")
+        .eq("participant_id", booking.participant_id)
+        .in("experiment_id", otherExcludeIds)
+        .in("status", ["confirmed", "running", "completed", "no_show"])
+        .limit(1);
+      if (priorErr) {
+        return NextResponse.json(
+          { error: "ELIGIBILITY_CHECK_FAILED" },
+          { status: 500 },
+        );
+      }
+      if (priorBookings && priorBookings.length > 0) {
+        return NextResponse.json(
+          { error: "EXPERIMENT_EXCLUDED" },
+          { status: 403 },
+        );
+      }
+    }
   }
 
   // Atomic bump: enforces rate limits + monotonic block order.
@@ -277,7 +386,24 @@ export async function POST(
       ? String(booking.subject_number)
       : `booking-${bookingId}`;
   const pilotPrefix = progress.is_pilot ? "_pilot/" : "";
-  const path = `${exp.id}/${pilotPrefix}${sbjFolder}/block_${parsed.data.block_index}.json`;
+  // Multi-session paradigms (e.g. TimeExpOnline1's 5-day run) put every
+  // session of a booking_group under the SAME subject_number. Without a
+  // session segment, day-2 block_0 would target the same object path as
+  // day-1 block_0; upsert:false then rejects it and the whole run rolls
+  // back — the group can never complete. session_number (authoritative,
+  // from the booking row) disambiguates the sessions.
+  //
+  // Legacy compatibility: single-session data was written WITHOUT a session
+  // segment. Only insert `session_{N}/` when session_number is a real number
+  // (>1, i.e. an actual multi-session round) so single-session bookings —
+  // including any already-collected data at the old path — keep their
+  // existing layout untouched. session 1 is the implicit/legacy session and
+  // stays at the bare `{sbjFolder}/block_N.json` path.
+  const sessionSegment =
+    typeof booking.session_number === "number" && booking.session_number > 1
+      ? `session_${booking.session_number}/`
+      : "";
+  const path = `${exp.id}/${pilotPrefix}${sbjFolder}/${sessionSegment}block_${parsed.data.block_index}.json`;
   const bytes = new TextEncoder().encode(JSON.stringify(blockPayload));
 
   // upsert=false so a participant cannot overwrite an already-accepted

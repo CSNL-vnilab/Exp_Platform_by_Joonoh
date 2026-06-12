@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireExperimentAccess } from "@/lib/auth/experiment-access";
+import { listExperimentBlocks } from "@/lib/storage/experiment-blocks";
 
 // GET /api/experiments/:id/data-export-csv?include_pilot=1
 //
@@ -17,6 +18,7 @@ import { requireExperimentAccess } from "@/lib/auth/experiment-access";
 
 const FIXED_COLS = [
   "subject_number",
+  "session",
   "block_index",
   "trial_index",
   "condition",
@@ -61,44 +63,14 @@ export async function GET(
 
   const includePilot = new URL(request.url).searchParams.get("include_pilot") === "1";
 
-  // Enumerate subject folders + pilot folder if requested
-  const topFolders: string[] = [];
-  const { data: rootList } = await admin.storage
-    .from("experiment-data")
-    .list(experimentId, { limit: 1000 });
-  for (const entry of rootList ?? []) {
-    if (!entry.name) continue;
-    if (entry.name === "_pilot" && !includePilot) continue;
-    topFolders.push(entry.name);
-  }
-
-  // Collect all block JSONs
-  const blockPaths: string[] = [];
-  for (const f of topFolders) {
-    if (f === "_pilot") {
-      // recurse one level into _pilot/{sbj}/block_*.json
-      const { data: pilotSubs } = await admin.storage
-        .from("experiment-data")
-        .list(`${experimentId}/_pilot`, { limit: 1000 });
-      for (const ps of pilotSubs ?? []) {
-        const { data: files } = await admin.storage
-          .from("experiment-data")
-          .list(`${experimentId}/_pilot/${ps.name}`, { limit: 1000 });
-        for (const blk of files ?? []) {
-          if (blk.name.endsWith(".json"))
-            blockPaths.push(`${experimentId}/_pilot/${ps.name}/${blk.name}`);
-        }
-      }
-    } else {
-      const { data: files } = await admin.storage
-        .from("experiment-data")
-        .list(`${experimentId}/${f}`, { limit: 1000 });
-      for (const blk of files ?? []) {
-        if (blk.name.endsWith(".json"))
-          blockPaths.push(`${experimentId}/${f}/${blk.name}`);
-      }
-    }
-  }
+  // Enumerate every block JSON, descending into multi-session `session_{N}/`
+  // sub-folders and (when requested) the `_pilot` tree. Shared with the JSON
+  // export via listExperimentBlocks so the two exports can't drift on
+  // storage-layout changes. The session is derived from the path: a
+  // `session_{N}` segment ⇒ session N, otherwise session 1.
+  const blockEntries = await listExperimentBlocks(admin, experimentId, {
+    includePilot,
+  });
 
   // Download + parse each
   interface Block {
@@ -109,13 +81,18 @@ export async function GET(
     subject_number: number | null;
     is_pilot?: boolean;
     condition_assignment?: string | null;
+    // Session is derived from the storage path (see listSubjectBlocks), not
+    // the block body — older block JSONs don't carry it.
+    session?: number;
   }
   const blocks: Block[] = [];
-  for (const p of blockPaths) {
+  for (const { path: p, session } of blockEntries) {
     const { data, error } = await admin.storage.from("experiment-data").download(p);
     if (error || !data) continue;
     try {
-      blocks.push(JSON.parse(await data.text()) as Block);
+      const parsedBlock = JSON.parse(await data.text()) as Block;
+      parsedBlock.session = session;
+      blocks.push(parsedBlock);
     } catch {
       // malformed — skip silently; researcher can re-check via JSON export
     }
@@ -153,6 +130,7 @@ export async function GET(
         for (const t of b.trials ?? []) {
           const row: Record<string, unknown> = {
             subject_number: b.subject_number,
+            session: b.session ?? 1,
             block_index: b.block_index,
             trial_index: (t as { trial_index?: unknown }).trial_index ?? "",
             condition: b.condition_assignment ?? "",
