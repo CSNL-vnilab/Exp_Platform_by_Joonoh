@@ -343,16 +343,10 @@ export function PaymentPanel({
 
   async function openEmailModal(claimId: string) {
     setDownloading("email-preview");
-    console.log("[payment-panel] openEmailModal start", claimId);
     try {
       const res = await fetch(
         `/api/experiments/${experimentId}/payment-claim/${claimId}/email`,
         { method: "GET" },
-      );
-      console.log(
-        "[payment-panel] GET preview status",
-        res.status,
-        res.statusText,
       );
       const body = (await res.json().catch(() => null)) as
         | EmailPreview
@@ -366,11 +360,6 @@ export function PaymentPanel({
         toast(msg, "error");
         return;
       }
-      console.log(
-        "[payment-panel] preview OK — to=" + (body as EmailPreview).preview.to,
-        "attachments=" +
-          (body as EmailPreview).preview.meta.attachmentNames.length,
-      );
       if (body.alreadySent) {
         if (
           !confirm(
@@ -397,9 +386,6 @@ export function PaymentPanel({
   async function confirmAndSendEmail() {
     if (!emailModal) return;
     const recipient = emailModal.recipient.trim();
-    console.log(
-      "[payment-panel] confirmAndSendEmail start — recipient=" + recipient,
-    );
     if (!recipient || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient)) {
       console.warn(
         "[payment-panel] recipient regex rejected:",
@@ -410,7 +396,6 @@ export function PaymentPanel({
     }
     setEmailModal({ ...emailModal, sending: true });
     try {
-      const startedAt = Date.now();
       const res = await fetch(
         `/api/experiments/${experimentId}/payment-claim/${emailModal.claimId}/email`,
         {
@@ -418,11 +403,6 @@ export function PaymentPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ recipientEmail: recipient, confirm: true }),
         },
-      );
-      console.log(
-        "[payment-panel] POST send status",
-        res.status,
-        "elapsed=" + (Date.now() - startedAt) + "ms",
       );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
@@ -432,7 +412,6 @@ export function PaymentPanel({
         setEmailModal({ ...emailModal, sending: false });
         return;
       }
-      console.log("[payment-panel] send OK", body);
       toast(`행정 선생님께 이메일을 발송했습니다 (${recipient})`, "success");
       setEmailModal(null);
       setActiveClaimId(null);
