@@ -67,16 +67,18 @@ function kstDow(iso: string): number {
   return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(w);
 }
 
-// Deterministic color per researcher
+// Deterministic color per researcher.
+// `border` mirrors the categorical hue as a static class so the booking-row
+// left accent stays purge-safe (no dynamically constructed Tailwind names).
 const PALETTE = [
-  { bg: "bg-blue-100", text: "text-blue-800", dot: "bg-blue-500" },
-  { bg: "bg-emerald-100", text: "text-emerald-800", dot: "bg-emerald-500" },
-  { bg: "bg-violet-100", text: "text-violet-800", dot: "bg-violet-500" },
-  { bg: "bg-amber-100", text: "text-amber-800", dot: "bg-amber-500" },
-  { bg: "bg-pink-100", text: "text-pink-800", dot: "bg-pink-500" },
-  { bg: "bg-cyan-100", text: "text-cyan-800", dot: "bg-cyan-500" },
-  { bg: "bg-lime-100", text: "text-lime-800", dot: "bg-lime-500" },
-  { bg: "bg-rose-100", text: "text-rose-800", dot: "bg-rose-500" },
+  { bg: "bg-blue-100", text: "text-blue-800", dot: "bg-blue-500", border: "border-l-blue-500" },
+  { bg: "bg-emerald-100", text: "text-emerald-800", dot: "bg-emerald-500", border: "border-l-emerald-500" },
+  { bg: "bg-violet-100", text: "text-violet-800", dot: "bg-violet-500", border: "border-l-violet-500" },
+  { bg: "bg-amber-100", text: "text-amber-800", dot: "bg-amber-500", border: "border-l-amber-500" },
+  { bg: "bg-pink-100", text: "text-pink-800", dot: "bg-pink-500", border: "border-l-pink-500" },
+  { bg: "bg-cyan-100", text: "text-cyan-800", dot: "bg-cyan-500", border: "border-l-cyan-500" },
+  { bg: "bg-lime-100", text: "text-lime-800", dot: "bg-lime-500", border: "border-l-lime-500" },
+  { bg: "bg-rose-100", text: "text-rose-800", dot: "bg-rose-500", border: "border-l-rose-500" },
 ];
 
 function colorFor(id: string | null) {
@@ -115,6 +117,9 @@ export function ScheduleView({ rows, creators, from, to }: ScheduleViewProps) {
   }, [rows, creatorMap]);
 
   const [filterResearcher, setFilterResearcher] = useState<string | null>(null);
+
+  // KST "today" key (en-CA/Asia-Seoul, same shape as kstDateKey) for today emphasis.
+  const todayKey = useMemo(() => kstDateKey(new Date().toISOString()), []);
 
   const daysInRange = useMemo(() => {
     const start = new Date(`${fromDate}T00:00:00+09:00`);
@@ -200,39 +205,39 @@ export function ScheduleView({ rows, creators, from, to }: ScheduleViewProps) {
             <Button size="sm" onClick={applyRange}>
               적용
             </Button>
+          </div>
 
-            {activeResearchers.length > 0 && (
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                <span className="text-xs text-muted">연구자 필터:</span>
+          {activeResearchers.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+              <span className="text-xs text-muted">연구자 필터:</span>
+              <button
+                type="button"
+                onClick={() => setFilterResearcher(null)}
+                className={`rounded-full border px-2.5 py-1 text-xs ${
+                  filterResearcher === null
+                    ? "border-foreground bg-foreground text-white"
+                    : "border-border text-muted hover:bg-card"
+                }`}
+              >
+                전체
+              </button>
+              {activeResearchers.map((r) => (
                 <button
+                  key={r.id}
                   type="button"
-                  onClick={() => setFilterResearcher(null)}
-                  className={`rounded-full border px-2.5 py-1 text-xs ${
-                    filterResearcher === null
+                  onClick={() => setFilterResearcher(filterResearcher === r.id ? null : r.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+                    filterResearcher === r.id
                       ? "border-foreground bg-foreground text-white"
-                      : "border-border text-muted hover:bg-card"
+                      : "border-border text-foreground hover:bg-card"
                   }`}
                 >
-                  전체
+                  <span className={`h-2 w-2 rounded-full ${r.color.dot}`} />
+                  {r.name}
                 </button>
-                {activeResearchers.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setFilterResearcher(filterResearcher === r.id ? null : r.id)}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
-                      filterResearcher === r.id
-                        ? "border-foreground bg-foreground text-white"
-                        : "border-border text-foreground hover:bg-card"
-                    }`}
-                  >
-                    <span className={`h-2 w-2 rounded-full ${r.color.dot}`} />
-                    {r.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -243,62 +248,96 @@ export function ScheduleView({ rows, creators, from, to }: ScheduleViewProps) {
           const dow = kstDow(iso);
           const dowColor =
             dow === 0 ? "text-red-500" : dow === 6 ? "text-blue-500" : "text-muted";
+          const isToday = dk === todayKey;
+
+          // Empty days collapse to a compact low-emphasis strip so populated
+          // days dominate the sparse default range. Weekend dowColor preserved.
+          if (items.length === 0) {
+            return (
+              <div
+                key={dk}
+                className={`flex items-baseline gap-2 rounded-lg border bg-card px-4 py-2 ${
+                  isToday ? "border-primary/30 ring-1 ring-primary/30" : "border-border"
+                }`}
+              >
+                <span className="text-sm font-medium text-foreground">
+                  {dateFmt.format(new Date(iso))}
+                </span>
+                <span className={`text-xs ${dowColor}`}>
+                  {weekdayFmt.format(new Date(iso))}
+                </span>
+                {isToday && (
+                  <span className="rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-medium leading-none text-white">
+                    오늘
+                  </span>
+                )}
+                <span className="ml-auto text-xs text-muted">예약 없음</span>
+              </div>
+            );
+          }
+
           return (
-            <Card key={dk}>
+            <Card
+              key={dk}
+              className={isToday ? "border-primary/30 ring-2 ring-primary/40" : ""}
+            >
               <CardContent>
-                <div className="mb-3 flex items-baseline justify-between">
-                  <div>
+                <div className="mb-3 flex items-baseline justify-between gap-2">
+                  <div className="flex items-baseline gap-2">
                     <span className="text-lg font-semibold text-foreground">
                       {dateFmt.format(new Date(iso))}
                     </span>
-                    <span className={`ml-2 text-sm ${dowColor}`}>
+                    <span className={`text-sm ${dowColor}`}>
                       {weekdayFmt.format(new Date(iso))}
                     </span>
+                    {isToday && (
+                      <span className="rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-medium leading-none text-white">
+                        오늘
+                      </span>
+                    )}
                   </div>
-                  <span className="text-xs text-muted">{items.length}건</span>
+                  <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs tabular-nums text-foreground">
+                    {items.length}건
+                  </span>
                 </div>
-                {items.length === 0 ? (
-                  <p className="text-sm text-muted">예약 없음</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {items.map((r) => {
-                      const creatorName = r.experiments?.created_by
-                        ? creatorMap.get(r.experiments.created_by)?.display_name ??
-                          r.experiments.created_by.slice(0, 6)
-                        : "(미지정)";
-                      const c = colorFor(r.experiments?.created_by ?? null);
-                      return (
-                        <li
-                          key={r.id}
-                          className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-white p-3"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className={`h-2.5 w-2.5 rounded-full ${c.dot}`} />
-                            <span className="text-sm font-medium tabular-nums text-foreground">
-                              {timeFmt.format(new Date(r.slot_start))}
-                              {"–"}
-                              {timeFmt.format(new Date(r.slot_end))}
-                            </span>
+                <ul className="space-y-2">
+                  {items.map((r) => {
+                    const creatorName = r.experiments?.created_by
+                      ? creatorMap.get(r.experiments.created_by)?.display_name ??
+                        r.experiments.created_by.slice(0, 6)
+                      : "(미지정)";
+                    const c = colorFor(r.experiments?.created_by ?? null);
+                    return (
+                      <li
+                        key={r.id}
+                        className={`flex flex-nowrap items-center gap-3 rounded-lg border border-l-[3px] border-border bg-white p-3 ${c.border}`}
+                      >
+                        <div className="flex min-w-[7.5rem] items-center gap-2">
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${c.dot}`} />
+                          <span className="text-sm font-medium tabular-nums text-foreground">
+                            {timeFmt.format(new Date(r.slot_start))}
+                            {"–"}
+                            {timeFmt.format(new Date(r.slot_end))}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <Link
+                            href={r.experiments?.id ? `/experiments/${r.experiments.id}/bookings` : "#"}
+                            className={`inline-flex max-w-full truncate rounded-md px-2 py-0.5 text-xs font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${c.bg} ${c.text}`}
+                          >
+                            {r.experiments?.title ?? "(제목 없음)"}
+                          </Link>
+                          <div className="mt-0.5 truncate text-[13px] text-muted">
+                            {creatorName}
+                            {r.participants?.name ? ` · ${r.participants.name}` : ""}
+                            {r.subject_number != null ? ` · 피험자${r.subject_number}` : ""}
+                            {r.session_number ? ` · ${r.session_number}회차` : ""}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <Link
-                              href={r.experiments?.id ? `/experiments/${r.experiments.id}/bookings` : "#"}
-                              className={`inline-flex max-w-full truncate rounded-md px-2 py-0.5 text-xs font-medium ${c.bg} ${c.text}`}
-                            >
-                              {r.experiments?.title ?? "(제목 없음)"}
-                            </Link>
-                            <div className="mt-0.5 text-xs text-muted">
-                              {creatorName}
-                              {r.participants?.name ? ` · ${r.participants.name}` : ""}
-                              {r.subject_number != null ? ` · 피험자${r.subject_number}` : ""}
-                              {r.session_number ? ` · ${r.session_number}회차` : ""}
-                            </div>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
               </CardContent>
             </Card>
           );
