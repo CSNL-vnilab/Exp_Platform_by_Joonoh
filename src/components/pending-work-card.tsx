@@ -209,7 +209,7 @@ type Tone = "default" | "danger" | "info" | "success" | "warning";
 function toneBg(t: Tone): string {
   return {
     default: "border-border bg-card",
-    danger: "border-rose-200 bg-rose-50",
+    danger: "border-danger-200 bg-danger-50",
     info: "border-sky-200 bg-sky-50",
     success: "border-emerald-200 bg-emerald-50",
     warning: "border-amber-200 bg-amber-50",
@@ -219,7 +219,7 @@ function toneBg(t: Tone): string {
 function toneText(t: Tone): string {
   return {
     default: "text-foreground",
-    danger: "text-rose-700",
+    danger: "text-danger-700",
     info: "text-sky-700",
     success: "text-emerald-700",
     warning: "text-amber-800",

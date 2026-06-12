@@ -247,7 +247,7 @@ function classify(draft: Draft): FieldStatus[] {
 }
 
 const LEVEL_META = {
-  required: { label: "필수", color: "text-rose-700", bg: "bg-rose-50" },
+  required: { label: "필수", color: "text-danger-700", bg: "bg-danger-50" },
   required_for_activation: {
     label: "활성화 전 필수",
     color: "text-amber-800",

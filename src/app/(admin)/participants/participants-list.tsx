@@ -336,7 +336,7 @@ export function ParticipantsList() {
                           <ClassBadge value={r.class?.class ?? null} />
                           {r.class?.class === "blacklist" && r.class.reason && (
                             <span
-                              className="text-xs text-rose-700"
+                              className="text-xs text-danger-700"
                               title={r.class.reason}
                             >
                               {r.class.reason}

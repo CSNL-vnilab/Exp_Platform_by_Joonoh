@@ -943,7 +943,7 @@ export function ExperimentForm({
                       className={
                         recruitmentTarget !== "" &&
                         (recruitedCount ?? 0) >= Number(recruitmentTarget)
-                          ? "text-rose-700"
+                          ? "text-danger-700"
                           : "text-foreground"
                       }
                     >
@@ -1801,10 +1801,10 @@ export function ExperimentForm({
                         &quot;이벤트 변경 권한&quot;으로 공유하세요.
                       </p>
                       {serviceAccountEmail && (
-                        <div className="mt-1 rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">
+                        <div className="mt-1 rounded-md border border-info-200 bg-info-50 p-2 text-xs text-info-900">
                           <div className="font-medium">서비스 계정 이메일</div>
                           <code className="block break-all">{serviceAccountEmail}</code>
-                          <div className="mt-1 text-blue-800">
+                          <div className="mt-1 text-info-800">
                             Google Calendar → 해당 캘린더 설정 → 특정 사용자와 공유 →{" "}
                             <b>이벤트 변경 권한</b>으로 추가하면 목록에 나타납니다.
                           </div>

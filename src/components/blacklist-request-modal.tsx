@@ -134,7 +134,7 @@ export function BlacklistRequestModal({
             </p>
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
-                사유 <span className="text-rose-600">*</span>
+                사유 <span className="text-danger-600">*</span>
               </label>
               <textarea
                 value={reason}

@@ -264,7 +264,7 @@ export default async function PaymentInfoPreviewPage({
             />
             <Meta label="상태" value={row.status} />
             {row.payment_link_sent_at && (
-              <p className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-2xs text-blue-900">
+              <p className="mt-2 rounded-md border border-info-200 bg-info-50 px-3 py-2 text-2xs text-info-900">
                 이 행은 이미 한 번 발송된 적이 있어 메일 본문이
                 <em>(재안내)</em> 모드로 렌더링됩니다.
               </p>

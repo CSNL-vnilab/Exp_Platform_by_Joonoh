@@ -943,14 +943,14 @@ export function OfflineCodeAnalyzer({
               </div>
 
               {sourceInfo && (
-                <div className="mt-3 rounded border border-blue-200 bg-blue-50 p-2 text-[11px] text-blue-900">
+                <div className="mt-3 rounded border border-info-200 bg-info-50 p-2 text-[11px] text-info-900">
                   <div>
                     소스: <code className="break-all">{sourceInfo.root}</code> · 종류{" "}
                     <code>{sourceInfo.kind}</code> · {sourceInfo.fileCount}개 파일 fetched
                     {sourceInfo.truncated && <span className="ml-1 text-amber-700">(예산 초과 — 일부 잘림)</span>}
                   </div>
                   {sourceInfo.docsResolved && sourceInfo.docsResolved !== "none" && (
-                    <div className="text-blue-700/80">
+                    <div className="text-info-700/80">
                       문서: {sourceInfo.docsResolved === "auto" ? "자동 감지" : sourceInfo.docsResolved}{" "}
                       ({sourceInfo.docsBytes?.toLocaleString()}자)
                     </div>
@@ -1089,21 +1089,21 @@ export function OfflineCodeAnalyzer({
               </div>
 
               {bundleInfo && bundleInfo.entry && (
-                <div className="mt-3 rounded border border-blue-200 bg-blue-50 p-2 text-[11px]">
-                  <div className="font-medium text-blue-900">
+                <div className="mt-3 rounded border border-info-200 bg-info-50 p-2 text-[11px]">
+                  <div className="font-medium text-info-900">
                     시작 파일: <code>{bundleInfo.entry}</code> · 선택 {bundleInfo.selected.length}개 ·{" "}
                     묶음 크기 {bundleInfo.totalChars.toLocaleString()}자
                   </div>
                   <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono">
                     {bundleInfo.selected.map((s) => (
-                      <div key={s.path} className="truncate text-blue-900/80">
+                      <div key={s.path} className="truncate text-info-900/80">
                         <span
                           className={`mr-1 inline-block w-12 text-[10px] ${
                             s.role === "entry"
-                              ? "text-blue-900 font-bold"
+                              ? "text-info-900 font-bold"
                               : s.role === "config"
                                 ? "text-purple-700"
-                                : "text-blue-700"
+                                : "text-info-700"
                           }`}
                         >
                           {s.role}
@@ -1115,13 +1115,13 @@ export function OfflineCodeAnalyzer({
                   </div>
                   {bundleInfo.dropped.length > 0 && (
                     <details className="mt-1">
-                      <summary className="cursor-pointer text-[10px] text-blue-700">
+                      <summary className="cursor-pointer text-[10px] text-info-700">
                         제외된 {bundleInfo.dropped.length}개 보기
                       </summary>
-                      <div className="mt-1 max-h-32 overflow-y-auto font-mono text-[10px] text-blue-700/70">
+                      <div className="mt-1 max-h-32 overflow-y-auto font-mono text-[10px] text-info-700/70">
                         {bundleInfo.dropped.map((d, i) => (
                           <div key={i} className="truncate">
-                            {d.path} <span className="text-blue-700/50">— {d.reason}</span>
+                            {d.path} <span className="text-info-700/50">— {d.reason}</span>
                           </div>
                         ))}
                       </div>
@@ -2164,15 +2164,15 @@ export function OfflineCodeAnalyzer({
               </div>
 
               {pendingPatches.some((p) => p.kind === "valid") && (
-                <div className="mb-3 rounded border border-blue-300 bg-blue-50 p-2 text-xs">
+                <div className="mb-3 rounded border border-info-300 bg-info-50 p-2 text-xs">
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="font-medium text-blue-900">
+                    <span className="font-medium text-info-900">
                       대기 중인 변경 {pendingPatches.filter((p) => p.kind === "valid").length}개
                     </span>
                     <button
                       type="button"
                       onClick={acceptAllPatches}
-                      className="text-[11px] font-medium text-blue-900 hover:underline"
+                      className="text-[11px] font-medium text-info-900 hover:underline"
                     >
                       모두 적용
                     </button>

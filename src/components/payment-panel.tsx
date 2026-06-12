@@ -117,10 +117,10 @@ const STATUS_LABEL: Record<PaymentStatus, string> = {
 
 const STATUS_CLASS: Record<PaymentStatus, string> = {
   pending_participant: "bg-amber-50 text-amber-800 border-amber-200",
-  submitted_to_admin: "bg-blue-50 text-blue-800 border-blue-200",
+  submitted_to_admin: "bg-info-50 text-info-800 border-info-200",
   claimed: "bg-emerald-50 text-emerald-800 border-emerald-200",
   paid: "bg-emerald-50 text-emerald-800 border-emerald-200",
-  paid_offline: "bg-slate-100 text-slate-700 border-slate-300",
+  paid_offline: "bg-neutral-100 text-neutral-700 border-neutral-300",
 };
 
 export function PaymentPanel({
@@ -767,10 +767,10 @@ export function PaymentPanel({
 
             <div className="mt-4 space-y-3 text-sm">
               {emailModal.lastError && (
-                <div className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
+                <div className="rounded-lg border border-danger-300 bg-danger-50 p-3 text-xs text-danger-900">
                   <strong>지난 시도 실패:</strong>
                   <div className="mt-1">{emailModal.lastError.message}</div>
-                  <div className="mt-1 text-rose-700/70">
+                  <div className="mt-1 text-danger-700/70">
                     {new Date(emailModal.lastError.at).toLocaleString("ko-KR")}
                     {" · 총 시도 "}
                     {emailModal.lastError.attempts}회
@@ -902,7 +902,7 @@ function DispatchCell({
   // 오프라인 정산은 메일 발송이 무의미. 별도 라벨로 표시.
   if (row.status === "paid_offline") {
     return (
-      <span className="text-2xs text-slate-500" title="플랫폼 외부에서 이미 지급된 건">
+      <span className="text-2xs text-neutral-500" title="플랫폼 외부에서 이미 지급된 건">
         — (오프라인 정산)
       </span>
     );
@@ -984,7 +984,7 @@ function DispatchCell({
     return (
       <div className="flex items-center gap-2">
         <span
-          className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600"
+          className="rounded-full border border-neutral-300 bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-600"
           title={row.paymentLinkLastError}
         >
           자동발송 억제됨 (백필)

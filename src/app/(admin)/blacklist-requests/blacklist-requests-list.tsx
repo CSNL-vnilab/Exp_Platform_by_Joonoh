@@ -178,7 +178,7 @@ export function BlacklistRequestsList() {
                               ? "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
                               : r.status === "approved"
                                 ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800"
-                                : "rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800"
+                                : "rounded-full bg-danger-100 px-2 py-0.5 text-xs font-medium text-danger-800"
                           }
                         >
                           {r.status === "pending"
@@ -200,7 +200,7 @@ export function BlacklistRequestsList() {
                       <td className="px-4 py-3 text-foreground" title={r.reason}>
                         <span className="line-clamp-2 max-w-md">{r.reason}</span>
                         {r.rejected_reason && (
-                          <span className="mt-1 block text-xs text-rose-700">
+                          <span className="mt-1 block text-xs text-danger-700">
                             반려 사유: {r.rejected_reason}
                           </span>
                         )}

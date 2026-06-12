@@ -592,7 +592,7 @@ export function ExperimentDetail({
                     className={
                       experiment.recruitment_target != null &&
                       (recruitedCount ?? 0) >= experiment.recruitment_target
-                        ? "text-rose-700"
+                        ? "text-danger-700"
                         : "text-foreground"
                     }
                   >
@@ -604,7 +604,7 @@ export function ExperimentDetail({
                   </span>
                   {experiment.recruitment_target != null &&
                     (recruitedCount ?? 0) >= experiment.recruitment_target && (
-                      <span className="ml-2 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">
+                      <span className="ml-2 rounded-full bg-danger-50 px-2 py-0.5 text-[10px] text-danger-700">
                         마감
                       </span>
                     )}
@@ -799,7 +799,7 @@ export function ExperimentDetail({
                         </span>
                       )}
                       {bookingBreakdown.cancelled > 0 && (
-                        <span className="ml-1 text-rose-600">
+                        <span className="ml-1 text-danger-600">
                           (취소 {bookingBreakdown.cancelled})
                         </span>
                       )}

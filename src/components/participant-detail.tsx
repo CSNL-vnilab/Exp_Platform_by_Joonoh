@@ -141,7 +141,7 @@ export function ParticipantDetail({ data, role }: Props) {
           <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-800">
             불참(노쇼) {data.stats.no_show}
           </span>
-          <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-800">
+          <span className="rounded-full bg-danger-50 px-3 py-1 text-danger-800">
             취소 {data.stats.cancelled}
           </span>
           {isAdmin && (

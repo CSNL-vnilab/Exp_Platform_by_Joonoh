@@ -366,7 +366,7 @@ function RescheduleModal({
               <button
                 type="button"
                 onClick={() => setWeekStart(prevAvail)}
-                className="text-[11px] text-blue-600 hover:underline"
+                className="text-[11px] text-primary-600 hover:underline"
               >
                 ⇤ 이전 가능 주
               </button>
@@ -375,7 +375,7 @@ function RescheduleModal({
               <button
                 type="button"
                 onClick={() => setWeekStart(nextAvail)}
-                className="text-[11px] text-blue-600 hover:underline"
+                className="text-[11px] text-primary-600 hover:underline"
               >
                 다음 가능 주 ⇥
               </button>
@@ -454,7 +454,7 @@ function RescheduleModal({
                     let cls = "";
                     let label = "";
                     if (isCurrent) {
-                      cls = "bg-blue-100 text-blue-900 ring-2 ring-inset ring-blue-400";
+                      cls = "bg-primary-100 text-primary-800 ring-2 ring-inset ring-primary-400";
                       label = "현재";
                     } else if (isPicked) {
                       cls = "bg-primary text-white";
@@ -502,7 +502,7 @@ function RescheduleModal({
         <div className="flex items-center justify-between gap-3 pt-2">
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
             <span><span className="inline-block size-2 rounded-sm bg-green-100 ring-1 ring-green-300 align-middle" /> 이동 가능</span>
-            <span><span className="inline-block size-2 rounded-sm bg-blue-100 ring-1 ring-blue-400 align-middle" /> 현재 예약</span>
+            <span><span className="inline-block size-2 rounded-sm bg-primary-100 ring-1 ring-primary-400 align-middle" /> 현재 예약</span>
             <span><span className="inline-block size-2 rounded-sm bg-red-100 ring-1 ring-red-300 align-middle" /> 불가</span>
             <span><span className="inline-block size-2 rounded-sm bg-gray-100 ring-1 ring-gray-300 align-middle" /> 마감/지난시간</span>
           </p>

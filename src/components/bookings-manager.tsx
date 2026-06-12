@@ -259,7 +259,7 @@ export function BookingsManager({
         {(
           [
             ["확정", counts.confirmed, "text-emerald-600"],
-            ["취소", counts.cancelled, "text-rose-600"],
+            ["취소", counts.cancelled, "text-danger-600"],
             ["완료", counts.completed, "text-sky-600"],
             ["불참(노쇼)", counts.no_show, "text-amber-600"],
           ] as const
@@ -733,7 +733,7 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
         <span
           className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
             p.screener_stats.passed < p.screener_stats.total
-              ? "bg-rose-100 text-rose-700"
+              ? "bg-danger-100 text-danger-700"
               : "bg-emerald-100 text-emerald-700"
           }`}
           title="스크리너 통과/전체"
