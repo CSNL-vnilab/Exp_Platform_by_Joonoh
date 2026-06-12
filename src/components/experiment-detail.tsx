@@ -462,17 +462,12 @@ export function ExperimentDetail({
           <h1 className="text-2xl font-bold text-foreground">{experiment.title}</h1>
           <Badge variant={status.variant}>{status.label}</Badge>
         </div>
+        {/* Action hierarchy (B3c): 주(primary) → 보조(secondary/ghost) →
+            위험(danger). 삭제는 구분선 + 좌측 간격으로 시각 격리해 빠른
+            클릭 오발을 막는다. 라우트·핸들러는 그대로, 배치/variant만 조정. */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
-            수정
-          </Button>
-          <Button variant="secondary" size="sm" onClick={handleCopyLink}>
-            예약 링크 복사
-          </Button>
-          <Button variant="secondary" size="sm" onClick={openBlockModal}>
-            예약 차단 시간대 관리
-          </Button>
-          {experiment.status === "draft" && (
+          {/* 주(primary): 그 화면의 1차 액션 — draft는 활성화, 그 외엔 예약 관리 */}
+          {experiment.status === "draft" ? (
             <Button
               size="sm"
               disabled={updating || !activationReady}
@@ -485,7 +480,22 @@ export function ExperimentDetail({
             >
               활성화
             </Button>
+          ) : (
+            <Link href={`/experiments/${experiment.id}/bookings`}>
+              <Button size="sm">예약 관리</Button>
+            </Link>
           )}
+
+          {/* 보조(secondary/ghost): 동등·보조 액션 */}
+          <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
+            수정
+          </Button>
+          <Button variant="ghost" size="sm" onClick={handleCopyLink}>
+            예약 링크 복사
+          </Button>
+          <Button variant="ghost" size="sm" onClick={openBlockModal}>
+            예약 차단 시간대 관리
+          </Button>
           {experiment.status === "active" && (
             <Button
               variant="secondary"
@@ -496,6 +506,9 @@ export function ExperimentDetail({
               완료 처리
             </Button>
           )}
+
+          {/* 위험(danger): 비가역 삭제 — 구분선 + 간격으로 격리 */}
+          <span aria-hidden className="mx-1 hidden h-6 w-px bg-border sm:block" />
           <Button
             variant="danger"
             size="sm"

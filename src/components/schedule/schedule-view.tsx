@@ -290,7 +290,7 @@ export function ScheduleView({ rows, creators, from, to }: ScheduleViewProps) {
                             <div className="mt-0.5 text-xs text-muted">
                               {creatorName}
                               {r.participants?.name ? ` · ${r.participants.name}` : ""}
-                              {r.subject_number != null ? ` · Sbj${r.subject_number}` : ""}
+                              {r.subject_number != null ? ` · 피험자${r.subject_number}` : ""}
                               {r.session_number ? ` · ${r.session_number}회차` : ""}
                             </div>
                           </div>

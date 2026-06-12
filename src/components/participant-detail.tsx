@@ -356,7 +356,7 @@ export function ParticipantDetail({ data, role }: Props) {
                           </td>
                           <td className="px-3 py-2 text-muted">{b.session_number}</td>
                           <td className="px-3 py-2 text-muted">
-                            {b.subject_number != null ? `Sbj${b.subject_number}` : "-"}
+                            {b.subject_number != null ? `피험자${b.subject_number}` : "-"}
                           </td>
                           <td className="px-3 py-2">
                             <Badge variant={s.variant}>{s.label}</Badge>

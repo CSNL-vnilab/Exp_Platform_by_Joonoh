@@ -144,7 +144,7 @@ export default async function DashboardPage() {
                         {formatTimeKR(b.slot_end)}
                         {" · "}
                         {b.participants?.name ?? "참여자"}
-                        {b.subject_number != null ? ` · Sbj${b.subject_number}` : ""}
+                        {b.subject_number != null ? ` · 피험자${b.subject_number}` : ""}
                         {b.session_number ? ` · ${b.session_number}회차` : ""}
                       </div>
                     </div>
@@ -224,9 +224,17 @@ export default async function DashboardPage() {
               </h2>
               <span className="text-xs text-muted">{metadataGapRows.length}개 실험</span>
             </div>
-            <p className="mb-3 text-xs text-muted">
-              코드 디렉토리 / 데이터 경로 / 사전 체크리스트 등이 누락된 실험입니다. 각 실험 페이지에서 수정하세요.
-            </p>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted">
+                코드 디렉토리 / 데이터 경로 / 사전 체크리스트 등이 누락된 실험입니다. 각 실험 페이지에서 수정하거나, 여러 실험을 한 화면에서 일괄 입력할 수 있습니다.
+              </p>
+              <Link
+                href="/metadata-fill"
+                className="shrink-0 text-xs font-medium text-primary hover:text-primary-hover"
+              >
+                일괄 입력 화면으로 →
+              </Link>
+            </div>
             <ul className="space-y-2">
               {metadataGapRows.slice(0, 8).map((r) => (
                 <li key={r.id} className="flex flex-wrap items-center justify-between gap-2">

@@ -259,6 +259,24 @@ export function ExperimentForm({
     })),
   );
 
+  // Advanced online settings <details> disclosure. Controlled (open + onToggle)
+  // so user clicks aren't reverted by the form's per-keystroke re-renders —
+  // see offline-code-analyzer.tsx for the same pattern. The initial open state
+  // is derived ONCE on mount: expanded only when editing an experiment that
+  // already has any advanced field set.
+  const [advancedOpen, setAdvancedOpen] = useState<boolean>(
+    () =>
+      isEditing &&
+      (preflightMinWidth !== "" ||
+        preflightMinHeight !== "" ||
+        preflightRequireKeyboard ||
+        preflightRequireAudio ||
+        preflightInstructions.trim() !== "" ||
+        counterbalanceKind !== "" ||
+        excludeExperimentIds.trim() !== "" ||
+        attentionChecks.length > 0),
+  );
+
   const [previewOpen, setPreviewOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [previewConfig, setPreviewConfig] = useState<Record<string, any> | null>(null);
@@ -735,7 +753,11 @@ export function ExperimentForm({
         {/* Basic Info */}
         <Card className="lg:col-span-2">
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-4">기본 정보</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-1">기본 정보</h2>
+            <p className="mb-4 text-xs text-muted">
+              이 실험이 어떤 연구인지 알려주는 제목과 설명입니다. 제목은 연구자
+              목록과 참여자 예약 페이지에 모두 노출됩니다.
+            </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <Input
@@ -768,7 +790,10 @@ export function ExperimentForm({
         {/* Date & Time */}
         <Card>
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-4">일정 설정</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-1">일정 설정</h2>
+            <p className="mb-4 text-xs text-muted">
+              실험을 진행할 전체 기간과, 하루 중 예약을 받을 시간대를 정합니다.
+            </p>
             <div className="grid gap-4">
               <Input
                 id="start_date"
@@ -810,10 +835,16 @@ export function ExperimentForm({
           </CardContent>
         </Card>
 
-        {/* Session Settings */}
+        {/* Session & slot settings — scheduling only. Payment-domain fields
+            (recruitment target / fee / auto-send) moved to the separate
+            "참여비·정산" card below so scheduling and money aren't mixed. */}
         <Card>
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-4">세션 설정</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-1">세션·슬롯 설정</h2>
+            <p className="mb-4 text-xs text-muted">
+              한 번의 실험 세션 길이와, 참여자가 고를 수 있는 예약 시간대(슬롯)의
+              간격을 정합니다.
+            </p>
             <div className="grid gap-4">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="session_duration" className="text-sm font-medium text-foreground">
@@ -880,7 +911,20 @@ export function ExperimentForm({
                   같은 시각에 동시에 받을 수 있는 참여자 수입니다 — 1:1 실험이면 1.
                 </p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
 
+        {/* Participation fee & settlement — split out of 세션 설정 so money
+            fields read as one group. State/handlers unchanged; JSX moved. */}
+        <Card>
+          <CardContent>
+            <h2 className="text-lg font-semibold text-foreground mb-1">참여비·정산</h2>
+            <p className="mb-4 text-xs text-muted">
+              몇 명을 모집하고, 1인당 얼마를 지급하며, 참여비 안내 메일을 언제
+              보낼지를 정합니다.
+            </p>
+            <div className="grid gap-4">
               <div>
                 <Input
                   id="recruitment_target"
@@ -963,7 +1007,11 @@ export function ExperimentForm({
         {/* Session Type */}
         <Card>
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-4">세션 유형</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-1">세션 유형</h2>
+            <p className="mb-4 text-xs text-muted">
+              한 참여자가 한 번만 오면 되는지(단일), 며칠에 걸쳐 여러 번 와야
+              하는지(다중)를 정합니다.
+            </p>
             <div className="grid gap-4">
               <div className="flex gap-2">
                 <button
@@ -1021,14 +1069,19 @@ export function ExperimentForm({
           </CardContent>
         </Card>
 
-        {/* Experiment mode — offline / online / hybrid */}
-        <Card className="lg:col-span-2">
+        {/* Experiment mode — offline / online / hybrid.
+            Full width only when online/hybrid actually need the room for
+            the runtime-config blocks; offline drops to a normal-width card
+            so it doesn't dominate the (default) offline layout. Width only —
+            the field-level conditional rendering below is unchanged. */}
+        <Card className={experimentMode === "offline" ? "" : "lg:col-span-2"}>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-2">실행 방식</h2>
             <p className="mb-4 text-xs text-muted">
-              오프라인 실험은 기존과 동일하게 실험실에서 진행됩니다. 온라인 실험은 참여자가
-              이메일 링크를 통해 /run 페이지에 접속하여 브라우저에서 수행합니다. 하이브리드는
-              온라인 선행 과제 후 실험실 세션이 이어집니다.
+              이 실험을 실험실에서 진행할지, 참여자 브라우저에서 진행할지 정합니다.
+              오프라인은 기존과 동일하게 실험실에서 진행하고, 온라인은 참여자가
+              이메일 링크로 접속해 브라우저에서 수행합니다. 하이브리드는 온라인
+              선행 과제 뒤 실험실 세션이 이어집니다.
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
               {(
@@ -1175,9 +1228,50 @@ export function ExperimentForm({
               </div>
             )}
 
-            {/* Preflight requirements */}
+            {/* Data-collection consent — applies to all modes, kept always
+                visible above the collapsible advanced block. */}
+            <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-white p-3">
+              <input
+                type="checkbox"
+                checked={dataConsentRequired}
+                onChange={(e) => setDataConsentRequired(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-primary"
+              />
+              <span className="text-sm leading-relaxed text-foreground">
+                데이터 수집 동의 체크박스를 예약 페이지에 표시합니다. (온라인/하이브리드
+                실험은 자동으로 동의 절차가 포함됩니다.)
+              </span>
+            </label>
+
+            {/* Advanced online settings — collapsed by default to keep the
+                online layout from becoming a wall of config. Open by default
+                only when editing an experiment that already has any of these
+                set. Field-level guards and state are unchanged; <details>
+                only hides the markup — collapsed inputs still submit their
+                value. */}
             {experimentMode !== "offline" && (
-              <div className="mt-6 rounded-xl border border-border bg-card p-4">
+              <details
+                className="group mt-5"
+                open={advancedOpen}
+                onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
+              >
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-card/70">
+                  <svg
+                    className="h-4 w-4 text-muted transition-transform group-open:rotate-90"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                  온라인 실험 고급 설정 (환경 점검 · 조건 배정 · 중복 참여 차단 · 집중도 확인)
+                  <span className="ml-1 text-xs font-normal text-muted">— 모두 선택 사항</span>
+                </summary>
+
+                <div className="mt-3 space-y-4">
+            {/* Preflight requirements (already inside the online-only details) */}
+            <div className="rounded-xl border border-border bg-card p-4">
                 <h3 className="text-sm font-semibold text-foreground">시작 전 환경 점검</h3>
                 <p className="mt-0.5 text-xs text-muted">
                   참여자가 실험 코드를 불러오기 전에 화면 크기·키보드·소리 등 실험에
@@ -1238,11 +1332,9 @@ export function ExperimentForm({
                   />
                 </label>
               </div>
-            )}
 
             {/* Counterbalancing */}
-            {experimentMode !== "offline" && (
-              <div className="mt-4 rounded-xl border border-border bg-card p-4">
+            <div className="rounded-xl border border-border bg-card p-4">
                 <h3 className="text-sm font-semibold text-foreground">참여자별 조건 자동 배정 (순서 균형 맞추기)</h3>
                 <p className="mt-0.5 text-xs text-muted">
                   피험자 번호 순서대로 서버가 조건을 정해 줍니다. (실험 코드에서{" "}
@@ -1298,23 +1390,9 @@ export function ExperimentForm({
                   )}
                 </div>
               </div>
-            )}
-
-            <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-white p-3">
-              <input
-                type="checkbox"
-                checked={dataConsentRequired}
-                onChange={(e) => setDataConsentRequired(e.target.checked)}
-                className="mt-0.5 h-4 w-4 accent-primary"
-              />
-              <span className="text-sm leading-relaxed text-foreground">
-                데이터 수집 동의 체크박스를 예약 페이지에 표시합니다. (온라인/하이브리드
-                실험은 자동으로 동의 절차가 포함됩니다.)
-              </span>
-            </label>
 
             {/* Cross-study exclusion list */}
-            {experimentMode !== "offline" && (() => {
+            {(() => {
               const uuidRe =
                 /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
               const entered = excludeExperimentIds
@@ -1324,7 +1402,7 @@ export function ExperimentForm({
               const valid = entered.filter((s) => uuidRe.test(s));
               const dropped = entered.length - valid.length;
               return (
-                <div className="mt-4 rounded-xl border border-border bg-card p-4">
+                <div className="rounded-xl border border-border bg-card p-4">
                   <h3 className="text-sm font-semibold text-foreground">
                     다른 연구 중복 참여 차단
                   </h3>
@@ -1354,8 +1432,7 @@ export function ExperimentForm({
             })()}
 
             {/* Attention checks — overlay between blocks */}
-            {experimentMode !== "offline" && (
-              <div className="mt-4 rounded-xl border border-border bg-card p-4">
+            <div className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-foreground">집중도 확인 문항</h3>
@@ -1497,6 +1574,8 @@ export function ExperimentForm({
                   </div>
                 )}
               </div>
+                </div>
+              </details>
             )}
 
             {/* Online screener editor — separate API, lives on the experiment id */}
@@ -1518,7 +1597,11 @@ export function ExperimentForm({
         {/* IRB & Precautions */}
         <Card className="lg:col-span-2">
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-4">연구윤리심의(IRB) 승인 및 참여 조건</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-1">연구윤리심의(IRB) 승인 및 참여 조건</h2>
+            <p className="mb-4 text-xs text-muted">
+              IRB 승인 문서 링크와, 참여자가 예약 전 반드시 확인해야 할 안전·자격
+              질문을 등록합니다.
+            </p>
             <div className="grid gap-4">
               <div>
                 <Input
@@ -1669,7 +1752,11 @@ export function ExperimentForm({
         {/* Google Calendar */}
         <Card>
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-4">연동 설정</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-1">연동 설정</h2>
+            <p className="mb-4 text-xs text-muted">
+              예약이 확정되면 선택한 Google 캘린더에 일정이 자동으로 추가됩니다.
+              연구팀이 함께 보는 달력을 연결해 두세요.
+            </p>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="google_calendar_id" className="text-sm font-medium text-foreground">
                 예약 동기화 캘린더 (선택)
@@ -1775,7 +1862,10 @@ export function ExperimentForm({
 
         <Card>
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-4">모집 옵션</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-1">모집 옵션</h2>
+            <p className="mb-4 text-xs text-muted">
+              언제까지 예약을 받을지, 정원이 차면 자동으로 모집을 멈출지 정합니다.
+            </p>
             <div className="grid gap-4">
               {/* registration_deadline */}
               <div className="flex flex-col gap-1.5">
@@ -1829,7 +1919,11 @@ export function ExperimentForm({
         {/* Project & Numbering */}
         <Card className="lg:col-span-2">
           <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-4">프로젝트 및 피험자 설정</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-1">프로젝트 및 피험자 설정</h2>
+            <p className="mb-4 text-xs text-muted">
+              캘린더 일정에 표시될 프로젝트 약칭과, 참여자에게 부여할 피험자 번호
+              규칙을 정합니다.
+            </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Input

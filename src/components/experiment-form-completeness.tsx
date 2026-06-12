@@ -77,15 +77,16 @@ function classify(draft: Draft): FieldStatus[] {
       filled: Array.isArray(draft.weekdays) && draft.weekdays.length > 0,
     },
     {
-      name: "분석 코드 저장소",
+      name: "분석 코드 위치",
       level: "required_for_activation",
       filled: hasValue(draft.code_repo_url),
-      hint: "GitHub URL 또는 서버 절대 경로",
+      hint: "GitHub 주소 또는 서버 폴더 경로 — 아래 자동 분석으로 채울 수 있어요",
     },
     {
-      name: "원본 데이터 경로",
+      name: "원본 데이터 폴더 경로",
       level: "required_for_activation",
       filled: hasValue(draft.data_path),
+      hint: "실험 결과가 저장되는 폴더",
     },
     {
       name: "실험 설명",
@@ -97,7 +98,7 @@ function classify(draft: Draft): FieldStatus[] {
       name: "프로젝트 약칭",
       level: "recommended",
       filled: hasValue(draft.project_name),
-      hint: "캘린더 이벤트 제목에 사용",
+      hint: "캘린더 일정 제목에 사용",
     },
     {
       name: "실험 장소",
@@ -106,18 +107,18 @@ function classify(draft: Draft): FieldStatus[] {
       hint: isOnline ? "온라인 실험은 생략 가능" : "주소·지도 링크 출처",
     },
     {
-      name: "Google Calendar",
+      name: "예약 동기화 캘린더",
       level: "recommended",
       filled: hasValue(draft.google_calendar_id),
-      hint: "미설정 시 연구팀 달력에 일정이 뜨지 않음",
+      hint: "미설정 시 연구팀 달력에 일정이 뜨지 않아요",
     },
     {
-      name: "IRB 승인 문서",
+      name: "연구윤리심의(IRB) 승인 문서",
       level: "recommended",
       filled: hasValue(draft.irb_document_url),
     },
     {
-      name: "참여 확인사항 (precautions)",
+      name: "참여 전 확인사항",
       level: "recommended",
       filled:
         Array.isArray(draft.precautions) && draft.precautions.length > 0,
@@ -144,7 +145,7 @@ function classify(draft: Draft): FieldStatus[] {
       hint: "미완료된 필수 항목이 있으면 공개 예약이 차단됩니다",
     },
     {
-      name: "파라미터 스키마",
+      name: "실험 변수 정의",
       level: "recommended",
       filled:
         Array.isArray(draft.parameter_schema) &&
@@ -153,10 +154,10 @@ function classify(draft: Draft): FieldStatus[] {
     {
       // migration 00042. Free-form string copied to Notion SLab row's
       // 버전넘버 at booking-creation time.
-      name: "프로토콜 버전",
+      name: "실험 절차 버전",
       level: "recommended",
       filled: hasValue(draft.protocol_version),
-      hint: "예: v1.0 — Notion 버전넘버 컬럼에 복사됨",
+      hint: "예: v1.0 — 연동된 Notion에 함께 기록됩니다",
     },
     {
       // migration 00043. Optional link from experiment to the Notion
@@ -164,7 +165,7 @@ function classify(draft: Draft): FieldStatus[] {
       name: "Notion 프로젝트 연결",
       level: "recommended",
       filled: hasValue(draft.notion_project_page_id),
-      hint: "실험 상세의 Notion 입력에서 URL / hex 붙여넣기",
+      hint: "실험 상세 화면의 Notion 입력란에서 주소를 붙여넣으세요",
     },
   ];
 
@@ -174,15 +175,16 @@ function classify(draft: Draft): FieldStatus[] {
         // D5-4 — schema superRefine rejects save without entry_url for
         // online/hybrid mode, so it's required at submit time not just
         // at activation. Level accordingly.
-        name: "온라인 entry_url",
+        name: "온라인 실험 코드 주소",
         level: "required",
         filled: hasValue(draft.online_runtime_config?.entry_url),
+        hint: "참여자 브라우저가 불러올 .js 파일 주소",
       },
       {
-        name: "SRI 해시",
+        name: "코드 변조 방지 검증값",
         level: "recommended",
         filled: hasValue(draft.online_runtime_config?.entry_url_sri),
-        hint: "CDN payload 무결성 보장",
+        hint: "코드 파일이 중간에 바뀌면 실행을 막아줍니다",
       },
     );
   }
@@ -228,9 +230,14 @@ export function ExperimentFormCompleteness({
       className={`rounded-lg border border-border bg-white p-4 text-sm ${className}`}
       aria-label="실험 입력 완성도"
     >
-      <h3 className="mb-3 text-sm font-semibold text-foreground">
+      <h3 className="mb-1 text-sm font-semibold text-foreground">
         입력 완성도
       </h3>
+      <p className="mb-3 text-[11px] leading-relaxed text-muted">
+        <span className="font-medium text-foreground">필수</span> 항목을 채우면 저장할 수
+        있고, <span className="font-medium text-foreground">활성화 전 필수</span> 항목까지
+        채우면 실험을 공개(active)해 참여자 예약을 받을 수 있어요.
+      </p>
       <div className="mb-3 grid grid-cols-3 gap-2 text-center">
         {totals.map((t) => {
           const meta = LEVEL_META[t.level];
@@ -286,8 +293,11 @@ export function ExperimentFormCompleteness({
           );
         })}
       </div>
-      <p className="mt-3 text-[11px] text-muted">
-        분류 기준: <code className="rounded bg-card px-1">docs/experiment-field-requirements.md</code>
+      <p
+        className="mt-3 text-[11px] text-muted"
+        title="분류 기준 문서: docs/experiment-field-requirements.md"
+      >
+        각 항목의 필수·권장 분류는 연구실 등록 기준을 따릅니다.
       </p>
     </aside>
   );

@@ -116,7 +116,7 @@ export function ExperimentList({ items, bookingCounts }: Props) {
                 onClick={() => setFilter(k)}
                 className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                   filter === k
-                    ? "border-foreground bg-foreground text-white"
+                    ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted hover:bg-card"
                 }`}
               >

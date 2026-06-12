@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import type { PaymentStatus } from "@/types/database";
 
@@ -499,23 +500,29 @@ export function PaymentPanel({
                 ` · 전체 ${rows.length}명 중`}
             </p>
           </div>
+          {/* Action hierarchy (B3d): 1순위 청구·발송은 Button primary(size=sm
+              이상), export/백필은 보조(secondary/ghost). 발송은 비가역 외부
+              메일이라 emerald(완료색) 채움을 제거하고 primary + 기존 확인
+              모달로 처리. onClick·disabled·확인 흐름은 전부 그대로. */}
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="primary"
+              size="sm"
               disabled={downloading !== null || claimable.length === 0}
               onClick={handleClaim}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {downloading === "claim"
                 ? "지급 신청서 만드는 중…"
                 : `참여비 지급 신청 (${claimable.length}명)`}
-            </button>
+            </Button>
             {activeClaimId && (
-              <button
+              <Button
                 type="button"
+                variant="primary"
+                size="sm"
                 disabled={downloading !== null}
                 onClick={() => openEmailModal(activeClaimId)}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 title={
                   recentUnsentClaim &&
                   recentUnsentClaim.id === activeClaimId
@@ -526,13 +533,15 @@ export function PaymentPanel({
                 {downloading === "email-preview"
                   ? "미리보기 생성 중…"
                   : "행정실로 지급요청 메일 보내기"}
-              </button>
+              </Button>
             )}
             {rows.some(
               (r) => r.status === "submitted_to_admin" || r.status === "claimed" || r.status === "paid",
             ) && (
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 disabled={downloading !== null}
                 onClick={() =>
                   downloadBlob(
@@ -540,20 +549,20 @@ export function PaymentPanel({
                     "upload",
                   )
                 }
-                className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 일괄 업로드용 양식
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               disabled={backfilling}
               onClick={handleBackfill}
               title="가져오기 등으로 정산 정보 행이 빠진 예약 묶음에 대해 빈 행을 한 번에 만들어 줍니다 (안전·반복 실행 가능)."
-              className="rounded-lg border border-border bg-white px-3 py-2 text-xs font-medium text-muted hover:bg-muted/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
               {backfilling ? "채우는 중…" : "누락된 정산 행 채우기"}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -833,22 +842,22 @@ export function PaymentPanel({
             </div>
 
             <div className="mt-5 flex justify-end gap-2">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => setEmailModal(null)}
                 disabled={emailModal.sending}
-                className="rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-foreground hover:bg-muted/30 disabled:opacity-50"
               >
                 취소
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="primary"
                 onClick={confirmAndSendEmail}
                 disabled={emailModal.sending}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {emailModal.sending ? "발송 중…" : "📧 발송"}
-              </button>
+                {emailModal.sending ? "발송 중…" : "메일 발송"}
+              </Button>
             </div>
           </div>
         </div>
@@ -946,16 +955,18 @@ function DispatchCell({
     return (
       <div className="flex flex-col gap-1">
         <span className="text-[11px] text-muted">세션 종료 대기</span>
-        <div className="flex flex-wrap gap-1">
-          <button
+        <div className="flex flex-wrap items-center gap-1">
+          {/* 1순위 액션 — size=sm 으로 격상 (B3d). */}
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             disabled={marking}
             onClick={onMarkCompleted}
             title="이 참여자의 예정·진행 중 회차를 모두 한 번에 '완료'로 바꿉니다."
-            className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100 disabled:opacity-50"
           >
-            {marking ? "표시 중…" : "✓ 회차 완료로 표시"}
-          </button>
+            {marking ? "표시 중…" : "회차 완료로 표시"}
+          </Button>
           {previewLink}
         </div>
       </div>
@@ -1015,14 +1026,16 @@ function DispatchCell({
 
   return (
     <div className="flex items-center gap-2">
-      <button
+      {/* 1순위 액션 — size=sm 으로 격상 (B3d). 보조(미리보기)는 작게 유지. */}
+      <Button
         type="button"
+        variant="primary"
+        size="sm"
         disabled={busy}
         onClick={onResend}
-        className="rounded border border-primary/30 bg-primary/5 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-50"
       >
         {busy ? "발송 중…" : "안내 메일 발송"}
-      </button>
+      </Button>
       {previewLink}
     </div>
   );
