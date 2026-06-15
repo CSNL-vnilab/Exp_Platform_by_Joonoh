@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
 import { COMPLETABLE_STATUSES } from "@/lib/bookings/status";
+import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 
 // POST /api/participants/blacklist-requests/[id]
 //   body: { action: "approve" | "reject", rejectedReason?: string }
@@ -13,7 +14,9 @@ import { COMPLETABLE_STATUSES } from "@/lib/bookings/status";
 // admin UI uses (assign_participant_class_manual RPC) + stamps the
 // supplied phone_last4 into participants.phone (privacy: full phone
 // never stored for blacklisted rows) + cascade-cancels future
-// confirmed/running bookings (mirrors P2-3 in
+// confirmed/running bookings + settles participant_payment_info for
+// every affected group via propagate_payment_period +
+// notifyPaymentInfoIfReady (mirrors P2-3 in
 // /api/participants/[id]/class).
 
 export const runtime = "nodejs";
@@ -138,12 +141,13 @@ export async function POST(
   const nowIso = new Date().toISOString();
   const { data: futureBks } = await admin
     .from("bookings")
-    .select("id")
+    .select("id, booking_group_id")
     .eq("participant_id", req.participant_id)
     // COMPLETABLE_STATUSES = in-flight 출발상태 (bookings/status SSOT).
     .in("status", [...COMPLETABLE_STATUSES])
     .gt("slot_start", nowIso);
   let cancelled = 0;
+  const cascadeGroups = new Set<string>();
   for (const b of futureBks ?? []) {
     const { error: cancelErr } = await admin
       .from("bookings")
@@ -152,7 +156,46 @@ export async function POST(
       // CAS: don't flip a booking that raced to 'completed' or was
       // cancelled by another admin in the gap between SELECT and UPDATE.
       .in("status", [...COMPLETABLE_STATUSES]);
-    if (!cancelErr) cancelled += 1;
+    if (!cancelErr) {
+      cancelled += 1;
+      const bg = (b as { booking_group_id?: string | null }).booking_group_id;
+      if (bg) cascadeGroups.add(bg);
+    }
+  }
+
+  // 3b. Settle payment_info for every affected group (mirrors the
+  // /api/participants/[participantId]/class cascade path). The direct
+  // class-flip path already funnels through this helper; the researcher-
+  // request → admin-approval path here did NOT, so when an approved
+  // cascade cancelled the LAST live booking of a group the
+  // participant_payment_info row stayed stuck in pending/claimed/
+  // submitted_to_admin until the nightly cron — and the cron only sweeps
+  // status='pending_participant', so a claimed/submitted row was never
+  // reconciled at all (live prod: sbj13 pi=818c13e9). For each group we
+  // first re-derive 활용일자 via propagate_payment_period, then dispatch:
+  // all-terminal groups transition payment_info → 'cancelled' (no email),
+  // groups with completed sessions become payable. Best-effort — the
+  // class flip + cancellations have already committed, so a settlement
+  // failure must never fail the approval.
+  for (const bg of cascadeGroups) {
+    try {
+      await admin.rpc("propagate_payment_period", {
+        p_booking_group_id: bg,
+      });
+    } catch (err) {
+      console.warn(
+        `[BlacklistReq approve] propagate_payment_period failed for ${bg}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+    try {
+      await notifyPaymentInfoIfReady(admin, bg);
+    } catch (err) {
+      console.error(
+        `[BlacklistReq approve] notifyPaymentInfoIfReady crashed for ${bg}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   // 4. Mark request approved.

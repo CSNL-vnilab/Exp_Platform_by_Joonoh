@@ -212,28 +212,22 @@ async function notifyPaymentInfoIfReadyImpl(
     return { outcome: NOTIFY_OUTCOME.NO_PAYMENT_ROW, bookingGroupId };
   }
 
-  // Idempotency gate — force=true (explicit admin resend) bypasses so
-  // the researcher can re-send after an amount edit. Without force we
-  // refuse to re-send a row that's already been dispatched once.
-  if (row.payment_link_sent_at && !options.force) {
-    return { outcome: NOTIFY_OUTCOME.ALREADY_SENT, bookingGroupId };
-  }
-  // NB: the amount_krw<=0 guard moved BELOW the group-readiness gate
-  // (2026-06-10 blind review [10]) — it used to run here, which meant a
-  // fully-cancelled group whose amount had been zeroed could never reach
-  // its terminal ALL_CANCELLED transition and sat in pending dashboards
-  // forever.
-  // If the row was already submitted (참여자가 이미 정산 정보를 제출한 경우)
-  // — 이미 메일이 굳이 필요 없다. 멱등성 차원에서 sent_at 을 stamp 해둔다.
-  if (row.status !== "pending_participant") {
-    await supabase
-      .from("participant_payment_info")
-      .update({ payment_link_sent_at: new Date().toISOString() })
-      .eq("id", row.id);
-    return { outcome: NOTIFY_OUTCOME.ALREADY_SENT, bookingGroupId, detail: "row not pending" };
-  }
-
-  // 2) Group readiness gate.
+  // 2) Group readiness gate — evaluated BEFORE the idempotency /
+  //    status-not-pending short-circuits below.
+  //
+  // 2026-06-15 (synth F1): the all-terminal (every booking
+  // cancelled/no_show) settlement transition MUST run ahead of the
+  // `row.status !== 'pending_participant'` early-return. Previously that
+  // early-return fired first, so a row already advanced to
+  // claimed/submitted_to_admin whose group later became fully cancelled
+  // could NEVER reach its ALL_CANCELLED transition — it stamped sent_at
+  // and returned ALREADY_SENT, leaving the settlement row stuck in a
+  // non-terminal status forever (live prod: sbj13 pi=818c13e9 status=
+  // claimed with all 5 bookings cancelled). The "row not pending → don't
+  // bother sending" short-circuit and the payment_link_sent_at
+  // idempotency guard are *mail-dispatch* concerns and so only apply
+  // once we know the group still has a live payable remainder; they now
+  // live after this gate.
   //
   // Pre-A2 (2026-05-29) this required every booking to be 'completed'.
   // That broke partial-cancel groups (hidden-couplings #25): if a
@@ -274,16 +268,34 @@ async function notifyPaymentInfoIfReadyImpl(
     (b) => !isTerminalNonPayable(b.status as string),
   );
   if (payable.length === 0) {
-    // Every booking cancelled or no_show — nothing attended, nothing
-    // to pay. Mark the payment row dead so it stops appearing in
-    // pending dashboards / cron retries. Idempotent — if a concurrent
-    // call already flipped status, the WHERE clause skips the UPDATE.
-    await supabase
+    // Every booking cancelled or no_show — nothing attended, nothing to
+    // pay. Settle the payment row to 'cancelled' so it stops appearing in
+    // pending dashboards / cron retries. This is the single all-terminal
+    // settlement reconcile that every cancel path (PUT bookings, booking-
+    // edit cancel, blacklist cascade) funnels into via this helper.
+    //
+    // 2026-06-15 (synth F2): the transition is now allowed from ANY
+    // non-terminal status, not just 'pending_participant'. claimed /
+    // submitted_to_admin rows whose group became fully cancelled also
+    // need to reach the terminal state. The idempotency guard is now a
+    // .not('status','in',(cancelled,paid,paid_offline)) — terminal
+    // settlement statuses are never re-transitioned:
+    //   - 'paid' / 'paid_offline' = the participant was actually paid
+    //     (online claim or pre-platform disbursement). NEVER reverse a
+    //     real payment to 'cancelled' even if the bookings were later
+    //     voided — that would falsify the accounting record.
+    //   - 'cancelled' = already terminal; no-op.
+    // claimed_at / amount / PII columns are preserved (audit trail);
+    // only status flips. The 'cancelled' enum value (migration 00074) and
+    // the CHECK-constraint relaxations (migration 00075) together make
+    // claimed→cancelled and no-PII-pending→cancelled legal.
+    const { error: cancelErr } = await supabase
       .from("participant_payment_info")
       // Cast: 'cancelled' was added to the payment_status enum in
-      // migration 00066 (2026-05-29) but the generated database types
-      // here still enumerate the pre-migration union. Once the schema
-      // codegen rerun lands the cast can drop.
+      // migration 00074 (2026-06-15; 00066 declared it but never reached
+      // prod) but the generated database types here still enumerate the
+      // pre-migration union. Once the schema codegen rerun lands the cast
+      // can drop.
       .update({
         status: "cancelled",
         // Stamp sent_at so the row also exits the "send pending"
@@ -291,13 +303,54 @@ async function notifyPaymentInfoIfReadyImpl(
         payment_link_sent_at: new Date().toISOString(),
       } as never)
       .eq("id", row.id)
-      .eq("status", "pending_participant");
+      // Idempotent + paid-protective guard: skip rows already in a
+      // terminal settlement status. paid/paid_offline are NEVER reversed.
+      .not("status", "in", "(cancelled,paid,paid_offline)");
+    if (cancelErr) {
+      // Surface (don't swallow). Before the 00074 constraint relaxation,
+      // claimed→cancelled and no-PII pending→cancelled UPDATEs failed the
+      // payment_info_claimed_has_claim / _submitted_requires_pii CHECKs
+      // and the error was destructured-and-ignored — the row silently
+      // stayed non-terminal. Now we report it so the operator sees a
+      // stuck row instead of a phantom success.
+      console.warn(
+        `[PaymentInfoNotify] ALL_CANCELLED transition failed for ${bookingGroupId}: ${cancelErr.message}`,
+      );
+      return {
+        outcome: NOTIFY_OUTCOME.ALL_CANCELLED,
+        bookingGroupId,
+        detail: `transition error: ${cancelErr.message}`,
+      };
+    }
     return {
       outcome: NOTIFY_OUTCOME.ALL_CANCELLED,
       bookingGroupId,
       detail: "all bookings in group are cancelled or no_show",
     };
   }
+
+  // From here the group still has a live payable remainder, so the
+  // remaining gates are about whether/what to MAIL. These run after the
+  // all-terminal settlement above (synth F1).
+
+  // Idempotency gate — force=true (explicit admin resend) bypasses so
+  // the researcher can re-send after an amount edit. Without force we
+  // refuse to re-send a row that's already been dispatched once.
+  if (row.payment_link_sent_at && !options.force) {
+    return { outcome: NOTIFY_OUTCOME.ALREADY_SENT, bookingGroupId };
+  }
+  // If the row was already submitted (참여자가 이미 정산 정보를 제출한 경우)
+  // — 이미 메일이 굳이 필요 없다. 멱등성 차원에서 sent_at 을 stamp 해둔다.
+  // (Only reached when a payable booking remains; a fully-cancelled
+  // group already settled to 'cancelled' above.)
+  if (row.status !== "pending_participant") {
+    await supabase
+      .from("participant_payment_info")
+      .update({ payment_link_sent_at: new Date().toISOString() })
+      .eq("id", row.id);
+    return { outcome: NOTIFY_OUTCOME.ALREADY_SENT, bookingGroupId, detail: "row not pending" };
+  }
+
   const allCompleted = payable.every((b) => b.status === "completed");
   if (!allCompleted) {
     return { outcome: NOTIFY_OUTCOME.NOT_ALL_COMPLETED, bookingGroupId };
@@ -325,6 +378,25 @@ async function notifyPaymentInfoIfReadyImpl(
       .eq("id", row.experiment_id)
       .maybeSingle(),
   ]);
+
+  // 3-pre) Defensive recipient observability (synth F5). Participant
+  // records can be duplicated in prod (live: 최선우 c2acd638/673e4f46 same
+  // email, 이현욱 placeholder@- vs real address) — a duplicate or an
+  // orphaned participant_id makes the recipient ambiguous. .eq('id', …)
+  // keys on the participant_id FK so this read is single-row, but a NULL
+  // result or an empty email both terminate as NO_RECIPIENT /
+  // stampUndeliverable below; emit a warn so the operator can correlate
+  // a "no recipient" outcome with the underlying data-quality issue
+  // instead of it vanishing silently. Pure logging — no behavior change.
+  if (!participant) {
+    console.warn(
+      `[PaymentInfoNotify] participant ${row.participant_id} not found for group ${bookingGroupId} — recipient unresolved`,
+    );
+  } else if (!(participant as { email?: string | null }).email?.trim()) {
+    console.warn(
+      `[PaymentInfoNotify] participant ${row.participant_id} has no email for group ${bookingGroupId} — relying on email_override`,
+    );
+  }
 
   // 3a) Auto-send opt-out (migration 00063). When the experiment is
   // configured to require an explicit researcher trigger, every

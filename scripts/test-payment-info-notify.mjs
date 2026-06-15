@@ -118,6 +118,21 @@ function makeStubSupabase(state) {
             _filterPath[col] = { lt: val };
             return updateBuilder;
           },
+          // ALL_CANCELLED settlement transition (synth F2) uses
+          // .not("status","in","(cancelled,paid,paid_offline)") — the
+          // idempotent + paid-protective guard. Parse the parenthesised
+          // list and store as a notIn predicate for `matches`.
+          not(col, op, val) {
+            if (op === "in") {
+              const list = String(val)
+                .replace(/^\(|\)$/g, "")
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+              _filterPath[col] = { notIn: list };
+            }
+            return updateBuilder;
+          },
           // Phase 2 lock-acquire uses .or("a.is.null,a.lt.X") — accept
           // and parse for predicate evaluation.
           or(orStr) {
@@ -172,6 +187,8 @@ function makeStubSupabase(state) {
         } else if (row[k] !== v.is) return false;
       } else if (v && typeof v === "object" && "in" in v) {
         if (!v.in.includes(row[k])) return false;
+      } else if (v && typeof v === "object" && "notIn" in v) {
+        if (v.notIn.includes(row[k])) return false;
       } else if (v && typeof v === "object" && "gt" in v) {
         if (!(row[k] > v.gt)) return false;
       } else if (v && typeof v === "object" && "lt" in v) {
@@ -375,6 +392,121 @@ await group("all no_show → all_cancelled", async () => {
   check(
     "payment_info.status=cancelled",
     state.participant_payment_info[0].status === "cancelled",
+    `got ${state.participant_payment_info[0].status}`,
+  );
+});
+
+// ── 5e. claimed row, group fully cancelled → all_cancelled (synth F1/F2) ──
+// Live prod regression (sbj13 pi=818c13e9): a settlement row already
+// advanced to 'claimed' (carries claimed_at) whose every booking was later
+// cancelled used to short-circuit at the `status !== pending_participant`
+// early-return → ALREADY_SENT, never reaching the all-terminal transition,
+// so the row stayed 'claimed' forever despite a dead group. After F1 the
+// all-terminal gate runs first, and after F2 the transition is allowed
+// from 'claimed' (claimed_at preserved). Constraint relaxation lives in
+// migration 00074.
+await group("claimed row + all cancelled → all_cancelled (F1/F2)", async () => {
+  pendingSendResult = { success: true, messageId: "<msg-claimed@test.local>" };
+  const { groupId, state } = freshFixture({
+    payment: {
+      status: "claimed",
+      claimed_at: new Date().toISOString(),
+      // claimed rows have been dispatched once already
+      payment_link_sent_at: new Date().toISOString(),
+    },
+    bookings: [
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "cancelled" },
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "cancelled" },
+    ],
+  });
+  const sb = makeStubSupabase(state);
+  sendEmailCalls.length = 0;
+  const result = await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
+  check("outcome=all_cancelled", result.outcome === "all_cancelled", `got ${result.outcome}`);
+  check("no email sent", sendEmailCalls.length === 0);
+  check(
+    "payment_info.status=cancelled",
+    state.participant_payment_info[0].status === "cancelled",
+    `got ${state.participant_payment_info[0].status}`,
+  );
+  check(
+    "claimed_at preserved (audit trail)",
+    state.participant_payment_info[0].claimed_at != null,
+  );
+});
+
+// ── 5f. submitted_to_admin + all cancelled → all_cancelled (F1/F2) ───────
+// Same shape for a submitted_to_admin row (PII present): the all-terminal
+// gate now precedes the not-pending short-circuit, so a fully-cancelled
+// group settles even after the participant submitted bank info.
+await group("submitted row + all cancelled → all_cancelled (F1/F2)", async () => {
+  pendingSendResult = { success: true, messageId: "<msg-submitted@test.local>" };
+  const { groupId, state } = freshFixture({
+    payment: {
+      status: "submitted_to_admin",
+      payment_link_sent_at: new Date().toISOString(),
+    },
+    bookings: [
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "cancelled" },
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "no_show" },
+    ],
+  });
+  const sb = makeStubSupabase(state);
+  sendEmailCalls.length = 0;
+  const result = await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
+  check("outcome=all_cancelled", result.outcome === "all_cancelled", `got ${result.outcome}`);
+  check("no email sent", sendEmailCalls.length === 0);
+  check(
+    "payment_info.status=cancelled",
+    state.participant_payment_info[0].status === "cancelled",
+    `got ${state.participant_payment_info[0].status}`,
+  );
+});
+
+// ── 5g. paid row + all cancelled → NOT reversed (F2 paid-protection) ─────
+// A real payment must never be reversed to 'cancelled' even if the
+// bookings were later voided — that would falsify the accounting record.
+// The .not('status','in','(cancelled,paid,paid_offline)') guard skips it.
+await group("paid row + all cancelled → status preserved (F2)", async () => {
+  pendingSendResult = { success: true, messageId: "<msg-paid@test.local>" };
+  const { groupId, state } = freshFixture({
+    payment: {
+      status: "paid",
+      claimed_at: new Date().toISOString(),
+      payment_link_sent_at: new Date().toISOString(),
+    },
+    bookings: [
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "cancelled" },
+      { booking_group_id: "11111111-2222-3333-4444-555555555555", status: "cancelled" },
+    ],
+  });
+  const sb = makeStubSupabase(state);
+  sendEmailCalls.length = 0;
+  const result = await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
+  check("outcome=all_cancelled", result.outcome === "all_cancelled", `got ${result.outcome}`);
+  check("no email sent", sendEmailCalls.length === 0);
+  check(
+    "paid status NOT reversed",
+    state.participant_payment_info[0].status === "paid",
+    `got ${state.participant_payment_info[0].status}`,
+  );
+});
+
+// ── 5h. equivalence guard: completed group still NOT cancelled ───────────
+// The reorder must NOT make a normal payable+completed group settle to
+// 'cancelled'. With at least one completed (payable) booking the flow
+// proceeds to send exactly as before.
+await group("completed group → still sent, not cancelled (F1 equiv)", async () => {
+  pendingSendResult = { success: true, messageId: "<msg-equiv@test.local>" };
+  const { groupId, state } = freshFixture();
+  const sb = makeStubSupabase(state);
+  sendEmailCalls.length = 0;
+  const result = await notifyPaymentInfoIfReady(sb, groupId, stubMailer);
+  check("outcome=sent", result.outcome === "sent", `got ${result.outcome}`);
+  check("one email sent", sendEmailCalls.length === 1);
+  check(
+    "status NOT cancelled",
+    state.participant_payment_info[0].status === "pending_participant",
     `got ${state.participant_payment_info[0].status}`,
   );
 });
