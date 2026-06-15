@@ -20,7 +20,7 @@ export default async function LocationsPage() {
     <div>
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">실험 장소 관리</h1>
+          <h1 className="text-2xl font-semibold text-foreground">실험 장소 관리</h1>
           <p className="mt-1 text-sm text-muted">
             실험이 진행되는 장소 정보를 관리합니다. 참여자에게 표시되는 주소와 네이버 지도 링크를 설정하세요.
           </p>

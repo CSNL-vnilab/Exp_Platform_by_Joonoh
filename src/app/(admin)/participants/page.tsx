@@ -12,7 +12,7 @@ export default async function ParticipantsPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">참여자 관리</h1>
+        <h1 className="text-2xl font-semibold text-foreground">참여자 관리</h1>
         <p className="mt-1 text-sm text-muted">
           연구실 참여자의 이름·연락처·참여 실험·클래스를 확인하고, 선택한
           참여자에게 홍보 메일을 발송합니다.

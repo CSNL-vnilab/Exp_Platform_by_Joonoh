@@ -11,7 +11,7 @@ export default async function BlacklistRequestsPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">
+        <h1 className="text-2xl font-semibold text-foreground">
           블랙리스트 승인 큐
         </h1>
         <p className="mt-1 text-sm text-muted">

@@ -193,7 +193,7 @@ export function PromoEmailModal({
       <div className="space-y-4">
         {done ? (
           <div className="space-y-4">
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+            <div className="rounded-lg border border-success-200 bg-success-50 p-4 text-sm text-success-800">
               ✓ {done.sent}명에게 홍보 메일을 발송했습니다. (To: 발신 계정,
               BCC: 참여자)
             </div>

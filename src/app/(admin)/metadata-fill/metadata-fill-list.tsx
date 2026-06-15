@@ -220,7 +220,7 @@ export function MetadataFillList({
                     정식 실험 아님 (기록 면제)
                   </Button>
                   {isSaved && (
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                    <span className="rounded-full bg-success-50 px-3 py-1 text-xs font-medium text-success-700">
                       ✓ 저장됨
                     </span>
                   )}

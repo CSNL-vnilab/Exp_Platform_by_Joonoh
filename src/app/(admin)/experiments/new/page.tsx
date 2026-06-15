@@ -13,7 +13,7 @@ export default function NewExperimentPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-foreground">새 실험 만들기</h1>
+        <h1 className="text-2xl font-semibold text-foreground">새 실험 만들기</h1>
         <p className="mt-1 text-sm text-muted">
           실험 정보를 입력하고 예약 페이지를 생성하세요. 오른쪽 사이드바에서
           필수·권장 항목 입력 현황을 실시간으로 확인할 수 있습니다.

@@ -119,8 +119,8 @@ const STATUS_LABEL: Record<PaymentStatus, string> = {
 const STATUS_CLASS: Record<PaymentStatus, string> = {
   pending_participant: "bg-warning-50 text-warning-800 border-warning-200",
   submitted_to_admin: "bg-info-50 text-info-800 border-info-200",
-  claimed: "bg-emerald-50 text-emerald-800 border-emerald-200",
-  paid: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  claimed: "bg-success-50 text-success-800 border-success-200",
+  paid: "bg-success-50 text-success-800 border-success-200",
   paid_offline: "bg-neutral-100 text-neutral-700 border-neutral-300",
 };
 
@@ -733,7 +733,7 @@ export function PaymentPanel({
             }
           }}
         >
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-overlay">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-base font-semibold text-foreground">
@@ -902,7 +902,7 @@ function DispatchCell({
   // their info). Show a calm "제출 완료" label so the column doesn't look
   // empty.
   if (submittedTerminal) {
-    return <span className="text-[11px] text-emerald-700">제출 완료</span>;
+    return <span className="text-[11px] text-success-700">제출 완료</span>;
   }
 
   if (row.paymentLinkSentAt) {

@@ -231,7 +231,7 @@ export default function DemoPage() {
   return (
     <div>
       <div className="mb-2 flex justify-center">
-        <Badge variant="info">DEMO MODE</Badge>
+        <Badge variant="accent">DEMO MODE</Badge>
       </div>
       <div className="mb-6 text-center">
         <h1 className="text-2xl font-bold text-foreground">{experiment.title}</h1>

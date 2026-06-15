@@ -86,7 +86,7 @@ export default async function ExperimentsPage() {
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">실험 관리</h1>
+          <h1 className="text-2xl font-semibold text-foreground">실험 관리</h1>
           <p className="mt-1 text-sm text-muted">
             내가 생성한 실험 {experiments?.length ?? 0}개
           </p>

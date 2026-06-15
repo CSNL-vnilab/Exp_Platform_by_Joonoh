@@ -2,11 +2,11 @@ import { type ButtonHTMLAttributes, forwardRef } from "react";
 
 const variantClasses = {
   primary:
-    "bg-primary text-white hover:bg-primary-hover focus-visible:ring-primary",
+    "bg-primary text-white shadow-sm hover:bg-primary-hover hover:shadow focus-visible:ring-primary",
   secondary:
     "bg-white text-foreground border border-border hover:bg-neutral-100 hover:border-neutral-300 focus-visible:ring-primary",
   danger:
-    "bg-danger text-white hover:bg-danger-700 focus-visible:ring-danger",
+    "bg-danger text-white shadow-sm hover:bg-danger-700 hover:shadow focus-visible:ring-danger",
   ghost:
     "bg-transparent text-foreground hover:bg-neutral-100 focus-visible:ring-primary",
 } as const;
@@ -55,7 +55,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         aria-busy={loading || undefined}
         className={`
           inline-flex items-center justify-center rounded-lg font-medium
-          transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
+          transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
           disabled:pointer-events-none disabled:opacity-50
           ${variantClasses[variant]}
           ${sizeClasses[size]}

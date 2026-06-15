@@ -26,7 +26,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
     <dialog
       ref={dialogRef}
       onClose={onClose}
-      className="m-auto w-full max-w-lg rounded-xl border border-border bg-white p-0 shadow-xl backdrop:bg-black/40"
+      className="m-auto w-full max-w-lg rounded-xl border border-border bg-white p-0 shadow-overlay backdrop:bg-black/40"
     >
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>

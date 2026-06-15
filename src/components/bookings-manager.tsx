@@ -258,7 +258,7 @@ export function BookingsManager({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {(
           [
-            ["확정", counts.confirmed, "text-emerald-600"],
+            ["확정", counts.confirmed, "text-success-600"],
             ["취소", counts.cancelled, "text-danger-600"],
             ["완료", counts.completed, "text-info-600"],
             ["불참(노쇼)", counts.no_show, "text-warning-600"],
@@ -736,7 +736,7 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
           className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
             p.screener_stats.passed < p.screener_stats.total
               ? "bg-danger-100 text-danger-700"
-              : "bg-emerald-100 text-emerald-700"
+              : "bg-success-100 text-success-700"
           }`}
           title="스크리너 통과/전체"
         >
@@ -748,7 +748,7 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
   if (p.verified_at) {
     return (
       <div className="space-y-0.5">
-        <div className="font-medium text-emerald-700">✓ 코드 확인됨</div>
+        <div className="font-medium text-success-700">✓ 코드 확인됨</div>
         <div className="text-muted">{p.blocks_submitted}개 블록 제출</div>
         {badges}
       </div>
@@ -873,7 +873,7 @@ function VerifyCompletionModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-2xl bg-white p-5 shadow-overlay"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-base font-semibold text-foreground">참여 완료 인증 코드 확인</h3>
@@ -894,7 +894,7 @@ function VerifyCompletionModal({
           <p className="mt-3 rounded-lg bg-red-50 p-2 text-xs text-red-700">{err}</p>
         )}
         {ok && (
-          <p className="mt-3 rounded-lg bg-emerald-50 p-2 text-xs text-emerald-700">
+          <p className="mt-3 rounded-lg bg-success-50 p-2 text-xs text-success-700">
             확인되었습니다. 새로고침합니다…
           </p>
         )}

@@ -16,16 +16,18 @@ import type { ReactNode } from "react";
  *     info    = neutral-positive informational note (sky)
  *     danger  = error / destructive / irreversible (red)
  *     neutral = quiet, low-emphasis note (grey)
- *   NOTE: there is intentionally no `success` (emerald) tone here — the
- *   success/emerald hue is a pending user taste-fork and is deliberately
- *   left out of this round.
+ *     success = completed / confirmed / done (emerald)
+ *   The `success` (emerald) tone is now first-class: CS13 resolved the
+ *   pending taste-fork by unifying the success hue to emerald (Foundation
+ *   --color-success-* ramp), so success notices share the same emerald as
+ *   every other success chip/badge.
  * - `title` renders an optional bold lead line above the body.
  * - `icon` renders an optional leading glyph slot, tinted to the tone.
  * - `size` controls density: `md` (default, px-4 py-3 text-sm) or `sm`
  *   (px-3 py-2 text-xs) for tighter inline notices.
  */
 
-type NoticeTone = "warning" | "info" | "danger" | "neutral";
+type NoticeTone = "warning" | "info" | "danger" | "neutral" | "success";
 type NoticeSize = "md" | "sm";
 
 interface NoticeProps {
@@ -45,6 +47,7 @@ const toneClasses: Record<NoticeTone, string> = {
   info: "border-info-200 bg-info-50 text-info-800",
   danger: "border-danger-200 bg-danger-50 text-danger-700",
   neutral: "border-neutral-200 bg-neutral-50 text-neutral-700",
+  success: "border-success-200 bg-success-50 text-success-800",
 };
 
 const iconToneClasses: Record<NoticeTone, string> = {
@@ -52,6 +55,7 @@ const iconToneClasses: Record<NoticeTone, string> = {
   info: "text-info-700",
   danger: "text-danger-700",
   neutral: "text-neutral-600",
+  success: "text-success-700",
 };
 
 const sizeClasses: Record<NoticeSize, string> = {

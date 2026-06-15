@@ -322,7 +322,7 @@ export function OnlineScreenerEditor({ experimentId }: { experimentId: string })
         ))}
         <div className="ml-auto flex items-center gap-2">
           {savedAt && !dirty && (
-            <span className="text-xs text-emerald-700">저장됨</span>
+            <span className="text-xs text-success-700">저장됨</span>
           )}
           <Button
             size="sm"

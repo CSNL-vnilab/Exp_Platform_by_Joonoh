@@ -195,7 +195,7 @@ export function BookingObservationModal({
             {completedTick && (
               <div
                 role="status"
-                className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"
+                className="flex items-center gap-2 rounded-lg border border-success-200 bg-success-50 px-3 py-2 text-xs text-success-800"
               >
                 <span aria-hidden>✓</span>
                 <span>예약 상태가 &ldquo;완료&rdquo;로 전환되었습니다.</span>

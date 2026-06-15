@@ -781,7 +781,7 @@ export function ExperimentDetail({
                     <>
                       예약 {bookingBreakdown.total}건
                       {bookingBreakdown.confirmed > 0 && (
-                        <span className="ml-1 text-emerald-700">
+                        <span className="ml-1 text-success-700">
                           (확정 {bookingBreakdown.confirmed})
                         </span>
                       )}

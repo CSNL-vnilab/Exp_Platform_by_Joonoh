@@ -211,9 +211,8 @@ function toneBg(t: Tone): string {
     default: "border-border bg-card",
     danger: "border-danger-200 bg-danger-50",
     info: "border-info-200 bg-info-50",
-    // success=emerald is a pending user taste-fork — left as raw emerald
-    // (intentionally not tokenized this round).
-    success: "border-emerald-200 bg-emerald-50",
+    // CS13: success hue unified to emerald via Foundation success-* ramp.
+    success: "border-success-200 bg-success-50",
     warning: "border-warning-200 bg-warning-50",
   }[t];
 }
@@ -223,8 +222,8 @@ function toneText(t: Tone): string {
     default: "text-foreground",
     danger: "text-danger-700",
     info: "text-info-700",
-    // success=emerald held as taste-fork (see toneBg note).
-    success: "text-emerald-700",
+    // CS13: success=emerald, token-backed (see toneBg note).
+    success: "text-success-700",
     warning: "text-warning-800",
   }[t];
 }

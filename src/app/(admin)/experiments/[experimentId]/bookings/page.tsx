@@ -144,7 +144,7 @@ export default async function BookingsPage({
           >
             &larr; 실험 상세로 돌아가기
           </Link>
-          <h1 className="mt-1 text-2xl font-bold text-foreground">
+          <h1 className="mt-1 text-2xl font-semibold text-foreground">
             예약 관리 · {experiment.title}
           </h1>
         </div>

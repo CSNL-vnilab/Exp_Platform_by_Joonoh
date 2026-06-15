@@ -129,7 +129,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">대시보드</h1>
+          <h1 className="text-2xl font-semibold text-foreground">대시보드</h1>
           <p className="mt-1 text-sm text-muted">최근 7일의 내 실험 현황</p>
         </div>
         <div className="flex gap-2">
@@ -139,6 +139,28 @@ export default async function DashboardPage() {
           <Link href="/schedule">
             <Button variant="secondary">전체 일정 보기</Button>
           </Link>
+        </div>
+      </div>
+
+      {/* KPI summary strip — reuses already-computed server counts (no new query). */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
+          <div className="text-2xl font-semibold tabular-nums text-foreground">
+            {active.length}
+          </div>
+          <div className="mt-0.5 text-xs text-muted">진행 중 실험</div>
+        </div>
+        <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
+          <div className="text-2xl font-semibold tabular-nums text-foreground">
+            {upcomingRows.length}
+          </div>
+          <div className="mt-0.5 text-xs text-muted">다가오는 예약 (7일)</div>
+        </div>
+        <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
+          <div className="text-2xl font-semibold tabular-nums text-foreground">
+            {metadataGapRows.length}
+          </div>
+          <div className="mt-0.5 text-xs text-muted">기록 누락 실험</div>
         </div>
       </div>
 

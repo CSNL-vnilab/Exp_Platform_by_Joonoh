@@ -1,5 +1,5 @@
 interface BadgeProps {
-  variant?: "default" | "success" | "danger" | "info" | "warning";
+  variant?: "default" | "success" | "danger" | "info" | "warning" | "accent";
   children: React.ReactNode;
   className?: string;
 }
@@ -10,6 +10,9 @@ const variantClasses = {
   danger: "bg-danger-50 text-danger-700 ring-1 ring-inset ring-danger-600/20",
   info: "bg-info-50 text-info-800 ring-1 ring-inset ring-info-600/20",
   warning: "bg-warning-50 text-warning-800 ring-1 ring-inset ring-warning-600/20",
+  // CS17 [taste]: non-semantic accent (indigo) for brand/new/beta marks — kept
+  // out of status positions so the semantic ramps own the info hierarchy.
+  accent: "bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent-600/20",
 } as const;
 
 export function Badge({ variant = "default", children, className = "" }: BadgeProps) {

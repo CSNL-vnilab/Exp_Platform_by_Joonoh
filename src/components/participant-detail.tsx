@@ -136,7 +136,7 @@ export function ParticipantDetail({ data, role }: Props) {
           <span className="rounded-full bg-info-50 px-3 py-1 text-info-800">
             완료 {data.stats.completed}
           </span>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-800">
+          <span className="rounded-full bg-success-50 px-3 py-1 text-success-800">
             예정 {data.stats.confirmed}
           </span>
           <span className="rounded-full bg-warning-50 px-3 py-1 text-warning-800">

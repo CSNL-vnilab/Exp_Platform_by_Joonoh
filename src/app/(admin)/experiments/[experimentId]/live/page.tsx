@@ -90,7 +90,7 @@ export default async function LiveSessionsPage({
           >
             &larr; 실험 상세
           </Link>
-          <h1 className="mt-1 text-2xl font-bold text-foreground">
+          <h1 className="mt-1 text-2xl font-semibold text-foreground">
             실시간 세션 · {exp.title}
           </h1>
           <p className="mt-1 text-xs text-muted">

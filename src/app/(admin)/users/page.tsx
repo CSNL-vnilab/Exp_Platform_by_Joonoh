@@ -33,7 +33,7 @@ export default async function UsersPage() {
     <div>
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">사용자 관리</h1>
+          <h1 className="text-2xl font-semibold text-foreground">사용자 관리</h1>
           <p className="mt-1 text-sm text-muted">
             연구원 계정을 직접 발급하거나, 기존 계정의 역할을 변경할 수 있습니다.
           </p>

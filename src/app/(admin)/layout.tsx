@@ -26,7 +26,7 @@ export default async function AdminLayout({
 
   return (
     <ToastProvider>
-      <div className="min-h-screen bg-card">
+      <div className="min-h-screen bg-neutral-100">
         <Sidebar role={profile.role} displayName={profile.display_name} />
         {/* Main content area — offset for desktop sidebar */}
         <main className="lg:pl-64">
