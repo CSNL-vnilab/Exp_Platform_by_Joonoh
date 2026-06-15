@@ -215,6 +215,12 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
     (r) => (r as unknown as { booking_group_id: string }).booking_group_id,
   );
   const allCompleted = new Map<string, boolean>();
+  // True when a group has zero payable (live) sessions — every booking is
+  // cancelled/no_show. Such a group will never reach a meaningful payment
+  // dispatch, so the panel renders a neutral "정산 대상 아님" label instead
+  // of a 완료 button. Derived from the same `payable` filter below — no new
+  // query.
+  const noPayableSessions = new Map<string, boolean>();
   // Per-group session-status tally. completedSessions feeds
   // recommendAmount() (server-side — the panel never re-queries bookings);
   // the rest are carried so the panel can show "4/5회 완료" context.
@@ -258,6 +264,10 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
         gid,
         payable.length > 0 && payable.every((s) => s === "completed"),
       );
+      // Group has bookings but none are payable (all cancelled/no_show).
+      // Guard on statuses.length so a group with no rows at all doesn't get
+      // mislabeled "전 회차 취소/불참".
+      noPayableSessions.set(gid, statuses.length > 0 && payable.length === 0);
       // Tally the four buckets the amount hint cares about. Any status
       // that isn't completed/no_show/cancelled (e.g. confirmed/running)
       // counts as "planned/in-flight" — surfaced only for context, the
@@ -327,6 +337,7 @@ async function PaymentSection({ experimentId }: { experimentId: string }) {
       paymentLinkAttempts: row.payment_link_attempts ?? 0,
       paymentLinkLastError: row.payment_link_last_error,
       allBookingsCompleted: allCompleted.get(row.booking_group_id) ?? false,
+      noPayableSessions: noPayableSessions.get(row.booking_group_id) ?? false,
       // Session tally + amount recommendation (carried as props; the
       // panel renders the "추천 N원 (x/y회 완료)" affordance off these).
       completedSessions,

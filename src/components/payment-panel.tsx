@@ -36,6 +36,11 @@ interface PaymentRow {
   // resend is meaningful right now (auto-dispatch triggers off the same
   // condition). Computed server-side off the bookings list.
   allBookingsCompleted: boolean;
+  // True when the group has bookings but none are payable (every session is
+  // cancelled/no_show). Such a group has nothing to settle — the dispatch
+  // cell shows a neutral "정산 대상 아님" label instead of a 완료 button.
+  // Computed server-side off the same payable filter as allBookingsCompleted.
+  noPayableSessions: boolean;
   // Amount-recommendation context (computed server-side via
   // recommendAmount() in bookings/page.tsx — the panel never re-queries
   // bookings or invents a formula). `recommendedKrw` is a pro-rated
@@ -900,9 +905,26 @@ function DispatchCell({
 
   // After participant submits, the dispatch column is irrelevant (we have
   // their info). Show a calm "제출 완료" label so the column doesn't look
-  // empty.
+  // empty. Checked BEFORE noPayableSessions: a participant who already
+  // submitted/was paid and then had remaining bookings cancelled should
+  // still read "제출 완료", not "정산 대상 아님".
   if (submittedTerminal) {
     return <span className="text-[11px] text-success-700">제출 완료</span>;
+  }
+
+  // 전 회차가 취소/불참인 그룹 — 정산할 살아있는 세션이 없다. "세션 종료
+  // 대기"+완료 버튼 대신 중립 라벨로 표시해 무의미한 완료 처리를 막는다.
+  // (이미 제출/지급된 건은 위 submittedTerminal 분기에서 먼저 처리되므로,
+  // 여기 도달하는 건 아직 미발송이면서 정산 대상이 아닌 건뿐.)
+  if (row.noPayableSessions) {
+    return (
+      <span
+        className="text-2xs text-neutral-500"
+        title="이 참여자의 모든 회차가 취소 또는 불참(노쇼)으로 종료되었습니다."
+      >
+        정산 대상 아님 (전 회차 취소/불참)
+      </span>
+    );
   }
 
   if (row.paymentLinkSentAt) {

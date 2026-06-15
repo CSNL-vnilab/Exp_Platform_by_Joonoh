@@ -476,13 +476,15 @@ export function BookingsManager({
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap items-center gap-2">
-                              {b.status === "confirmed" && (
+                              {(b.status === "confirmed" ||
+                                b.status === "running") && (
                                 <BookingActions
                                   bookingId={b.id}
                                   experimentId={experimentId}
                                   currentSlotStart={b.slot_start}
                                   currentSlotEnd={b.slot_end}
                                   sessionNumber={b.session_number}
+                                  status={b.status as "confirmed" | "running"}
                                 />
                               )}
                               {showsOnlineCols &&
@@ -592,7 +594,7 @@ export function BookingsManager({
                         <RunProgressCell row={b} />
                       </div>
                     )}
-                    {b.status === "confirmed" && (
+                    {(b.status === "confirmed" || b.status === "running") && (
                       <div className="mt-3">
                         <BookingActions
                           bookingId={b.id}
@@ -600,6 +602,7 @@ export function BookingsManager({
                           currentSlotStart={b.slot_start}
                           currentSlotEnd={b.slot_end}
                           sessionNumber={b.session_number}
+                          status={b.status as "confirmed" | "running"}
                         />
                       </div>
                     )}

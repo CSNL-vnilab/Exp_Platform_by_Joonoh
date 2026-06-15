@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { fromInternalEmail } from "@/lib/auth/username";
 import { NotionLinkInput } from "@/components/notion-link-input";
 import type { Profile, UserRole } from "@/types/database";
@@ -19,6 +20,7 @@ interface Props {
 export function UsersTable({ profiles, currentUserId }: Props) {
   const router = useRouter();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -38,6 +40,51 @@ export function UsersTable({ profiles, currentUserId }: Props) {
     }
     toast("변경사항이 저장되었습니다", "success");
     startTransition(() => router.refresh());
+  }
+
+  // Demoting an admin to researcher (privilege removal).
+  async function demoteToResearcher(p: Profile) {
+    const ok = await confirm({
+      title: "연구원으로 강등",
+      message: (
+        <div className="space-y-1">
+          <p>
+            <span className="font-medium text-foreground">
+              {p.display_name ?? fromInternalEmail(p.email) ?? p.email}
+            </span>{" "}
+            님을 연구원으로 강등하시겠습니까?
+          </p>
+        </div>
+      ),
+      detail: "관리자 권한이 회수됩니다.",
+      confirmLabel: "강등",
+      danger: true,
+    });
+    if (!ok) return;
+    void patch(p.id, { role: "researcher" });
+  }
+
+  // Disabling an account (revokes app access). Re-enabling is non-destructive
+  // and stays a direct toggle.
+  async function disableAccount(p: Profile) {
+    const ok = await confirm({
+      title: "계정 비활성화",
+      message: (
+        <div className="space-y-1">
+          <p>
+            <span className="font-medium text-foreground">
+              {p.display_name ?? fromInternalEmail(p.email) ?? p.email}
+            </span>{" "}
+            님의 계정을 비활성화하시겠습니까?
+          </p>
+        </div>
+      ),
+      detail: "이 사용자는 더 이상 시스템에 접근할 수 없게 됩니다.",
+      confirmLabel: "비활성화",
+      danger: true,
+    });
+    if (!ok) return;
+    void patch(p.id, { disabled: true });
   }
 
   if (profiles.length === 0) {
@@ -121,7 +168,7 @@ export function UsersTable({ profiles, currentUserId }: Props) {
                           <Button
                             variant="secondary"
                             disabled={busy || isSelf}
-                            onClick={() => patch(p.id, { role: "researcher" })}
+                            onClick={() => demoteToResearcher(p)}
                           >
                             연구원 강등
                           </Button>
@@ -129,7 +176,11 @@ export function UsersTable({ profiles, currentUserId }: Props) {
                         <Button
                           variant={p.disabled ? "secondary" : "danger"}
                           disabled={busy || isSelf}
-                          onClick={() => patch(p.id, { disabled: !p.disabled })}
+                          onClick={() =>
+                            p.disabled
+                              ? patch(p.id, { disabled: false })
+                              : disableAccount(p)
+                          }
                         >
                           {p.disabled ? "활성화" : "비활성화"}
                         </Button>

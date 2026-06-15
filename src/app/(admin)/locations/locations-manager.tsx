@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import type { ExperimentLocation } from "@/types/database";
 
 // ---------------------------------------------------------------------------
@@ -256,6 +257,7 @@ interface LocationsManagerProps {
 export function LocationsManager({ initialLocations }: LocationsManagerProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const [, startTransition] = useTransition();
   const [editTarget, setEditTarget] = useState<ExperimentLocation | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -266,9 +268,20 @@ export function LocationsManager({ initialLocations }: LocationsManagerProps) {
   }
 
   async function handleDelete(loc: ExperimentLocation) {
-    const confirmed = window.confirm(
-      `"${loc.name}" 장소를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`
-    );
+    const confirmed = await confirm({
+      title: "장소 삭제",
+      message: (
+        <div className="space-y-1">
+          <p>
+            <span className="font-medium text-foreground">{loc.name}</span> 장소를
+            삭제하시겠습니까?
+          </p>
+        </div>
+      ),
+      detail: "이 작업은 되돌릴 수 없습니다.",
+      confirmLabel: "삭제",
+      danger: true,
+    });
     if (!confirmed) return;
 
     setDeletingId(loc.id);

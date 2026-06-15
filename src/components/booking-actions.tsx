@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type SlotStatus = "available" | "busy" | "full";
 
@@ -33,6 +34,15 @@ interface BookingActionsProps {
   currentSlotStart: string;
   currentSlotEnd: string;
   sessionNumber: number;
+  /**
+   * Row status. Drives which actions render:
+   *  - "confirmed": 예약 변경 + 예약 취소 + 실험 완료
+   *  - "running":   실험 완료 only (reschedule/cancel are confirmed-only;
+   *                 a running session already issued a completion code).
+   * Defaults to "confirmed" to keep existing call sites (which only mounted
+   * this component on confirmed rows) behaving identically.
+   */
+  status?: "confirmed" | "running";
 }
 
 const KST = "Asia/Seoul";
@@ -81,14 +91,37 @@ export function BookingActions({
   currentSlotStart,
   currentSlotEnd,
   sessionNumber,
+  status = "confirmed",
 }: BookingActionsProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const [cancelling, setCancelling] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const isConfirmed = status === "confirmed";
+  const busy = cancelling || completing;
 
   async function handleCancel() {
-    if (!confirm("이 예약을 취소하시겠습니까?")) return;
+    const slotLabel = `${new Date(currentSlotStart).toLocaleString("ko-KR", {
+      timeZone: KST,
+    })} ~ ${timeFmt.format(new Date(currentSlotEnd))}`;
+    const ok = await confirm({
+      title: "예약 취소",
+      message: (
+        <div className="space-y-1">
+          <p>이 예약을 취소하시겠습니까?</p>
+          <p className="text-muted">
+            {sessionNumber}회차 · {slotLabel}
+          </p>
+        </div>
+      ),
+      detail:
+        "참여자에게 취소 안내 메일이 발송되고 캘린더 일정이 삭제됩니다. 되돌릴 수 없습니다.",
+      confirmLabel: "예약 취소",
+      danger: true,
+    });
+    if (!ok) return;
 
     setCancelling(true);
     // CRITICAL: must go through the PUT route, not a direct supabase
@@ -123,24 +156,87 @@ export function BookingActions({
     }
   }
 
+  async function handleComplete() {
+    const slotLabel = `${new Date(currentSlotStart).toLocaleString("ko-KR", {
+      timeZone: KST,
+    })} ~ ${timeFmt.format(new Date(currentSlotEnd))}`;
+    const ok = await confirm({
+      title: "실험 완료",
+      message: (
+        <div className="space-y-1">
+          <p>이 회차를 &lsquo;완료&rsquo;로 표시할까요?</p>
+          <p className="text-muted">
+            {sessionNumber}회차 · {slotLabel}
+          </p>
+        </div>
+      ),
+      detail:
+        "이 회차를 '완료'로 표시합니다. 모든 회차가 완료되면 참여비 정산에서 안내 메일을 보낼 수 있습니다.",
+      confirmLabel: "완료 처리",
+      danger: false,
+    });
+    if (!ok) return;
+
+    setCompleting(true);
+    // Same PUT door as cancel/reschedule — the route owns the side-effects.
+    // On the last live session flipping to "completed", the route fires
+    // notifyPaymentInfoIfReady (route.ts:261) so the 정산 패널's "안내
+    // 메일 발송" button surfaces. router.refresh() rehydrates that panel.
+    try {
+      const res = await fetch(`/api/bookings/${bookingId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "completed" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(data?.error ?? "완료 처리 중 오류가 발생했습니다.", "error");
+      } else {
+        toast("회차를 완료 처리했습니다.", "success");
+        router.refresh();
+      }
+    } catch {
+      toast("네트워크 오류로 완료 처리에 실패했습니다.", "error");
+    } finally {
+      setCompleting(false);
+    }
+  }
+
   return (
     <>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {isConfirmed && (
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setRescheduleOpen(true)}
+              disabled={busy}
+            >
+              예약 변경
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              onClick={handleCancel}
+              loading={cancelling}
+              disabled={completing}
+            >
+              예약 취소
+            </Button>
+          </>
+        )}
         <Button
-          variant="secondary"
+          type="button"
+          variant="primary"
           size="sm"
-          onClick={() => setRescheduleOpen(true)}
+          onClick={handleComplete}
+          loading={completing}
           disabled={cancelling}
         >
-          예약 변경
-        </Button>
-        <Button
-          variant="danger"
-          size="sm"
-          onClick={handleCancel}
-          loading={cancelling}
-        >
-          예약 취소
+          실험 완료
         </Button>
       </div>
       <RescheduleModal
