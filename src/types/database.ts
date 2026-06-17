@@ -329,6 +329,7 @@ export interface Database {
           is_project: boolean;
           participation_fee: number;
           payment_link_auto_send: boolean;
+          experiment_kind: "external" | "pilot";
           session_type: "single" | "multi";
           required_sessions: number;
           daily_start_time: string;
@@ -384,6 +385,7 @@ export interface Database {
           is_project?: boolean;
           participation_fee?: number;
           payment_link_auto_send?: boolean;
+          experiment_kind?: "external" | "pilot";
           session_type?: "single" | "multi";
           required_sessions?: number;
           daily_start_time: string;
@@ -436,6 +438,7 @@ export interface Database {
           is_project?: boolean;
           participation_fee?: number;
           payment_link_auto_send?: boolean;
+          experiment_kind?: "external" | "pilot";
           session_type?: "single" | "multi";
           required_sessions?: number;
           daily_start_time?: string;

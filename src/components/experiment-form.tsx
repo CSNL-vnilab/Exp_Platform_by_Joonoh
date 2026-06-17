@@ -92,6 +92,10 @@ export function ExperimentForm({
   const [requiredSessions, setRequiredSessions] = useState(experiment?.required_sessions ?? 1);
   const [googleCalendarId, setGoogleCalendarId] = useState(experiment?.google_calendar_id ?? "");
   const [irbDocumentUrl, setIrbDocumentUrl] = useState(experiment?.irb_document_url ?? "");
+  const [experimentKind, setExperimentKind] = useState<"external" | "pilot">(
+    (experiment as { experiment_kind?: "external" | "pilot" } | undefined)?.experiment_kind ?? "external",
+  );
+  const isPilot = experimentKind === "pilot";
   // Lab-wide IRB URL admin registers via /lab-settings (migration 00065).
   // Fetched once on mount; surfaces a one-click prefill button under the
   // per-experiment IRB input when present. Researchers editing existing
@@ -508,12 +512,13 @@ export function ExperimentForm({
       max_participants_per_slot: maxParticipants,
       recruitment_target:
         recruitmentTarget.trim() === "" ? null : Number(recruitmentTarget),
-      participation_fee: participationFee,
+      experiment_kind: experimentKind,
+      participation_fee: isPilot ? 0 : participationFee,
       payment_link_auto_send: paymentLinkAutoSend,
       session_type: sessionType,
       required_sessions: sessionType === "multi" ? requiredSessions : 1,
       google_calendar_id: googleCalendarId || undefined,
-      irb_document_url: irbDocumentUrl || undefined,
+      irb_document_url: isPilot ? undefined : irbDocumentUrl || undefined,
       precautions,
       categories,
       location_id: locationId || null,
@@ -709,12 +714,13 @@ export function ExperimentForm({
       max_participants_per_slot: maxParticipants,
       recruitment_target:
         recruitmentTarget.trim() === "" ? null : Number(recruitmentTarget),
-      participation_fee: participationFee,
+      experiment_kind: experimentKind,
+      participation_fee: isPilot ? 0 : participationFee,
       payment_link_auto_send: paymentLinkAutoSend,
       session_type: sessionType,
       required_sessions: sessionType === "multi" ? requiredSessions : 1,
       google_calendar_id: googleCalendarId || undefined,
-      irb_document_url: irbDocumentUrl || undefined,
+      irb_document_url: isPilot ? undefined : irbDocumentUrl || undefined,
       precautions,
       categories,
       location_id: locationId || null,
@@ -751,6 +757,52 @@ export function ExperimentForm({
   return (
     <form onSubmit={handleSubmit}>
       <div className="grid gap-6 lg:grid-cols-2">
+        {/* Experiment category — external vs pilot. Pilot hides IRB,
+            participation fee, and Notion/integration sections and submits
+            safe defaults for them. */}
+        <Card className="lg:col-span-2">
+          <CardContent>
+            <h2 className="text-lg font-semibold text-foreground mb-1">실험 카테고리</h2>
+            <p className="mb-4 text-xs text-muted">
+              외부 = 기본 양식(IRB·참여비·Notion 포함), 파일럿 = IRB·참여비·Notion 생략.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setExperimentKind("external")}
+                aria-pressed={experimentKind === "external"}
+                className={`
+                  flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary
+                  ${
+                    experimentKind === "external"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-white text-muted hover:bg-card"
+                  }
+                `}
+              >
+                외부
+              </button>
+              <button
+                type="button"
+                onClick={() => setExperimentKind("pilot")}
+                aria-pressed={experimentKind === "pilot"}
+                className={`
+                  flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary
+                  ${
+                    experimentKind === "pilot"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-white text-muted hover:bg-card"
+                  }
+                `}
+              >
+                파일럿
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Basic Info */}
         <Card className="lg:col-span-2">
           <CardContent>
@@ -916,7 +968,9 @@ export function ExperimentForm({
         </Card>
 
         {/* Participation fee & settlement — split out of 세션 설정 so money
-            fields read as one group. State/handlers unchanged; JSX moved. */}
+            fields read as one group. State/handlers unchanged; JSX moved.
+            Hidden for pilot experiments (participation_fee submitted as 0). */}
+        {!isPilot && (
         <Card>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">참여비·정산</h2>
@@ -1003,6 +1057,7 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Session Type */}
         <Card>
@@ -1596,7 +1651,9 @@ export function ExperimentForm({
           </CardContent>
         </Card>
 
-        {/* IRB & Precautions */}
+        {/* IRB & Precautions — hidden for pilot experiments
+            (irb_document_url submitted as undefined). */}
+        {!isPilot && (
         <Card className="lg:col-span-2">
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">연구윤리심의(IRB) 승인 및 참여 조건</h2>
@@ -1682,6 +1739,7 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Research categories + location */}
         <Card>
@@ -1752,7 +1810,8 @@ export function ExperimentForm({
           </CardContent>
         </Card>
 
-        {/* Google Calendar */}
+        {/* Google Calendar sync — shown for ALL kinds. Pilot omits Notion
+            (server-side, on activation) but still needs calendar booking. */}
         <Card>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">연동 설정</h2>

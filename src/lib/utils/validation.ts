@@ -54,6 +54,13 @@ const experimentObjectSchema = z.object({
   // not auto-dispatched on completion; the researcher triggers it
   // manually from payment-panel after reviewing/adjusting amount_krw.
   payment_link_auto_send: z.boolean().default(true),
+  // Migration 00077: experiment category. 'external' (default) = full form
+  // (IRB, 참여비, Notion all apply — every pre-existing experiment). 'pilot' =
+  // lightweight: IRB / participation fee / Notion skipped. The create+edit
+  // wizard hides those steps for pilot and the form sends fee=0 / irb=null;
+  // seedPaymentInfo already no-ops at fee<=0 and the status-route Notion
+  // mirror is gated on kind<>'pilot'.
+  experiment_kind: z.enum(["external", "pilot"]).default("external"),
   // Migration 00063: false = pilot / 장비 테스트 / one-off — opted out
   // of the project surfaces (metadata-fill list, /experiments admin
   // list, dashboard, metadata-reminder cron, backfill re-import).

@@ -179,6 +179,8 @@ export async function POST(
     if (
       !wasActive &&
       nextStatus === "active" &&
+      // Pilot experiments skip Notion mirroring entirely (migration 00077).
+      updated.experiment_kind !== "pilot" &&
       !updated.notion_experiment_page_id &&
       process.env.NOTION_API_KEY
     ) {

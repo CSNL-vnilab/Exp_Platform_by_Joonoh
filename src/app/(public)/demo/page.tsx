@@ -40,6 +40,7 @@ const DEMO_EXPERIMENT: Experiment = {
   is_project: true,
   participation_fee: 60000,
   payment_link_auto_send: true,
+  experiment_kind: "external",
   session_type: "multi",
   required_sessions: 2,
   status: "active",
