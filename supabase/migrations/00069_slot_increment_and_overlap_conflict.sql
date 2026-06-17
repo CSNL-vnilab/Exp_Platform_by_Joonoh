@@ -17,8 +17,14 @@
 -- confirmed booking overlapping a requested slot is the one at the identical
 -- time, so the counted value is unchanged.
 
+-- IF NOT EXISTS added 2026-06-17: the prod migration ledger
+-- (supabase_migrations.schema_migrations) is stuck at 00065, so a future
+-- `supabase db push` re-attempts 00066-00077. This ADD COLUMN was the only
+-- non-idempotent statement in that range; the guard makes the whole range
+-- safe to re-run (every other migration already uses IF NOT EXISTS /
+-- CREATE OR REPLACE / DROP IF EXISTS). Schema result is unchanged.
 ALTER TABLE experiments
-  ADD COLUMN slot_increment_minutes integer
+  ADD COLUMN IF NOT EXISTS slot_increment_minutes integer
     CHECK (slot_increment_minutes IS NULL OR slot_increment_minutes >= 5);
 
 COMMENT ON COLUMN experiments.slot_increment_minutes IS
