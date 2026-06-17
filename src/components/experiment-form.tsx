@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -117,6 +117,21 @@ export function ExperimentForm({
   const [precautions, setPrecautions] = useState<Array<{ question: string; required_answer: boolean }>>(
     experiment?.precautions ?? []
   );
+  // Pilot experiments skip step 4 (참여비·정산 + IRB), so those inputs are never
+  // visible to edit/remove. If a researcher fills IRB URL / precautions as an
+  // external experiment, then navigates back and switches to pilot, the hidden
+  // state would otherwise still ride along in the submit/preview payload —
+  // violating the rule that pilot submits irb null / no precautions. (The
+  // submit/preview payloads already coerce irb→undefined and precautions to []
+  // when pilot, but clearing the visible state keeps the form, preview, and
+  // submit all in agreement.) Clear the step-4-only state whenever the kind
+  // becomes pilot.
+  useEffect(() => {
+    if (isPilot) {
+      setIrbDocumentUrl("");
+      setPrecautions([]);
+    }
+  }, [isPilot]);
   const [categories, setCategories] = useState<string[]>(experiment?.categories ?? []);
   const [locationId, setLocationId] = useState<string>(experiment?.location_id ?? "");
   const [locations, setLocations] = useState<ExperimentLocation[]>([]);
@@ -138,7 +153,7 @@ export function ExperimentForm({
     experiment?.protocol_version ?? "",
   );
 
-  // Reminder schedule (defaults: day-before 18:00 KST + day-of 09:00 KST)
+  // Reminder schedule (defaults: day-before 18:00 KST + day-of 07:00 KST)
   const [reminderDayBeforeEnabled, setReminderDayBeforeEnabled] = useState<boolean>(
     experiment?.reminder_day_before_enabled ?? true,
   );
@@ -287,11 +302,124 @@ export function ExperimentForm({
   const [previewConfig, setPreviewConfig] = useState<Record<string, any> | null>(null);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Assertive announcement for when a forward step jump (다음 / pill) is blocked
+  // by current-step validation. The toast can be off-screen / unfocused for
+  // keyboard & screen-reader users, so we also pipe the block reason through an
+  // aria-live="assertive" region so the gate is announced, not just toasted.
+  const [stepBlockMessage, setStepBlockMessage] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [calendars, setCalendars] = useState<CalendarOption[]>([]);
   const [calendarsLoading, setCalendarsLoading] = useState(true);
   const [calendarsError, setCalendarsError] = useState<string | null>(null);
   const [serviceAccountEmail, setServiceAccountEmail] = useState<string | null>(null);
+
+  // ────────────────────────────────────────────────────────────────────
+  // Wizard (presentation-only). The form fields, state hooks, onChange
+  // handlers and the submit/preview payloads are untouched: the wizard is a
+  // step-gating layer over the SAME single form. `experimentKind` already
+  // exists above (외부/파일럿) and already flows into the submit/preview
+  // payload as experiment_kind; it ALSO decides whether the IRB/참여비 step
+  // (step 4) is part of the active step path — pilot skips it.
+  //
+  // Step map (authoritative design):
+  //   0 실험 카테고리 (외부/파일럿 선택) — create-mode entry screen
+  //   1 기본 정보 / 세션 유형 / 실행 방식 / 연구 분류 · 장소
+  //   2 일정 설정
+  //   3 세션·슬롯 설정 / 연동 설정 / 실험 운영 요일 / 모집 옵션
+  //   4 참여비·정산 + 연구윤리심의(IRB) 승인 및 참여 조건 (EXTERNAL ONLY)
+  //   5 프로젝트 및 피험자 설정
+  //   6 실험 등록 정보 + 자동 변수 분석 (OfflineCodeAnalyzer)
+  //   7 리마인더 일정
+  //
+  // Edit mode (experiment prop present) skips the kind-choice screen and lands
+  // on step 1 with the kind preselected.
+  const [currentStep, setCurrentStep] = useState<number>(isEditing ? 1 : 0);
+
+  // a11y: on step change, move focus to the step heading so keyboard / screen
+  // reader users land on (and hear) the new step instead of being stranded on
+  // the now-relocated "다음"/submit button (which unmounts on the last step,
+  // dropping focus to <body>). The heading carries tabIndex={-1} and the
+  // step content is wrapped in a region labelled by it.
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  function focusStepHeading() {
+    if (typeof window === "undefined") return;
+    requestAnimationFrame(() => stepHeadingRef.current?.focus());
+  }
+
+  // Step titles for the stepper header (index = step number).
+  const STEP_TITLES: Record<number, string> = {
+    0: "실험 카테고리",
+    1: "기본 정보",
+    2: "일정 설정",
+    3: "세션·슬롯 설정",
+    4: "참여비·IRB",
+    5: "프로젝트 및 피험자 설정",
+    6: "실험 등록 정보",
+    7: "리마인더 일정",
+  };
+
+  // Active content steps (step 0 is the kind chooser, not part of the
+  // numbered progress). Pilot skips step 4.
+  const activeSteps = isPilot ? [1, 2, 3, 5, 6, 7] : [1, 2, 3, 4, 5, 6, 7];
+  const onStep = (n: number) => currentStep === n;
+
+  // Map every zod-error field key (issue.path joined) to the step that hosts
+  // the offending input. Used so per-step "다음" only blocks on errors that
+  // belong to the current step. NOTE: participation_fee + irb_document_url
+  // map to step 4 (참여비·정산 + IRB cards), NOT step 3.
+  function stepForErrorKey(key: string): number {
+    const head = key.split(".")[0];
+    switch (head) {
+      case "title":
+        return 1;
+      case "experiment_mode":
+      case "online_runtime_config":
+      case "data_consent_required":
+        return 1;
+      case "session_type":
+      case "required_sessions":
+        return 1;
+      case "start_date":
+      case "end_date":
+      case "daily_start_time":
+      case "daily_end_time":
+        return 2;
+      case "session_duration_minutes":
+      case "break_between_slots_minutes":
+      case "slot_increment_minutes":
+      case "max_participants_per_slot":
+      case "weekdays":
+      case "registration_deadline":
+      case "auto_lock":
+      case "google_calendar_id":
+        return 3;
+      case "participation_fee":
+      case "recruitment_target":
+      case "payment_link_auto_send":
+      case "irb_document_url":
+      case "precautions":
+        return 4;
+      case "subject_start_number":
+      case "project_name":
+      case "protocol_version":
+        return 5;
+      case "code_repo_url":
+      case "data_path":
+      case "parameter_schema":
+      case "pre_experiment_checklist":
+        return 6;
+      case "reminder_day_before_enabled":
+      case "reminder_day_before_time":
+      case "reminder_day_of_enabled":
+      case "reminder_day_of_time":
+        return 7;
+      default:
+        return 1;
+    }
+  }
+
+  const isLastActiveStep = currentStep === activeSteps[activeSteps.length - 1];
+  const isFirstActiveStep = currentStep === activeSteps[0];
 
   // D5-3 fix: compose the draft snapshot and depend on a JSON signature
   // of the whole thing rather than a manual 22-entry dep list. Any new
@@ -491,6 +619,19 @@ export function ExperimentForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+
+    // Last-step guard. The final create/update may only be triggered from the
+    // last active step. Conditionally rendering the submit button is not
+    // sufficient: the HTML implicit-submission rule fires onSubmit on Enter
+    // from a single-text-control step (e.g. while editing a pre-populated
+    // experiment where the whole-form zod parse already passes), which would
+    // create/update mid-wizard. If we're not on the last step, treat the
+    // event as an "advance" affordance instead of a submit.
+    if (!isLastActiveStep) {
+      goToNextStep();
+      return;
+    }
+
     setErrors({});
 
     // Convert datetime-local (KST) to full ISO UTC string
@@ -754,56 +895,294 @@ export function ExperimentForm({
     setPreviewOpen(true);
   }
 
-  return (
-    <form onSubmit={handleSubmit}>
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Experiment category — external vs pilot. Pilot hides IRB,
-            participation fee, and Notion/integration sections and submits
-            safe defaults for them. */}
-        <Card className="lg:col-span-2">
-          <CardContent>
-            <h2 className="text-lg font-semibold text-foreground mb-1">실험 카테고리</h2>
-            <p className="mb-4 text-xs text-muted">
-              외부 = 기본 양식(IRB·참여비·Notion 포함), 파일럿 = IRB·참여비·Notion 생략.
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setExperimentKind("external")}
-                aria-pressed={experimentKind === "external"}
-                className={`
-                  flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary
-                  ${
-                    experimentKind === "external"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-white text-muted hover:bg-card"
-                  }
-                `}
-              >
-                외부
-              </button>
-              <button
-                type="button"
-                onClick={() => setExperimentKind("pilot")}
-                aria-pressed={experimentKind === "pilot"}
-                className={`
-                  flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary
-                  ${
-                    experimentKind === "pilot"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-white text-muted hover:bg-card"
-                  }
-                `}
-              >
-                파일럿
-              </button>
-            </div>
-          </CardContent>
-        </Card>
+  // ── Wizard navigation ────────────────────────────────────────────────
+  // Runs the SAME full-form zod validation (identical payload shape to
+  // handleSubmit / handlePreview — no field dropped, no rule weakened) but only
+  // BLOCKS advancing when an error lives on the current step. Errors on later
+  // steps are surfaced when the user reaches that step (or on final submit).
+  function validateCurrentStep(): boolean {
+    const registrationDeadlineIso = registrationDeadline
+      ? new Date(`${registrationDeadline}+09:00`).toISOString()
+      : null;
 
-        {/* Basic Info */}
+    const formData = {
+      title,
+      description: description || undefined,
+      start_date: startDate,
+      end_date: endDate,
+      daily_start_time: dailyStartTime,
+      daily_end_time: dailyEndTime,
+      session_duration_minutes: sessionDuration,
+      break_between_slots_minutes: breakMinutes,
+      slot_increment_minutes: slotIncrementMinutes,
+      max_participants_per_slot: maxParticipants,
+      recruitment_target:
+        recruitmentTarget.trim() === "" ? null : Number(recruitmentTarget),
+      experiment_kind: experimentKind,
+      participation_fee: isPilot ? 0 : participationFee,
+      payment_link_auto_send: paymentLinkAutoSend,
+      session_type: sessionType,
+      required_sessions: sessionType === "multi" ? requiredSessions : 1,
+      google_calendar_id: googleCalendarId || undefined,
+      irb_document_url: isPilot ? undefined : irbDocumentUrl || undefined,
+      precautions,
+      categories,
+      location_id: locationId || null,
+      weekdays,
+      registration_deadline: registrationDeadlineIso,
+      auto_lock: autoLock,
+      subject_start_number: subjectStartNumber,
+      project_name: projectName || null,
+      protocol_version: protocolVersion || null,
+      reminder_day_before_enabled: reminderDayBeforeEnabled,
+      reminder_day_before_time: reminderDayBeforeTime,
+      reminder_day_of_enabled: reminderDayOfEnabled,
+      reminder_day_of_time: reminderDayOfTime,
+      code_repo_url: codeRepoUrl.trim() || null,
+      data_path: dataPath.trim() || null,
+      parameter_schema: parameterSchema,
+      pre_experiment_checklist: checklist,
+      experiment_mode: experimentMode,
+      online_runtime_config: buildOnlineConfig(),
+      data_consent_required: dataConsentRequired,
+    };
+
+    const result = experimentSchema.safeParse(formData);
+    if (result.success) {
+      setErrors({});
+      setStepBlockMessage("");
+      return true;
+    }
+
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of result.error.issues) {
+      const key = issue.path.join(".");
+      if (key && !fieldErrors[key]) fieldErrors[key] = issue.message;
+    }
+
+    // Block only on errors whose field belongs to the current step.
+    const currentStepIssues = result.error.issues.filter(
+      (issue) => stepForErrorKey(issue.path.join(".")) === currentStep,
+    );
+    if (currentStepIssues.length === 0) {
+      // No blocking error on this step — clear and advance. Don't strand
+      // later-step errors in state; they re-surface when reached.
+      setErrors({});
+      setStepBlockMessage("");
+      return true;
+    }
+
+    setErrors(fieldErrors);
+    const first = currentStepIssues[0];
+    if (first) {
+      const pathHint = first.path.length > 0 ? ` (${first.path.join(".")})` : "";
+      const msg = `${first.message}${pathHint}`;
+      toast(msg, "error");
+      // Re-set with a leading space when unchanged so the live region always
+      // re-announces even if the same field blocks twice in a row.
+      setStepBlockMessage((prev) =>
+        prev === `이 단계의 입력을 확인해주세요: ${msg}`
+          ? `이 단계의 입력을 확인해주세요: ${msg} `
+          : `이 단계의 입력을 확인해주세요: ${msg}`,
+      );
+    }
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    return false;
+  }
+
+  // Single entry point for changing step: scroll to top and move focus to the
+  // heading so every navigation path (Next / Back / stepper pill) behaves the
+  // same for mouse, keyboard, and screen-reader users.
+  function navigateToStep(step: number) {
+    setCurrentStep(step);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    focusStepHeading();
+  }
+
+  function goToNextStep() {
+    // Step 0 is the kind chooser — no form fields to validate there.
+    if (currentStep === 0) {
+      navigateToStep(activeSteps[0]);
+      return;
+    }
+    if (!validateCurrentStep()) return;
+    const idx = activeSteps.indexOf(currentStep);
+    if (idx >= 0 && idx < activeSteps.length - 1) {
+      navigateToStep(activeSteps[idx + 1]);
+    }
+  }
+
+  function goToPrevStep() {
+    if (currentStep === 0) return;
+    const idx = activeSteps.indexOf(currentStep);
+    if (idx > 0) {
+      navigateToStep(activeSteps[idx - 1]);
+    } else if (!isEditing) {
+      // First active step → back to kind chooser (create mode only).
+      navigateToStep(0);
+    }
+  }
+
+  // Stepper-pill navigation. Backward / same-step jumps are always allowed
+  // (free escape hatch). Forward jumps run the SAME per-step validation as the
+  // "다음" button so a researcher can't skip required fields by clicking ahead.
+  function goToStepViaPill(target: number) {
+    if (target === currentStep) return;
+    const targetIdx = activeSteps.indexOf(target);
+    const currentIdx = activeSteps.indexOf(currentStep);
+    if (targetIdx < currentIdx) {
+      navigateToStep(target);
+      return;
+    }
+    if (!validateCurrentStep()) return;
+    navigateToStep(target);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} aria-labelledby="experiment-form-step-heading">
+      {/* a11y focus target: receives focus on every step change so keyboard /
+          screen-reader users hear the new step title. Visually hidden (the
+          stepper already shows the title) but reachable programmatically.
+          tabIndex={-1} makes it focusable without entering the tab order. */}
+      <h2
+        ref={stepHeadingRef}
+        id="experiment-form-step-heading"
+        tabIndex={-1}
+        className="sr-only"
+      >
+        {STEP_TITLES[currentStep]}
+        {currentStep !== 0 &&
+          ` — ${activeSteps.indexOf(currentStep) + 1} / ${activeSteps.length}`}
+        {isPilot ? " (파일럿)" : ""}
+      </h2>
+
+      {/* Assertive announcement of why a forward step jump was blocked, for
+          keyboard / screen-reader users who may not see the toast. */}
+      <div role="status" aria-live="assertive" className="sr-only">
+        {stepBlockMessage}
+      </div>
+
+      {/* Stepper / progress header — hidden on the step-0 kind chooser. */}
+      {currentStep !== 0 && (
+        <nav aria-label="실험 등록 단계" className="mb-6">
+          <ol className="flex flex-wrap items-center gap-2">
+            {activeSteps.map((s, i) => {
+              const currentIdx = activeSteps.indexOf(currentStep);
+              const active = currentStep === s;
+              // Distinguish completed (before current) from upcoming (after
+              // current) so the stepper legibly communicates progress.
+              const done = !active && currentIdx > i;
+              const upcoming = !active && currentIdx < i;
+              return (
+                <li key={s} className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-current={active ? "step" : undefined}
+                    onClick={() => goToStepViaPill(s)}
+                    className={`
+                      flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2
+                      ${
+                        active
+                          ? "border-primary bg-primary/10 text-primary"
+                          : done
+                            ? "border-primary/40 bg-white text-foreground hover:bg-card"
+                            : "border-border bg-white text-muted hover:bg-card"
+                      }
+                    `}
+                  >
+                    <span
+                      className={`
+                        inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px]
+                        ${
+                          active
+                            ? "bg-primary text-white"
+                            : done
+                              ? "bg-primary/20 text-primary"
+                              : "bg-card text-muted"
+                        }
+                      `}
+                    >
+                      {done ? <span aria-hidden>✓</span> : i + 1}
+                    </span>
+                    {STEP_TITLES[s]}
+                    {upcoming && <span className="sr-only">(미완료 단계)</span>}
+                  </button>
+                  {i < activeSteps.length - 1 && (
+                    <span aria-hidden className="text-muted">
+                      ›
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          <p className="mt-2 text-xs text-muted">
+            {activeSteps.indexOf(currentStep) + 1} / {activeSteps.length} ·{" "}
+            <span className="font-medium text-foreground">{STEP_TITLES[currentStep]}</span>
+            {isPilot && <span className="ml-1 text-primary">(파일럿)</span>}
+          </p>
+        </nav>
+      )}
+
+      {/* Step 0 — 실험 카테고리 (외부/파일럿 선택). Create-mode entry screen.
+          Sets experimentKind, which decides whether step 4 (참여비·정산 + IRB)
+          is part of the active step path. Pilot skips it. Until a kind is
+          chosen + 다음, no other card renders (the grids below are hidden). */}
+      {currentStep === 0 && (
+        <div className="grid gap-6">
+          {/* Experiment category — external vs pilot. Pilot hides IRB,
+              participation fee, and Notion/integration sections and submits
+              safe defaults for them. */}
+          <Card className="lg:col-span-2">
+            <CardContent>
+              <h2 className="text-lg font-semibold text-foreground mb-1">실험 카테고리</h2>
+              <p className="mb-4 text-xs text-muted">
+                외부 = 기본 양식(IRB·참여비·Notion 포함), 파일럿 = IRB·참여비·Notion 생략.
+                (구글 캘린더 연동은 두 유형 모두 사용합니다.)
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExperimentKind("external")}
+                  aria-pressed={experimentKind === "external"}
+                  className={`
+                    flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary
+                    ${
+                      experimentKind === "external"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-white text-muted hover:bg-card"
+                    }
+                  `}
+                >
+                  외부
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExperimentKind("pilot")}
+                  aria-pressed={experimentKind === "pilot"}
+                  className={`
+                    flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary
+                    ${
+                      experimentKind === "pilot"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-white text-muted hover:bg-card"
+                    }
+                  `}
+                >
+                  파일럿
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <div className={`grid gap-6 lg:grid-cols-2 ${currentStep === 0 ? "hidden" : ""}`}>
+        {/* Basic Info — step 1 */}
+        {onStep(1) && (
         <Card className="lg:col-span-2">
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">기본 정보</h2>
@@ -839,9 +1218,11 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
-        {/* Date & Time */}
-        <Card>
+        {/* Date & Time — step 2 */}
+        {onStep(2) && (
+        <Card className="lg:col-span-2">
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">일정 설정</h2>
             <p className="mb-4 text-xs text-muted">
@@ -887,10 +1268,12 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
-        {/* Session & slot settings — scheduling only. Payment-domain fields
-            (recruitment target / fee / auto-send) moved to the separate
-            "참여비·정산" card below so scheduling and money aren't mixed. */}
+        {/* Session & slot settings — step 3. Scheduling only. Payment-domain
+            fields (recruitment target / fee / auto-send) live in the separate
+            "참여비·정산" card (step 4) so scheduling and money aren't mixed. */}
+        {onStep(3) && (
         <Card>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">세션·슬롯 설정</h2>
@@ -966,11 +1349,14 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
-        {/* Participation fee & settlement — split out of 세션 설정 so money
+        {/* Participation fee & settlement — step 4 (EXTERNAL ONLY). Money
             fields read as one group. State/handlers unchanged; JSX moved.
-            Hidden for pilot experiments (participation_fee submitted as 0). */}
-        {!isPilot && (
+            Step-4 gating subsumes the pilot check (pilot's activeSteps has no
+            4), so this stays visible only on step 4 and pilot never reaches it
+            — participation_fee is still submitted as 0 for pilot. */}
+        {onStep(4) && (
         <Card>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">참여비·정산</h2>
@@ -1059,7 +1445,8 @@ export function ExperimentForm({
         </Card>
         )}
 
-        {/* Session Type */}
+        {/* Session Type — step 1 */}
+        {onStep(1) && (
         <Card>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">세션 유형</h2>
@@ -1127,12 +1514,14 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
-        {/* Experiment mode — offline / online / hybrid.
+        {/* Experiment mode — step 1. offline / online / hybrid.
             Full width only when online/hybrid actually need the room for
             the runtime-config blocks; offline drops to a normal-width card
             so it doesn't dominate the (default) offline layout. Width only —
             the field-level conditional rendering below is unchanged. */}
+        {onStep(1) && (
         <Card className={experimentMode === "offline" ? "" : "lg:col-span-2"}>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-2">실행 방식</h2>
@@ -1650,10 +2039,13 @@ export function ExperimentForm({
             )}
           </CardContent>
         </Card>
+        )}
 
-        {/* IRB & Precautions — hidden for pilot experiments
-            (irb_document_url submitted as undefined). */}
-        {!isPilot && (
+        {/* IRB & Precautions — step 4 (EXTERNAL ONLY). Step-4 gating subsumes
+            the pilot check (pilot's activeSteps has no 4), so this stays
+            visible only on step 4 and pilot never reaches it —
+            irb_document_url is still submitted as undefined for pilot. */}
+        {onStep(4) && (
         <Card className="lg:col-span-2">
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">연구윤리심의(IRB) 승인 및 참여 조건</h2>
@@ -1741,7 +2133,8 @@ export function ExperimentForm({
         </Card>
         )}
 
-        {/* Research categories + location */}
+        {/* Research categories + location — step 1 */}
+        {onStep(1) && (
         <Card>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-4">연구 분류 · 장소</h2>
@@ -1809,9 +2202,12 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
-        {/* Google Calendar sync — shown for ALL kinds. Pilot omits Notion
-            (server-side, on activation) but still needs calendar booking. */}
+        {/* Google Calendar sync — step 3, shown for ALL kinds (external AND
+            pilot). Pilot omits Notion (server-side, on activation) but still
+            needs calendar booking. */}
+        {onStep(3) && (
         <Card>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">연동 설정</h2>
@@ -1878,10 +2274,13 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* Weekdays & Schedule Options */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${currentStep === 0 ? "hidden" : ""}`}>
+        {/* 실험 운영 요일 — step 3 */}
+        {onStep(3) && (
         <Card>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-4">실험 운영 요일</h2>
@@ -1920,7 +2319,10 @@ export function ExperimentForm({
             )}
           </CardContent>
         </Card>
+        )}
 
+        {/* 모집 옵션 — step 3 */}
+        {onStep(3) && (
         <Card>
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">모집 옵션</h2>
@@ -1976,8 +2378,10 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
-        {/* Project & Numbering */}
+        {/* Project & Numbering — step 5 */}
+        {onStep(5) && (
         <Card className="lg:col-span-2">
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-1">프로젝트 및 피험자 설정</h2>
@@ -2031,14 +2435,16 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
-        {/* Research metadata — required for activation (migration 00022).
-            The manual code_repo_url + data_path fields were retired in
+        {/* Research metadata — step 6. Required for activation (migration
+            00022). The manual code_repo_url + data_path fields were retired in
             favour of the source-driven OfflineCodeAnalyzer below: the
             researcher gives a server path or GitHub URL once, and the
             analyzer keeps these columns in sync. The legacy fields are
             kept as collapsed-by-default editable inputs in case the
             analyzer can't reach the source (private repo, offline disk). */}
+        {onStep(6) && (
         <Card className="lg:col-span-2">
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-2">실험 등록 정보</h2>
@@ -2294,11 +2700,14 @@ export function ExperimentForm({
             </div>
           </CardContent>
         </Card>
+        )}
 
-        {/* Offline experiment-code analyzer (migration 00049). Hidden for
-            online-only experiments — those use the online_runtime_config
-            block above instead. */}
-        {experimentMode !== "online" && (
+        {/* Offline experiment-code analyzer (migration 00049). Step 6,
+            alongside 실험 등록 정보. Hidden for online-only experiments — those
+            use the online_runtime_config block above instead. The existing
+            experimentMode !== "online" guard is preserved, nested under the
+            step-6 gate. */}
+        {onStep(6) && experimentMode !== "online" && (
           <OfflineCodeAnalyzer
             experimentId={experiment?.id ?? null}
             initial={
@@ -2333,7 +2742,8 @@ export function ExperimentForm({
           />
         )}
 
-        {/* Reminder schedule */}
+        {/* Reminder schedule — step 7 */}
+        {onStep(7) && (
         <Card className="lg:col-span-2">
           <CardContent>
             <h2 className="text-lg font-semibold text-foreground mb-4">리마인더 일정</h2>
@@ -2355,6 +2765,7 @@ export function ExperimentForm({
                 <div className="flex items-center gap-2">
                   <input
                     type="time"
+                    aria-label="실험 전날 알림 시각"
                     value={reminderDayBeforeTime}
                     onChange={(e) => setReminderDayBeforeTime(e.target.value)}
                     disabled={!reminderDayBeforeEnabled}
@@ -2376,17 +2787,19 @@ export function ExperimentForm({
                 <div className="flex items-center gap-2">
                   <input
                     type="time"
+                    aria-label="실험 당일 알림 시각"
                     value={reminderDayOfTime}
                     onChange={(e) => setReminderDayOfTime(e.target.value)}
                     disabled={!reminderDayOfEnabled}
                     className="w-28 rounded-lg border border-border bg-white px-3 py-2 text-sm disabled:opacity-50"
                   />
-                  <span className="text-xs text-muted">KST · 기본 09:00 (슬롯 시작 전에만 발송)</span>
+                  <span className="text-xs text-muted">KST · 기본 07:00 (슬롯 시작 전에만 발송)</span>
                 </div>
               </div>
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* Preview Modal */}
@@ -2398,39 +2811,77 @@ export function ExperimentForm({
         {previewConfig && <WeekTimetablePreview config={previewConfig} />}
       </Modal>
 
-      {/* Actions */}
-      <div className="mt-6 flex items-center gap-3">
-        <Button type="button" variant="secondary" onClick={handlePreview}>
-          미리보기
-        </Button>
-        <Button type="submit" loading={submitting}>
-          {isEditing ? "수정 완료" : "실험 생성"}
-        </Button>
-        {onCancel && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              const changed =
-                (experiment?.title ?? "") !== title ||
-                (experiment?.description ?? "") !== description ||
-                (experiment?.start_date ?? "") !== startDate ||
-                (experiment?.end_date ?? "") !== endDate;
-              if (changed && !window.confirm("변경 사항이 저장되지 않았습니다. 취소하시겠습니까?")) return;
-              onCancel();
-            }}
-          >
-            취소
-          </Button>
-        )}
-        {!isEditing && (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => router.back()}
-          >
-            뒤로가기
-          </Button>
+      {/* Wizard navigation + actions. Back / 다음 / 미리보기 are type="button"
+          so they never submit; only the final-step submit is type="submit".
+          The existing 미리보기 / 취소 / 뒤로가기 actions are preserved. */}
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        {currentStep === 0 ? (
+          <>
+            {/* Kind-choice screen: advance into the wizard. */}
+            <Button type="button" onClick={goToNextStep}>
+              다음
+            </Button>
+            {!isEditing && (
+              <Button type="button" variant="ghost" onClick={() => router.back()}>
+                뒤로가기
+              </Button>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Back — to previous active step (or kind chooser in create mode). */}
+            {(!isFirstActiveStep || !isEditing) && (
+              <Button type="button" variant="secondary" onClick={goToPrevStep}>
+                이전
+              </Button>
+            )}
+
+            {/* Preview is available on every content step. */}
+            <Button type="button" variant="secondary" onClick={handlePreview}>
+              미리보기
+            </Button>
+
+            {/* Next on every step except the last active one. */}
+            {!isLastActiveStep && (
+              <Button type="button" onClick={goToNextStep}>
+                다음
+              </Button>
+            )}
+
+            {/* Final submit — only on the last active step. */}
+            {isLastActiveStep && (
+              <Button type="submit" loading={submitting}>
+                {isEditing ? "수정 완료" : "실험 생성"}
+              </Button>
+            )}
+
+            {onCancel && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  const changed =
+                    (experiment?.title ?? "") !== title ||
+                    (experiment?.description ?? "") !== description ||
+                    (experiment?.start_date ?? "") !== startDate ||
+                    (experiment?.end_date ?? "") !== endDate;
+                  if (changed && !window.confirm("변경 사항이 저장되지 않았습니다. 취소하시겠습니까?")) return;
+                  onCancel();
+                }}
+              >
+                취소
+              </Button>
+            )}
+            {!isEditing && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => router.back()}
+              >
+                뒤로가기
+              </Button>
+            )}
+          </>
         )}
       </div>
     </form>
