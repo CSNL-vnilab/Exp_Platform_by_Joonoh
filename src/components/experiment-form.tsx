@@ -130,6 +130,13 @@ export function ExperimentForm({
     if (isPilot) {
       setIrbDocumentUrl("");
       setPrecautions([]);
+      // recruitment_target also lives only on the step-4 (참여비·정산) card,
+      // which pilot's activeSteps never renders. A stale INVALID value typed
+      // while external (e.g. "0", which fails the schema's .int().min(1)) would
+      // otherwise block pilot submit with no in-wizard way to reach step 4 and
+      // fix it — stranding the user. Clear it so pilot submits recruitment_target
+      // = null (∞), matching the empty-string→null payload coercion below.
+      setRecruitmentTarget("");
     }
   }, [isPilot]);
   const [categories, setCategories] = useState<string[]>(experiment?.categories ?? []);
