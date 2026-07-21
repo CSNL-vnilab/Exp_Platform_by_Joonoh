@@ -4,6 +4,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { bookingRequestSchema, normalizePhone } from "@/lib/utils/validation";
 import { BOOKING_ERRORS, BOOKING_RETRY } from "@/lib/utils/constants";
 import { runPostBookingPipeline } from "@/lib/services/booking.service";
+import { rateLimit } from "@/lib/utils/rate-limit";
+
+// Abuse guard for the ONLY unauthenticated write in the app (creates
+// participant PII + real bookings + fires email/SMS = real cost). Per-Lambda
+// in-memory (same limiter the 9 other public/token routes use); a distributed
+// Postgres-backed limiter is tracked in the future-work blueprint. Keyed on
+// both client IP and the participant phone so neither a single IP nor a single
+// identity can spam bookings.
+const BOOKING_IP_LIMIT = { windowMs: 60_000, max: 10 };
+const BOOKING_ID_LIMIT = { windowMs: 60_000, max: 5 };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,6 +33,26 @@ export async function POST(request: NextRequest) {
 
     const { experiment_id, participant, slots } = result.data;
     const phone = normalizePhone(participant.phone);
+
+    // Rate-limit before doing any DB work. IP from the standard forwarded
+    // header chain; phone as the identity key.
+    const ip =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
+    for (const [prefix, key, opts] of [
+      ["booking-ip", ip, BOOKING_IP_LIMIT],
+      ["booking-id", `${experiment_id}:${phone}`, BOOKING_ID_LIMIT],
+    ] as const) {
+      const rl = rateLimit(prefix, key, opts);
+      if (!rl.allowed) {
+        const retryAfter = Math.ceil(rl.retryAfterMs / 1000);
+        return NextResponse.json(
+          { error: "요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요." },
+          { status: 429, headers: { "retry-after": String(retryAfter) } },
+        );
+      }
+    }
 
     const adminClient = createAdminClient();
 

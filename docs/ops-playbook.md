@@ -214,7 +214,13 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00083_booking_reschedule_requests.sql`
+Last applied to prod: `00084_booking_rejection_fixes.sql`
+(applied 2026-07-21 — book_slot duplicate-gate OR→AND + recruitment_auto_closed
+marker + reopen_experiment_if_undersubscribed RPC. Fixes spurious booking
+rejections: shared-field false duplicates, and auto-closed experiments never
+reopening after a cancel.)
+
+Previously: `00083_booking_reschedule_requests.sql`
 (applied 2026-07-21 — booking_reschedule_requests table + apply_reschedule_request
 revive RPC for the participant-reschedule-request → experimenter-approval flow.)
 
