@@ -2,23 +2,33 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/auth/role";
+import { requireAdminApi } from "@/lib/auth/role";
 import { isValidUUID } from "@/lib/utils/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const httpUrl = z
+  .string()
+  .url()
+  .max(2048)
+  .refine((u) => /^https?:\/\//i.test(u), {
+    message: "http 또는 https URL만 허용됩니다",
+  });
+
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   address_lines: z.array(z.string().trim().min(1).max(200)).min(1).max(5).optional(),
-  naver_url: z.string().url().optional().nullable(),
+  naver_url: httpUrl.optional().nullable(),
 });
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ locationId: string }> },
 ) {
-  await requireAdmin();
+  if (!(await requireAdminApi())) {
+    return NextResponse.json({ error: "관리자 권한이 필요합니다" }, { status: 403 });
+  }
   const { locationId } = await params;
   if (!isValidUUID(locationId)) {
     return NextResponse.json({ error: "잘못된 장소 ID입니다" }, { status: 400 });
@@ -50,7 +60,9 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ locationId: string }> },
 ) {
-  await requireAdmin();
+  if (!(await requireAdminApi())) {
+    return NextResponse.json({ error: "관리자 권한이 필요합니다" }, { status: 403 });
+  }
   const { locationId } = await params;
   if (!isValidUUID(locationId)) {
     return NextResponse.json({ error: "잘못된 장소 ID입니다" }, { status: 400 });

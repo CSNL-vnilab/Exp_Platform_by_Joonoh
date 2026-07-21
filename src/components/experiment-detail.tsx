@@ -14,7 +14,11 @@ import { useToast } from "@/components/ui/toast";
 import { ExperimentForm } from "@/components/experiment-form";
 import { ExperimentFormCompleteness } from "@/components/experiment-form-completeness";
 import { NotionLinkInput } from "@/components/notion-link-input";
-import type { Experiment, ExperimentChecklistItem } from "@/types/database";
+import type {
+  Experiment,
+  ExperimentChecklistItem,
+  ExperimentLocation,
+} from "@/types/database";
 import { format } from "date-fns";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 
@@ -57,6 +61,10 @@ interface ExperimentDetailProps {
   // (confirmed / running / completed / no_show) — participants whose
   // bookings are all cancelled are excluded.
   recruitedCount?: number;
+  // Resolved from experiment.location_id (00019). Null when no location is
+  // set — the detail renders "장소: (선택 안 함)" so the researcher can see
+  // whether their saved address actually took.
+  location?: ExperimentLocation | null;
 }
 
 export function ExperimentDetail({
@@ -64,6 +72,7 @@ export function ExperimentDetail({
   bookingCount,
   bookingBreakdown,
   recruitedCount,
+  location,
 }: ExperimentDetailProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -546,6 +555,33 @@ export function ExperimentDetail({
                   <dt className="text-muted">종료 시간</dt>
                   <dd className="mt-0.5 text-foreground">{experiment.daily_end_time}</dd>
                 </div>
+              </div>
+              <div>
+                <dt className="text-muted">장소</dt>
+                <dd className="mt-0.5 text-foreground">
+                  {location ? (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium">{location.name}</span>
+                      {location.address_lines.map((line, i) => (
+                        <span key={i} className="text-muted">
+                          {line}
+                        </span>
+                      ))}
+                      {location.naver_url && (
+                        <a
+                          href={location.naver_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:underline"
+                        >
+                          네이버 지도에서 보기
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-muted">(선택 안 함)</span>
+                  )}
+                </dd>
               </div>
             </dl>
           </CardContent>

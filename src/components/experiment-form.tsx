@@ -2,14 +2,13 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
-import Link from "next/link";
+import { LocationModal } from "@/components/location-modal";
 import { SESSION_DURATIONS } from "@/lib/utils/constants";
 import { experimentSchema } from "@/lib/utils/validation";
 import { EXPERIMENT_CATEGORIES } from "@/lib/experiments/categories";
@@ -18,7 +17,6 @@ import { OnlineScreenerEditor } from "@/components/online-screener-editor";
 import type {
   Experiment,
   ExperimentChecklistItem,
-  ExperimentInsert,
   ExperimentLocation,
   ExperimentParameterSpec,
   ExperimentParameterType,
@@ -140,6 +138,7 @@ export function ExperimentForm({
   const [categories, setCategories] = useState<string[]>(experiment?.categories ?? []);
   const [locationId, setLocationId] = useState<string>(experiment?.location_id ?? "");
   const [locations, setLocations] = useState<ExperimentLocation[]>([]);
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
 
   // New fields (migration 00015)
   const [weekdays, setWeekdays] = useState<number[]>(experiment?.weekdays ?? [0, 1, 2, 3, 4, 5, 6]);
@@ -742,43 +741,36 @@ export function ExperimentForm({
         router.refresh();
         onCancel?.();
       } else {
-        const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        const { data: labRow, error: labError } = await supabase
-          .from("labs")
-          .select("id")
-          .limit(1)
-          .maybeSingle();
-
-        if (labError || !labRow?.id) {
-          toast("Lab 설정을 찾을 수 없습니다.", "error");
-          setSubmitting(false);
-          return;
-        }
-
-        const insertData: ExperimentInsert = {
-          ...formData,
-          created_by: user?.id ?? null,
-          lab_id: labRow.id,
+        // Create goes through POST /api/experiments (same server path as
+        // edit) instead of a client-side direct insert: the route owns
+        // lab_id/created_by, runs experimentSchema validation, and
+        // invalidates the calendar cache. Keeps create and edit on one path.
+        const res = await fetch("/api/experiments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          experiment?: { id: string };
+          error?: string;
+          issues?: Array<{ message: string; path: (string | number)[] }>;
         };
-
-        const { data, error } = await supabase
-          .from("experiments")
-          .insert(insertData)
-          .select("id")
-          .single();
-
-        if (error) {
-          toast(error.message ?? "저장 중 오류가 발생했습니다.", "error");
+        if (!res.ok || !json.experiment) {
+          if (json.issues && json.issues[0]) {
+            const path = json.issues[0].path?.join(".") ?? "";
+            toast(
+              `${json.issues[0].message}${path ? ` (${path})` : ""}`,
+              "error",
+            );
+          } else {
+            toast(json.error ?? `저장 실패 (HTTP ${res.status})`, "error");
+          }
           setSubmitting(false);
           return;
         }
 
         toast("실험이 생성되었습니다.", "success");
-        router.push(`/experiments/${data.id}`);
+        router.push(`/experiments/${json.experiment.id}`);
       }
     } catch (err) {
       toast(
@@ -2130,12 +2122,13 @@ export function ExperimentForm({
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-foreground">실험 장소</span>
-                <Link
-                  href="/locations"
+                <button
+                  type="button"
+                  onClick={() => setLocationModalOpen(true)}
                   className="text-xs font-medium text-primary hover:text-primary-hover"
                 >
                   + 새 장소
-                </Link>
+                </button>
               </div>
               <p className="text-xs text-muted">
                 참여자가 예약 완료 시 선택한 장소의 주소와 지도 링크가 표시됩니다.
@@ -2157,6 +2150,21 @@ export function ExperimentForm({
           </CardContent>
         </Card>
         )}
+
+        {/* Inline 새 장소 modal — lets a researcher add an address WITHOUT
+            leaving the wizard (the old "+ 새 장소" link navigated away and
+            wiped all 7 steps). On save we append + auto-select so the new
+            location is immediately usable. */}
+        <LocationModal
+          open={locationModalOpen}
+          onClose={() => setLocationModalOpen(false)}
+          onSaved={(loc) => {
+            setLocations((prev) =>
+              prev.some((l) => l.id === loc.id) ? prev : [...prev, loc],
+            );
+            setLocationId(loc.id);
+          }}
+        />
 
         {/* Google Calendar sync — step 3, shown for ALL kinds (external AND
             pilot). Pilot omits Notion (server-side, on activation) but still

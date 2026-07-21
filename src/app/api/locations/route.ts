@@ -2,15 +2,26 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod/v4";
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/auth/role";
+import { requireUserApi } from "@/lib/auth/role";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// http/https only. z.string().url() alone accepts javascript:/data: schemes,
+// and naver_url is rendered as an <a href> on the participant confirm page —
+// restrict the scheme so a saved location can't become a stored-XSS vector.
+const httpUrl = z
+  .string()
+  .url()
+  .max(2048)
+  .refine((u) => /^https?:\/\//i.test(u), {
+    message: "http 또는 https URL만 허용됩니다",
+  });
+
 const bodySchema = z.object({
   name: z.string().trim().min(1).max(80),
   address_lines: z.array(z.string().trim().min(1).max(200)).min(1).max(5),
-  naver_url: z.string().url().optional().nullable(),
+  naver_url: httpUrl.optional().nullable(),
 });
 
 // Public list — booking pages need addresses. RLS enforces SELECT public.
@@ -23,9 +34,15 @@ export async function GET() {
   return NextResponse.json({ locations: data ?? [] });
 }
 
-// Admin-only create.
+// Any active researcher/admin can create a location (they need it to
+// register an experiment's address). Edit/delete stay admin-only. RLS
+// (00080) enforces the same: INSERT for authenticated with
+// created_by = auth.uid(); UPDATE/DELETE admin-only.
 export async function POST(request: NextRequest) {
-  const me = await requireAdmin();
+  const me = await requireUserApi();
+  if (!me) {
+    return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+  }
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(

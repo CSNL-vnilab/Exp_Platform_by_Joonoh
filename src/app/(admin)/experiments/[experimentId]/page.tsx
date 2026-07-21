@@ -20,6 +20,17 @@ export default async function ExperimentDetailPage({
     notFound();
   }
 
+  // Resolve the linked location so the detail page shows the saved address
+  // back to the researcher (previously invisible — the "saved but I can't
+  // see it" half of the address bug).
+  const { data: location } = experiment.location_id
+    ? await supabase
+        .from("experiment_locations")
+        .select("*")
+        .eq("id", experiment.location_id)
+        .maybeSingle()
+    : { data: null };
+
   // Per-status breakdown so backfilled experiments (all completed) don't
   // render as "확정 예약 0건". Mirrors the fix on /experiments listing.
   // participant_id is also pulled so we can compute the distinct-
@@ -54,6 +65,7 @@ export default async function ExperimentDetailPage({
       bookingCount={breakdown.confirmed}
       bookingBreakdown={breakdown}
       recruitedCount={recruitedSet.size}
+      location={location}
     />
   );
 }
