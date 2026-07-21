@@ -214,7 +214,11 @@ which migrations on disk are newer than the marker below. The script
 parses THIS doc's "Last applied" line and "NOT applied" blocks, so
 keep those sections in sync when you apply a migration to prod.
 
-Last applied to prod: `00082_drop_dead_objects.sql`
+Last applied to prod: `00083_booking_reschedule_requests.sql`
+(applied 2026-07-21 — booking_reschedule_requests table + apply_reschedule_request
+revive RPC for the participant-reschedule-request → experimenter-approval flow.)
+
+Previously: `00082_drop_dead_objects.sql`
 (applied 2026-07-21 — through 00082. 00078 payment_claims.email_sending_at
 send-lock; 00079 wipe_booking_group RPC + booking_wipe_audit (노쇼 wipe);
 00080 experiment_locations researcher-INSERT policy + naver_url http(s)
