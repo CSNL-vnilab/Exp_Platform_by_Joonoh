@@ -159,8 +159,12 @@ export async function GET(
       message: null,
     });
 
+    const cc =
+      resolved.researcher?.contact_email ??
+      resolved.researcher?.email ??
+      null;
     return NextResponse.json({
-      preview: { to: built.to, subject: built.subject, html: built.html },
+      preview: { to: built.to, cc, subject: built.subject, html: built.html },
       participant: { name: resolved.participant.name },
       editUrl: resolved.editUrl,
     });
@@ -213,9 +217,10 @@ export async function POST(
       message: body.message ?? null,
     });
 
-    // Reply-To targets the responsible researcher so a participant's reply
-    // reaches them rather than the lab-wide send inbox.
-    const replyTo =
+    // CC + Reply-To the responsible researcher (담당 연구원): they get a copy
+    // of every invite they send and a participant reply reaches them directly
+    // rather than the lab-wide send inbox.
+    const researcherEmail =
       resolved.researcher?.contact_email ??
       resolved.researcher?.email ??
       undefined;
@@ -226,7 +231,8 @@ export async function POST(
         to: built.to,
         subject: built.subject,
         html: built.html,
-        replyTo,
+        cc: researcherEmail,
+        replyTo: researcherEmail,
       });
     } catch (err) {
       // sendEmail catches its own errors and returns { success:false }, but

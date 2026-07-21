@@ -83,30 +83,20 @@ export default async function BookingEditPage({ params }: PageProps) {
       return <Failure code="INVALID" />;
     }
     return (
-      <main className="mx-auto max-w-md px-4 py-10">
-        <header className="mb-6">
-          <p className="text-sm text-gray-500">{BRAND_NAME}</p>
-          <h1 className="mt-1 text-xl font-semibold text-gray-900">
-            본인 확인
-          </h1>
-          <p className="mt-2 text-sm leading-relaxed text-gray-700">
-            <b>{titleData.experiments.title}</b> 실험 예약에 등록하신 이름과
-            전화번호를 입력해 주세요. 입력하신 정보가 일치할 때만 일정 변경 ·
-            취소 페이지로 진입할 수 있습니다.
-          </p>
-        </header>
-        <VerifyForm token={token} />
-        <aside className="mt-8 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed text-gray-700">
-          <p className="font-semibold text-gray-900">참고 사항</p>
-          <ul className="mt-2 list-disc pl-5 text-[13px]">
-            <li>예약 시 입력하신 그대로의 이름·전화번호를 사용해 주세요.</li>
-            <li>
-              전화번호는 하이픈 (-) 유무 모두 가능합니다. (예: 010-1234-5678
-              또는 01012345678)
-            </li>
-            <li>본인 확인 후 24시간 동안 같은 기기에서는 다시 묻지 않습니다.</li>
-          </ul>
-        </aside>
+      <main className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center px-4 py-10">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="mb-5 text-center">
+            <p className="text-xs font-medium text-gray-400">{BRAND_NAME}</p>
+            <h1 className="mt-1 text-lg font-semibold text-gray-900">
+              본인 확인
+            </h1>
+            <p className="mt-1.5 text-sm text-gray-500">
+              <b className="text-gray-700">{titleData.experiments.title}</b>{" "}
+              예약자 확인
+            </p>
+          </div>
+          <VerifyForm token={token} />
+        </div>
       </main>
     );
   }

@@ -182,9 +182,26 @@ export async function processReminders(): Promise<number> {
         const headline = isEvening
           ? `내일 실험 일정 안내드립니다`
           : `오늘 실험에 참여해 주셔서 감사합니다`;
+
+        // Make each reminder's subject UNIQUE per session (date + 회차). A
+        // multi-session participant otherwise gets several reminders sharing
+        // the exact same subject, so Gmail groups them into one conversation
+        // and — from the 2nd message on — collapses the identical trailing
+        // body (everything after the 일시) behind its "…" trimmed-content
+        // control. A distinct subject per session keeps them as separate
+        // threads, so the full body always renders. (2026-07 bug fix.)
+        const subjectDate = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Seoul",
+          month: "2-digit",
+          day: "2-digit",
+        })
+          .format(new Date(booking.slot_start))
+          .replace("-", "/"); // "11/25"
+        const subjectSessionTag =
+          booking.session_number > 1 ? ` ${booking.session_number}회차` : "";
         const subject = isEvening
-          ? `[${BRAND_NAME}] 내일 실험 리마인드 — ${experiment.title}`
-          : `[${BRAND_NAME}] 오늘 실험 리마인드 — ${experiment.title}`;
+          ? `[${BRAND_NAME}] 내일 실험 리마인드${subjectSessionTag} — ${experiment.title} (${subjectDate})`
+          : `[${BRAND_NAME}] 오늘 실험 리마인드${subjectSessionTag} — ${experiment.title} (${subjectDate})`;
 
         const whenLine = `${formatDateKR(booking.slot_start)} ${formatTimeKR(booking.slot_start)} – ${formatTimeKR(booking.slot_end)}`;
         const sessionSuffix =
@@ -289,7 +306,7 @@ export async function processReminders(): Promise<number> {
                 : ""
             }
             <p style="margin:4px 0 0 0;font-size:12px;color:#9ca3af;">
-              ${BRAND_NAME} — 자동 발송된 리마인드 메일입니다.
+              ${BRAND_NAME} — ${safeTitle}${sessionSuffix} · ${escapeHtml(whenLine)} 리마인드 (자동 발송)
             </p>
           </div>
           `,

@@ -18,6 +18,7 @@ interface Props {
 interface InvitePreview {
   preview: {
     to: string;
+    cc?: string | null;
     subject: string;
     html: string;
   };
@@ -133,6 +134,16 @@ export function RescheduleInviteButton({
               <div className="mt-0.5 text-sm text-foreground">
                 {preview.preview.to}
               </div>
+              {preview.preview.cc && (
+                <div className="mt-2 border-t border-border/60 pt-2">
+                  <div className="text-xs font-medium text-muted">
+                    참조 (담당 연구원)
+                  </div>
+                  <div className="mt-0.5 text-sm text-foreground">
+                    {preview.preview.cc}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="rounded-lg border border-border bg-muted/10 p-3">
