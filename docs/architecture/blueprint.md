@@ -9,7 +9,7 @@ CSNL 의 in-house 참여자-예약 플랫폼. 한 명의 한국 인지신경과�
 | Actor | Surface | What flows in | What flows out |
 |---|---|---|---|
 | **참여자** | `(public)/book/[experimentId]`, 확정 이메일, `(public)/booking-edit/[token]`, `(public)/payment-info/[token]`, `(public)/run/[bookingId]` | 이름/전화/이메일/생년월일, RRN+계좌+서명+통장사본, 완료코드, reschedule/cancel 의도 | 확정 메일 + SMS, reminder, run 링크, 정산 링크, 상태변경 메일/SMS |
-| **연구원** | `(admin)/experiments/...`, dashboard, participants, schedule (Supabase 쿠키 인증) | 실험 config, status flip, code-analysis prompt, manual block, pilot toggle, 청구번들 다운로드, 행정메일 confirm | bookings/participants/payment_info 읽기, ZIP 다운로드, auto-promotion + metadata-reminder 메일 수신 |
+| **연구원** | `(admin)/experiments/...`, dashboard, participants, schedule (Supabase 쿠키 인증) | 실험 config, status flip, manual block, pilot toggle, 청구번들 다운로드, 행정메일 confirm | bookings/participants/payment_info 읽기, ZIP 다운로드, auto-promotion + metadata-reminder 메일 수신 |
 | **관리자** | `(admin)/users`, `(admin)/locations`, registration approve/reject | 역할 bump, location seed, 가입 승인 | participant_class audit 가시성 |
 | **행정** | Gmail inbox (`LAB_ADMIN_EMAIL`) | n/a | 한 `payment_claims` row 당 한 메일 + 3 xlsx + 1 zip 첨부 |
 | **Cron** | `Authorization: Bearer $CRON_SECRET` → `/api/cron/*`, `/api/notifications/reminders` | 시계 tick | DB sweep + email/SMS/Notion 발송 |
@@ -382,7 +382,7 @@ graph TD
 
 **Phase C — Online runtime as separate subsystem** (4-6주):
 - `online_runtime_config` + `experiment_run_progress` + `/run` + run-token → clean module
-- AI code-analysis (`src/lib/experiments/code-*` + ollama) → `src/lib/code-analysis/`
+- ~~AI code-analysis (`src/lib/experiments/code-*` + ollama) → `src/lib/code-analysis/`~~ _(offline code-analysis 기능 자체가 제거됨 2026-07 — migration 00081. 이 추출 작업 불필요.)_
 
 **Phase D — Observability** (ongoing):
 - 단일 "events" append-only 테이블 — 모든 email/SMS/calendar/notion 가 기록

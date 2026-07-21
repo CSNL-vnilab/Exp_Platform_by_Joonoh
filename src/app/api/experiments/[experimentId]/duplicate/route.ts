@@ -55,7 +55,7 @@ export async function POST(
   // Copy-all-then-strip. Start from the *entire* original row so every
   // experiment-level setting is carried automatically (experiment_mode,
   // online_runtime_config, data_consent_required, protocol_version,
-  // offline_code_analysis, location, …). A hand-maintained allowlist used
+  // location, …). A hand-maintained allowlist used
   // to drop new columns silently — that was the original bug. Only fields
   // that must be regenerated, or that belong to 예약 현황 / per-session
   // state, are stripped or overridden below.

@@ -81,8 +81,7 @@ flowchart TB
 > 편집 가능 원본: [`diagrams/01b-system-internal.drawio`](./diagrams/01b-system-internal.drawio). 파선 박스 = **인증 신뢰 경계** (Vercel middleware 세션 + Supabase RLS). 안쪽 데이터는 인증된 호출에만 노출됨. 박스 밖: Browser (untrusted client), LLM Provider (외부 SaaS, 코드 본문 egress), Mirrors (3rd-party data egress 포함), Cron runners (별도 trust domain — GHA 토큰 / lab Mac launchd).
 
 **핵심 정정:**
-- `code-bundler.ts`, `code-heuristics.ts`, `code-ai-analyzer.ts` 는 **Vercel server-side 모듈** (`src/lib/experiments/*`). lab Mac 에 있는 건 **Ollama 인스턴스 1개**뿐.
-- LLM provider 는 환경변수로 분기: `LLM_PROVIDER=ollama` (lab Mac LAN 접근 가능할 때) OR `ANTHROPIC_API_KEY` 설정 (cloud). **production 배포본은 사실상 Anthropic 사용**.
+- _(offline code-analysis / LLM 파라미터 추출 기능은 2026-07 제거됨 — migration 00081 참조. 이하 다이어그램·플로우의 `code-analysis` / Ollama / LLM extract 노드는 과거 기록.)_
 - Supabase ↔ Notion / GCal / Gmail 동기화는 DB 트리거가 아니라 **Vercel API/Server Action** 에서 명시적으로 push.
 
 <details>
@@ -180,6 +179,8 @@ flowchart TB
 
 ### 2-A. 업로드 (실험자가 새 실험 등록)
 
+> _(offline code-analysis 기능 제거됨 2026-07 — migration 00081. 아래 시퀀스의 `code-analysis` API·LLM extract 단계는 과거 기록이며, 현재는 실험자가 parameter_schema 를 UI 에서 직접 입력한다.)_
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -205,10 +206,6 @@ sequenceDiagram
     UI->>NT: Notion master page 생성
     UI-->>R: 예약 링크
 ```
-
-**한계:**
-- LLM 추출 정확도는 검증 안 됨. 휴리스틱이 잡지 못한 부분에서 hallucination 가능.
-- 외부 LLM 호출은 `ANTHROPIC_API_KEY` 가 설정된 상태에서 발생 — 코드 본문이 외부로 나간다는 의미.
 
 ### 2-B. 검색 (등록된 실험의 메타데이터 조회)
 
@@ -236,6 +233,8 @@ sequenceDiagram
 ---
 
 ## 3. Data Flow
+
+> _(아래 `LLM extract` (Ollama/Anthropic) 가공 노드 및 GitHub/NAS → LLM extract → experiments 경로는 offline code-analysis 기능 제거로 더 이상 존재하지 않음 — 2026-07, migration 00081.)_
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./diagrams/03-data-flow-dark.svg">
@@ -407,7 +406,7 @@ flowchart LR
 
 | 컴포넌트 | 용도 |
 |---|---|
-| Ollama (`localhost:11434`) | `qwen3.6:latest` (24 GB), `qwen3-embedding:8b`, `bge-m3`, `glm-ocr` 등. 코드 분석 fallback. |
+| Ollama (`localhost:11434`) | `qwen3.6:latest` (24 GB), `qwen3-embedding:8b`, `bge-m3`, `glm-ocr` 등. _(코드 분석 fallback 역할은 2026-07 offline code-analysis 제거로 폐기 — migration 00081.)_ |
 | launchd | 매시간 Supabase Storage → NAS 미러. |
 | NAS (`/Volumes/CSNL_new-1`) | 데이터 백업 (단일 사이트). |
 

@@ -27,24 +27,6 @@ export interface ExperimentChecklistItem {
 
 export type ExperimentMode = "offline" | "online" | "hybrid";
 
-// Mirror of the persisted JSONB shape — see
-// `src/lib/experiments/code-analysis-schema.ts` for the zod source of
-// truth. Kept structural here so the DB types file does not pull in zod
-// at type-only import sites.
-export interface OfflineCodeAnalysisColumn {
-  code_excerpt: string | null;
-  code_filename: string | null;
-  code_lang: string | null;
-  analyzed_at: string | null;
-  model: string | null;
-  // Loose `unknown` here to avoid duplicating the deep CodeAnalysis
-  // shape — consumers cast through CodeAnalysisSchema when reading.
-  heuristic: unknown;
-  ai: unknown;
-  overrides: unknown;
-  merged: unknown;
-}
-
 export interface OnlineRuntimeConfig {
   // Researcher-provided URL to the experiment JavaScript file(s). Loaded
   // as a <script> inside the /run shell's sandbox iframe.
@@ -362,10 +344,6 @@ export interface Database {
           protocol_version: string | null;
           experiment_mode: ExperimentMode;
           online_runtime_config: OnlineRuntimeConfig | null;
-          // Heuristic + AI + user-override extracted metadata for the
-          // experimenter's offline experiment code (migration 00049).
-          // Shape lives in src/lib/experiments/code-analysis-schema.ts.
-          offline_code_analysis: OfflineCodeAnalysisColumn | null;
           data_consent_required: boolean;
           created_by: string | null;
           created_at: string;
@@ -418,7 +396,6 @@ export interface Database {
           protocol_version?: string | null;
           experiment_mode?: ExperimentMode;
           online_runtime_config?: OnlineRuntimeConfig | null;
-          offline_code_analysis?: OfflineCodeAnalysisColumn | null;
           data_consent_required?: boolean;
           created_by?: string | null;
           created_at?: string;
@@ -471,7 +448,6 @@ export interface Database {
           protocol_version?: string | null;
           experiment_mode?: ExperimentMode;
           online_runtime_config?: OnlineRuntimeConfig | null;
-          offline_code_analysis?: OfflineCodeAnalysisColumn | null;
           data_consent_required?: boolean;
           created_by?: string | null;
         };
@@ -1244,43 +1220,6 @@ export interface Database {
           },
         ];
       };
-      notification_log: {
-        Row: {
-          id: string;
-          booking_id: string | null;
-          channel: string;
-          type: string;
-          recipient: string;
-          status: string;
-          external_id: string | null;
-          error_message: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          booking_id?: string | null;
-          channel: string;
-          type: string;
-          recipient: string;
-          status: string;
-          external_id?: string | null;
-          error_message?: string | null;
-        };
-        Update: {
-          status?: string;
-          external_id?: string | null;
-          error_message?: string | null;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "notification_log_booking_id_fkey";
-            columns: ["booking_id"];
-            isOneToOne: false;
-            referencedRelation: "bookings";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
       notion_health_state: {
         Row: {
           id: string;
@@ -1488,37 +1427,6 @@ export interface Database {
           p_assigned_by: string | null;
         };
         Returns: ParticipantClassRow;
-      };
-      claim_next_notion_retry: {
-        Args: Record<string, never>;
-        Returns: Array<{
-          id: string;
-          booking_id: string;
-          integration_type:
-            | "gcal"
-            | "notion"
-            | "email"
-            | "sms"
-            | "notion_experiment"
-            | "notion_survey"
-            | "status_email"
-            | "status_sms";
-          status: "pending" | "completed" | "failed" | "skipped";
-          attempts: number;
-          last_error: string | null;
-          external_id: string | null;
-          created_at: string;
-          processed_at: string | null;
-        }>;
-      };
-      finalize_notion_retry: {
-        Args: {
-          p_integration_id: string;
-          p_status: "completed" | "failed" | "skipped";
-          p_external_id: string | null;
-          p_last_error: string | null;
-        };
-        Returns: void;
       };
       // Migration 00037 — generic version. `p_types` is the integration_type
       // filter array (e.g. ['notion', 'notion_survey', 'gcal', 'sms']).

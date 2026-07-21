@@ -24,10 +24,6 @@ node scripts/db-audit.mjs
 # Idempotent Notion schema verify (no-op on healthy DB; reports drift)
 node scripts/notion-setup.mjs
 
-# Continuous QC loop — db-audit + notion-setup every 20 min.
-# Intended to run under the Monitor tool during active ops.
-node scripts/qc-loop.mjs --interval=1200
-
 # Apply a new migration to prod
 node scripts/apply-migration-mgmt.mjs supabase/migrations/000XX_xxx.sql
 
