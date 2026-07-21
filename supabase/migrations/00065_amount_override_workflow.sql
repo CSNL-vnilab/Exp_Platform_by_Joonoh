@@ -1,4 +1,7 @@
--- 00063 — amount override workflow
+-- 00065 — amount override workflow
+-- (NOTE: authored as "00063", renumbered into the 00065 slot; the header
+--  lagged. See 00076 for the drift-recovery story. Never retro-renumber an
+--  applied migration — this is a comment-only fix.)
 --
 -- 사용자 요청 (2026-05-28): 실험자가 참여자비 청구 자동 메일이 나가기
 -- 전에 금액을 자유롭게 조절할 수 있도록 — 예) 5회차 90,000원 실험이

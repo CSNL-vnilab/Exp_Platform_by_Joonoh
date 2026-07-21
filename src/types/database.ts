@@ -1360,6 +1360,16 @@ export interface Database {
         };
         Returns: Json;
       };
+      // Migration 00079 — 노쇼 wipe. Deletes a booking group + its
+      // payment_info; guards on completed/money-moved/ever-claimed.
+      wipe_booking_group: {
+        Args: {
+          p_booking_group_id: string;
+          p_wiped_by: string;
+          p_reason: string;
+        };
+        Returns: Json;
+      };
       rpc_ingest_block: {
         Args: {
           p_booking_id: string;

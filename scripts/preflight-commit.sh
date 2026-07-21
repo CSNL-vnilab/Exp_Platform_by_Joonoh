@@ -98,4 +98,42 @@ EOF
   fi
 fi
 
+# ── Migration duplicate-number guard (forward-only) ──────────────────────
+# Two on-disk migration files sharing a 5-digit prefix caused the 00065
+# drift incident (a renumber into an already-applied version silently
+# skipped the DDL). Refuse a commit that INTRODUCES a new prefix collision.
+# The five pre-existing pairs are grandfathered — the repo can never
+# retro-renumber them (migrations are append-only), so they must not trip
+# the guard.
+MIG_DIR="$(git rev-parse --show-toplevel 2>/dev/null)/supabase/migrations"
+if [[ -d "$MIG_DIR" ]]; then
+  GRANDFATHERED=" 00032 00033 00034 00065 00067 "
+  DUP_PREFIXES="$(
+    ls "$MIG_DIR" 2>/dev/null \
+      | grep -E '^[0-9]{5}_' \
+      | cut -c1-5 \
+      | sort \
+      | uniq -d
+  )"
+  OFFENDING=""
+  for p in $DUP_PREFIXES; do
+    case "$GRANDFATHERED" in
+      *" $p "*) : ;;                 # known pre-existing pair — allow
+      *) OFFENDING="$OFFENDING $p" ;;
+    esac
+  done
+  if [[ -n "${OFFENDING// /}" ]]; then
+    cat >&2 <<EOF
+preflight: refusing — NEW duplicate migration number(s):$OFFENDING
+
+Two migration files share a 5-digit prefix. This is the exact footgun
+behind the 00065 drift (a renumber into an applied version skips its DDL).
+Rename your new migration to a unique number = (highest on disk) + 1.
+(The five historical pairs 00032/00033/00034/00065/00067 are grandfathered
+and never renumbered — append-only.)
+EOF
+    exit 2
+  fi
+fi
+
 exit 0

@@ -125,6 +125,17 @@ export async function updateBookingPage(
   });
 }
 
+// Archive (soft-delete) a booking's Notion page — used by the 노쇼 wipe
+// flow, which deletes the DB rows entirely. archived:true moves the page
+// to Notion's trash so the calendar mirror stays truthful. Best-effort:
+// callers wrap this in try/catch (a Notion outage must not block the wipe).
+export async function archiveBookingPage(pageId: string): Promise<void> {
+  await fetchNotion(`/v1/pages/${pageId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ archived: true }),
+  });
+}
+
 export interface ExperimentNotionData {
   experimentTitle: string;
   projectName: string | null;

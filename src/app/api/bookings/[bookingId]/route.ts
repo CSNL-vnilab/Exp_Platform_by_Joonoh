@@ -214,8 +214,18 @@ export async function PUT(
     // pending session in a group whose other sessions are already
     // completed triggers dispatch; cancelling every session transitions
     // payment_info to 'cancelled' so it stops blocking the queue.
+    //
+    // 2026-07 (C5): also fire on no_show. The SSOT treats cancelled and
+    // no_show symmetrically (TERMINAL_NON_PAYABLE), and the helper already
+    // handles both — but the gate only invoked it for cancelled, so a
+    // no_show flip left the payment_info row stuck 'pending_participant'
+    // (never settled). Firing on no_show settles it the same way. (Wiped
+    // groups delete the row outright; this covers no_show flips that keep
+    // the record.)
     const paymentInfoGroupId =
-      (status === "completed" || status === "cancelled") &&
+      (status === "completed" ||
+        status === "cancelled" ||
+        status === "no_show") &&
       booking.booking_group_id
         ? booking.booking_group_id
         : null;
@@ -238,13 +248,16 @@ export async function PUT(
       // observation-modal door shares identical semantics.)
       await sweepStalePastSiblings(admin, paymentInfoGroupId, bookingId);
     }
-    if (paymentInfoGroupId && status === "cancelled") {
-      // Re-derive 활용일자 after a cancel (2026-06-10 review [16/21]) —
-      // without this the claim documents kept a period stretching to
-      // the cancelled session's date. The RPC only touches rows still
-      // pending_participant and recomputes period from live
-      // (confirmed/running/completed) bookings; amount is preserved
-      // for overridden rows.
+    if (
+      paymentInfoGroupId &&
+      (status === "cancelled" || status === "no_show")
+    ) {
+      // Re-derive 활용일자 after a cancel/no_show (2026-06-10 review
+      // [16/21]; extended to no_show in C5) — without this the claim
+      // documents kept a period stretching to the terminal session's
+      // date. The RPC only touches rows still pending_participant and
+      // recomputes period from live (confirmed/running/completed)
+      // bookings; amount is preserved for overridden rows.
       try {
         await admin.rpc("propagate_payment_period", {
           p_booking_group_id: paymentInfoGroupId,

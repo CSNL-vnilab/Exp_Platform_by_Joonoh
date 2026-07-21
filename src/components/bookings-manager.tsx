@@ -528,6 +528,21 @@ export function BookingsManager({
                                 />
                                 관찰 입력
                               </Button>
+                              {(b.status === "confirmed" ||
+                                b.status === "running") && (
+                                <MarkNoShowButton
+                                  bookingId={b.id}
+                                  onDone={() => router.refresh()}
+                                />
+                              )}
+                              {(b.status === "confirmed" ||
+                                b.status === "running" ||
+                                b.status === "no_show") && (
+                                <WipeBookingButton
+                                  booking={b}
+                                  onDone={() => router.refresh()}
+                                />
+                              )}
                               {b.status !== "confirmed" &&
                                 !(
                                   showsOnlineCols &&
@@ -619,7 +634,7 @@ export function BookingsManager({
                           </Button>
                         </div>
                       )}
-                    <div className="mt-3">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <Button
                         size="sm"
                         variant="secondary"
@@ -631,6 +646,20 @@ export function BookingsManager({
                         />
                         관찰 입력
                       </Button>
+                      {(b.status === "confirmed" || b.status === "running") && (
+                        <MarkNoShowButton
+                          bookingId={b.id}
+                          onDone={() => router.refresh()}
+                        />
+                      )}
+                      {(b.status === "confirmed" ||
+                        b.status === "running" ||
+                        b.status === "no_show") && (
+                        <WipeBookingButton
+                          booking={b}
+                          onDone={() => router.refresh()}
+                        />
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -822,6 +851,108 @@ function PilotToggleButton({
   return (
     <Button size="sm" variant="secondary" onClick={toggle} loading={busy}>
       {isPilot ? "파일럿 해제" : "파일럿 표시"}
+    </Button>
+  );
+}
+
+// 불참(노쇼) 처리 — flip a confirmed/running booking to no_show. Uses the
+// standard PUT path, which notifies the participant + settles the payment
+// row (C5). Separate from the wipe button so notification and deletion are
+// distinct, deliberate actions.
+function MarkNoShowButton({
+  bookingId,
+  onDone,
+}: {
+  bookingId: string;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    if (
+      !window.confirm(
+        "이 예약을 불참(노쇼)으로 처리합니다.\n참여자에게 안내가 발송되고 정산 대기에서 제외됩니다.\n계속할까요?",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/bookings/${bookingId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "no_show" }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        alert(body.error || "처리 실패");
+        return;
+      }
+      onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Button size="sm" variant="secondary" onClick={run} loading={busy}>
+      불참 처리
+    </Button>
+  );
+}
+
+// 노쇼 기록 삭제 — wipe the whole booking group (bookings +
+// participant_payment_info + calendar events + Notion pages) so the
+// participant can re-apply. Server enforces guards (completed / money-moved
+// / claimed) and returns 409 if the group must be kept.
+function WipeBookingButton({
+  booking,
+  onDone,
+}: {
+  booking: BookingRowView;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    const name = booking.participants?.name ?? "참여자";
+    const sbj =
+      booking.subject_number != null ? `피험자${booking.subject_number} · ` : "";
+    const lines = [
+      `${sbj}${name} 님의 예약 기록을 완전히 삭제합니다.`,
+      "",
+      "• 세션 기록 · 피험자 번호 · 캘린더 일정 · 정산 대기 행 · Notion 행이 모두 삭제됩니다.",
+      "• 되돌릴 수 없습니다.",
+      "• 참여자는 같은 실험에 다시 신청할 수 있게 됩니다.",
+      "• 삭제된 피험자 번호는 이후 신규 예약에 재배정될 수 있습니다.",
+    ];
+    if (booking.has_observation) {
+      lines.push("", "⚠ 이 예약에는 관찰 기록이 있습니다. 함께 삭제됩니다.");
+    }
+    lines.push("", "계속할까요?");
+    if (!window.confirm(lines.join("\n"))) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/bookings/${booking.id}/wipe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Always request reopen: the server only flips a recruitment-full
+        // 'completed' experiment back to 'active' (no-op otherwise), which
+        // is required for the participant to actually re-book.
+        body: JSON.stringify({ reopenExperiment: true }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        reopened?: boolean;
+      };
+      if (!res.ok) {
+        alert(body.error || "삭제 실패");
+        return;
+      }
+      onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Button size="sm" variant="danger" onClick={run} loading={busy}>
+      노쇼 기록 삭제
     </Button>
   );
 }
