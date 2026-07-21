@@ -9,6 +9,7 @@ import { safeCellText } from "@/lib/payments/sanitize";
 import {
   fillIndividualForm,
   fillUploadForm,
+  UPLOAD_MAX_ROWS,
   type IndividualFormData,
   type UploadParticipant,
 } from "@/lib/payments/template-filler";
@@ -91,6 +92,27 @@ export async function buildUploadFormWorkbook(
   return fillUploadForm(rows);
 }
 
+// The SNU upload template fits at most UPLOAD_MAX_ROWS (7) participants
+// between the data-start row and the instructional notes. For larger
+// claims we emit one workbook per chunk of 7 so an 8+-participant claim
+// can still be built and emailed (previously fillUploadForm threw). The
+// 행정 office concatenates the chunks upstream. Returns 1 buffer for the
+// common ≤7 case, N buffers otherwise; callers name them _1/_2/… when >1.
+export async function buildUploadFormWorkbooks(
+  participants: ExportParticipant[],
+): Promise<Buffer[]> {
+  if (participants.length === 0) return [];
+  const chunks: ExportParticipant[][] = [];
+  for (let i = 0; i < participants.length; i += UPLOAD_MAX_ROWS) {
+    chunks.push(participants.slice(i, i + UPLOAD_MAX_ROWS));
+  }
+  const bufs: Buffer[] = [];
+  for (const chunk of chunks) {
+    bufs.push(await buildUploadFormWorkbook(chunk));
+  }
+  return bufs;
+}
+
 // ── Individual form ────────────────────────────────────────────────────
 
 export async function buildIndividualFormWorkbook(
@@ -162,29 +184,34 @@ function parseHHMM(
   return { hours, minutes };
 }
 
+// period_start / period_end are DATE-typed columns → "YYYY-MM-DD" strings.
+// Parse the date prefix by slicing, NOT via `new Date(iso)` + local
+// getters: Vercel runs UTC today so the getters happen to be correct, but
+// any server west of UTC would render the day one behind. String slicing
+// is timezone-independent.
+type Ymd = { y: number; mo: number; d: number };
+function parseYmd(iso: string): Ymd | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
+}
+
 export function formatDateSpan(
   startIso: string | null,
   endIso: string | null,
 ): string {
-  if (!startIso) return "";
-  const s = new Date(startIso);
-  if (!endIso) {
-    return `${s.getFullYear()}.${pad(s.getMonth() + 1)}.${pad(s.getDate())}`;
-  }
-  const e = new Date(endIso);
-  const sameYear = s.getFullYear() === e.getFullYear();
-  const sameMonth = sameYear && s.getMonth() === e.getMonth();
-  const sameDay = sameMonth && s.getDate() === e.getDate();
-  if (sameDay) {
-    return `${s.getFullYear()}.${pad(s.getMonth() + 1)}.${pad(s.getDate())}`;
-  }
-  if (sameMonth) {
-    return `${s.getFullYear()}.${pad(s.getMonth() + 1)}.${pad(s.getDate())}~${pad(e.getDate())}`;
-  }
-  if (sameYear) {
-    return `${s.getFullYear()}.${pad(s.getMonth() + 1)}.${pad(s.getDate())}~${pad(e.getMonth() + 1)}.${pad(e.getDate())}`;
-  }
-  return `${s.getFullYear()}.${pad(s.getMonth() + 1)}.${pad(s.getDate())}~${e.getFullYear()}.${pad(e.getMonth() + 1)}.${pad(e.getDate())}`;
+  const s = startIso ? parseYmd(startIso) : null;
+  if (!s) return "";
+  const full = (p: Ymd) => `${p.y}.${pad(p.mo)}.${pad(p.d)}`;
+  const e = endIso ? parseYmd(endIso) : null;
+  if (!e) return full(s);
+  const sameYear = s.y === e.y;
+  const sameMonth = sameYear && s.mo === e.mo;
+  const sameDay = sameMonth && s.d === e.d;
+  if (sameDay) return full(s);
+  if (sameMonth) return `${s.y}.${pad(s.mo)}.${pad(s.d)}~${pad(e.d)}`;
+  if (sameYear) return `${s.y}.${pad(s.mo)}.${pad(s.d)}~${pad(e.mo)}.${pad(e.d)}`;
+  return `${full(s)}~${full(e)}`;
 }
 
 function pad(n: number): string {

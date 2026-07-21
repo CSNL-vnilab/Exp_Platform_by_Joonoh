@@ -18,13 +18,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildIndividualFormWorkbook,
-  buildUploadFormWorkbook,
+  buildUploadFormWorkbooks,
   formatDateSpan,
   type ExportParticipant,
 } from "@/lib/payments/excel";
 import {
   fillResearchPaymentRequest,
   generateResearchPaymentRequestPdf,
+  type ResearchPaymentRequestData,
 } from "@/lib/payments/template-filler";
 import { LIVE_STATUSES } from "@/lib/bookings/status";
 
@@ -119,11 +120,38 @@ function extFromMime(mime: string | null): string {
       return "png";
     case "image/jpeg":
       return "jpg";
+    case "image/heic":
+    case "image/heif":
+      // iPhone photo uploads — keep the real extension so 행정 can open
+      // them (a ".bin" fallback was silently unopenable).
+      return "heic";
+    case "image/webp":
+      return "webp";
     case "application/pdf":
       return "pdf";
     default:
       return "bin";
   }
+}
+
+// Single source of truth for the 연구참여비 지급신청서 (PDF + docx) input
+// contract. Both the ZIP-download path (buildClaimBundle) and the email
+// dispatch path (buildPaymentClaimEmail) build the artifact from this, so
+// they can never drift. `p` and `r` are the index-aligned ExportParticipant
+// + BundleRow for one participant; researcherName/birthdate/title come from
+// the row mapper, the session list from the raw bundle row.
+export function buildResearchPaymentRequestData(
+  p: ExportParticipant,
+  r: BundleRow,
+): ResearchPaymentRequestData {
+  return {
+    researcherName: p.researcherName,
+    participantName: p.name,
+    participantBirthdate: p.participantBirthdate,
+    experimentTitle: p.experimentTitle ?? "-",
+    sessions: r.sessions,
+    totalAmountKrw: p.amountKrw,
+  };
 }
 
 function isoToHHMM(iso: string): string {
@@ -552,12 +580,16 @@ export async function buildClaimBundle(
   const bankbookNames = new Map<string, number>();
   const zip = new JSZip();
 
-  // 1. Combined admin upload form.
-  const uploadBuf = await buildUploadFormWorkbook(exportParticipants);
-  zip.file(
-    "일회성경비지급자_업로드양식_작성.xlsx",
-    uploadBuf as unknown as ArrayBuffer,
-  );
+  // 1. Combined admin upload form(s). ≤7 participants → one file; larger
+  //    claims split into _1/_2/… chunks (the SNU template holds 7 rows).
+  const uploadBufs = await buildUploadFormWorkbooks(exportParticipants);
+  uploadBufs.forEach((buf, idx) => {
+    const name =
+      uploadBufs.length === 1
+        ? "일회성경비지급자_업로드양식_작성.xlsx"
+        : `일회성경비지급자_업로드양식_작성_${idx + 1}.xlsx`;
+    zip.file(name, buf as unknown as ArrayBuffer);
+  });
 
   // 2. Per-participant forms (xlsx) + 지급신청서 (docx).
   for (let i = 0; i < exportParticipants.length; i++) {
@@ -569,17 +601,10 @@ export async function buildClaimBundle(
     zip.file(indivName, indivBuf as unknown as ArrayBuffer);
 
     // 연구참여비 지급신청서 — docx (editable) + PDF (send-ready)
-    // pair. The 행정 office receives both; PDF is auto-generated from
-    // the same source data via pdfkit + bundled NanumGothic so we don't
+    // pair. The 행정 office receives both; the PDF is auto-generated from
+    // the same source data via pdf-lib + bundled NanumGothic so we don't
     // depend on LibreOffice/Word being available server-side.
-    const reqData = {
-      researcherName: p.researcherName,
-      participantName: p.name,
-      participantBirthdate: p.participantBirthdate,
-      experimentTitle: p.experimentTitle ?? "-",
-      sessions: r.sessions,
-      totalAmountKrw: p.amountKrw,
-    };
+    const reqData = buildResearchPaymentRequestData(p, r);
     try {
       const docxBuf = await fillResearchPaymentRequest(reqData);
       const docxName = dedupeName(
@@ -595,8 +620,8 @@ export async function buildClaimBundle(
     }
     try {
       const pdfBuf = await generateResearchPaymentRequestPdf(reqData);
-      // Sibling-named PDF — dedupe map shared with docx names so a
-      // participant who shows up twice gets "(2)" on both files.
+      // Sibling-named PDF. pdfNames is its OWN dedupe map (separate from
+      // docxNames) so per-extension "(2)" numbering stays independent.
       const pdfName = dedupeName(
         `연구참여비_지급신청서_${safe}.pdf`,
         pdfNames,

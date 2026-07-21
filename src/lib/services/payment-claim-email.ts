@@ -5,26 +5,60 @@
 // pinned to the claim (regardless of their current status — typically
 // 'claimed' at this stage) and replaying the same code path that
 // generates the download bundle. This keeps a single source of truth for
-// the form templates and the embedded signatures.
+// the form templates, the per-participant 지급신청서 PDF, and the
+// embedded signatures.
 //
 // Designed as preview-friendly: returns a typed payload the API can
 // either ship to the frontend (preview mode) or hand to nodemailer's
 // sendMail (confirm mode).
+//
+// The four artifacts the 행정 office expects (and the email now ships):
+//   ① 일회성경비지급자 업로드양식 (xlsx, 1+ files, 7 참여자/파일)
+//   ② 실험참여자비 양식        (xlsx × N, 서명 포함)
+//   ③ 연구참여비 지급신청서     (PDF × N, 무서명 — 회차/날짜/이름/생년월일)
+//   ④ 통장사본                 (zip, 참여자별 스캔 모음)
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   fetchClaimRowsByClaimId,
+  buildResearchPaymentRequestData,
   safeFilename,
 } from "@/lib/payments/claim-bundle";
 import {
   buildIndividualFormWorkbook,
-  buildUploadFormWorkbook,
+  buildUploadFormWorkbooks,
   type ExportParticipant,
 } from "@/lib/payments/excel";
+import { generateResearchPaymentRequestPdf } from "@/lib/payments/template-filler";
 import { type EmailAttachment } from "@/lib/google/gmail";
 import JSZip from "jszip";
 
 type Supabase = ReturnType<typeof createAdminClient>;
+
+// Gmail rejects messages over ~25 MB. base64 transfer-encoding inflates
+// raw bytes by ~37%, so cap the summed RAW attachment bytes at 18 MB
+// (18 * 1.37 ≈ 24.7 MB on the wire). Over this we refuse to send and the
+// route surfaces a 413 telling the researcher to download the ZIP and
+// send it manually — far better than an opaque SMTP "message too large".
+const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+
+export class PaymentEmailTooLargeError extends Error {
+  readonly totalBytes: number;
+  readonly limitBytes: number;
+  readonly attachments: Array<{ filename: string; bytes: number }>;
+  constructor(
+    totalBytes: number,
+    attachments: Array<{ filename: string; bytes: number }>,
+  ) {
+    super(
+      `payment claim attachments total ${totalBytes} bytes, over the ${MAX_ATTACHMENT_BYTES}-byte email limit`,
+    );
+    this.name = "PaymentEmailTooLargeError";
+    this.totalBytes = totalBytes;
+    this.limitBytes = MAX_ATTACHMENT_BYTES;
+    this.attachments = attachments;
+  }
+}
 
 export interface PaymentClaimEmailPayload {
   to: string;
@@ -49,18 +83,29 @@ export interface PaymentClaimEmailPayload {
 
 const SUBJECT = "실험참여자비 지급을 요청드립니다";
 
+// period_start / period_end are DATE columns → "YYYY-MM-DD" strings. Parse
+// the date prefix by slicing, never `new Date(iso)` + local getters
+// (Vercel runs UTC today, but a server west of UTC would render the day
+// one behind).
+function parseYmd(iso: string | null): { y: number; mo: number; d: number } | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
+}
+
 function fmtKoreanDate(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+  const p = parseYmd(iso);
+  if (!p) return "";
+  return `${p.y}년 ${p.mo}월 ${p.d}일`;
 }
 
 function fmtCompactDate(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const yy = d.getFullYear().toString().slice(-2);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
+  const p = parseYmd(iso);
+  if (!p) return "";
+  const yy = String(p.y).slice(-2);
+  const mm = String(p.mo).padStart(2, "0");
+  const dd = String(p.d).padStart(2, "0");
   return `${yy}${mm}${dd}`;
 }
 
@@ -98,19 +143,66 @@ function htmlEscape(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// Group the flat attachment filenames into the four 행정 categories, in
+// dispatch order (①②③④). Derived from attachmentNames so the body list
+// can never drift from what is actually attached.
+function buildAttachmentGuide(
+  names: string[],
+): Array<{ label: string; note: string }> {
+  const count = (prefix: string) =>
+    names.filter((n) => n.startsWith(prefix)).length;
+  const out: Array<{ label: string; note: string }> = [];
+  const upload = count("일회성경비지급자");
+  if (upload > 0) {
+    out.push({
+      label: `일회성경비지급자 업로드양식${upload > 1 ? ` (${upload}개 파일)` : ""}`,
+      note: "행정 일괄 업로드용",
+    });
+  }
+  const forms = count("실험참여자비");
+  if (forms > 0) {
+    out.push({
+      label: `실험참여자비 양식 (${forms}건)`,
+      note: "참여자별 청구서 (서명 포함)",
+    });
+  }
+  const pdfs = count("연구참여비_지급신청서");
+  if (pdfs > 0) {
+    out.push({
+      label: `연구참여비 지급신청서 (${pdfs}건)`,
+      note: "참여자별 지급신청서 (회차·날짜·이름·생년월일)",
+    });
+  }
+  const bankbooks = count("통장사본");
+  if (bankbooks > 0) {
+    out.push({ label: "통장사본", note: "참여자별 통장 사본 모음" });
+  }
+  return out;
+}
+
 function buildBody(args: {
   researcherName: string;
   periodLabel: string;
   count: number;
   totalKrw: number;
   participantNames: string[];
+  attachmentNames: string[];
 }): { html: string; text: string } {
-  const { researcherName, periodLabel, count, totalKrw, participantNames } =
-    args;
+  const {
+    researcherName,
+    periodLabel,
+    count,
+    totalKrw,
+    participantNames,
+    attachmentNames,
+  } = args;
   const lead =
     periodLabel.length > 0
       ? `${periodLabel} 진행한 실험에 대하여 ${count}건의 실험참여자비를 지급요청드립니다.`
       : `${count}건의 실험참여자비를 지급요청드립니다.`;
+
+  const guide = buildAttachmentGuide(attachmentNames);
+  const circled = ["①", "②", "③", "④", "⑤", "⑥"];
 
   const text =
     [
@@ -125,9 +217,9 @@ function buildBody(args: {
       `- 참여자: ${participantNames.join(", ")}`,
       "",
       "첨부 파일 안내:",
-      "  ① 일회성경비지급자_업로드양식_작성_*.xlsx — 행정 일괄 업로드용",
-      "  ② 실험참여자비 양식_*.xlsx — 참여자별 청구서 (서명 포함)",
-      "  ③ 통장사본_*.zip — 참여자별 통장 사본 모음",
+      ...guide.map(
+        (g, i) => `  ${circled[i] ?? `${i + 1}.`} ${g.label} — ${g.note}`,
+      ),
       "",
       "감사합니다.",
       `${researcherName} 올림`,
@@ -146,9 +238,12 @@ function buildBody(args: {
     `</table>` +
     `<p style="margin-top:16px;color:#444;font-size:13px;">첨부 파일 안내:</p>` +
     `<ol style="margin:4px 0 16px 22px;padding:0;font-size:13px;color:#444;">` +
-    `<li><strong>일회성경비지급자_업로드양식_작성_*.xlsx</strong> — 행정 일괄 업로드용</li>` +
-    `<li><strong>실험참여자비 양식_*.xlsx</strong> — 참여자별 청구서 (서명 포함)</li>` +
-    `<li><strong>통장사본_*.zip</strong> — 참여자별 통장 사본 모음</li>` +
+    guide
+      .map(
+        (g) =>
+          `<li><strong>${htmlEscape(g.label)}</strong> — ${htmlEscape(g.note)}</li>`,
+      )
+      .join("") +
     `</ol>` +
     `<p>감사합니다.<br/>${htmlEscape(researcherName)} 올림</p>` +
     `</body></html>`;
@@ -156,9 +251,37 @@ function buildBody(args: {
   return { html, text };
 }
 
+const XLSX_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Filename dedupe: two participants sharing a 이름 get distinct filenames.
+// One map instance per filename family so "실험참여자비 양식_홍길동.xlsx"
+// and "연구참여비_지급신청서_홍길동.pdf" number independently.
+function makeDedupe(): (name: string) => string {
+  const used = new Map<string, number>();
+  return (name: string): string => {
+    const c = used.get(name) ?? 0;
+    used.set(name, c + 1);
+    if (c === 0) return name;
+    const dot = name.lastIndexOf(".");
+    return dot > 0
+      ? `${name.slice(0, dot)} (${c + 1})${name.slice(dot)}`
+      : `${name} (${c + 1})`;
+  };
+}
+
+function uploadFormName(datestamp: string, idx: number, total: number): string {
+  const base = datestamp
+    ? `일회성경비지급자_업로드양식_작성_${datestamp}`
+    : `일회성경비지급자_업로드양식_작성`;
+  return total === 1 ? `${base}.xlsx` : `${base}_${idx + 1}.xlsx`;
+}
+
 /**
  * Reconstruct the email payload (preview-ready) from a payment_claim id.
- * Throws if the claim is missing or has no payment_info rows.
+ * Throws if the claim is missing or has no payment_info rows. Throws
+ * PaymentEmailTooLargeError when the built attachments exceed the mail
+ * size cap (send mode only).
  */
 export async function buildPaymentClaimEmail(args: {
   supabase: Supabase;
@@ -202,62 +325,74 @@ export async function buildPaymentClaimEmail(args: {
   const totalKrw = exportParticipants.reduce((a, p) => a + p.amountKrw, 0);
   const participantNames = exportParticipants.map((p) => p.name);
 
-  const { html, text } = buildBody({
-    researcherName,
-    periodLabel,
-    count: exportParticipants.length,
-    totalKrw,
-    participantNames,
-  });
-
   // For the attachment file naming we want a single yymmdd suffix that
   // captures the claim's date range. Use endIso (or startIso fallback)
   // since 행정 sorts by the latest experiment date in our convention.
-  const datestamp =
-    fmtCompactDate(endIso) || fmtCompactDate(startIso) || "";
+  const datestamp = fmtCompactDate(endIso) || fmtCompactDate(startIso) || "";
 
   const attachments: EmailAttachment[] = [];
   const attachmentNames: string[] = [];
 
-  if (includeAttachments) {
-    // ① upload form — combined
-    const uploadBuf = await buildUploadFormWorkbook(exportParticipants);
-    const uploadName = datestamp
-      ? `일회성경비지급자_업로드양식_작성_${datestamp}.xlsx`
-      : `일회성경비지급자_업로드양식_작성.xlsx`;
-    attachments.push({
-      filename: uploadName,
-      content: uploadBuf,
-      contentType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
-    attachmentNames.push(uploadName);
+  // Names must match EXACTLY between preview and send. The counting logic
+  // below is shared: we always know the participant count and (in send
+  // mode) the number of upload-form chunks; in preview we compute the
+  // chunk count from participant count without building the workbooks.
+  const UPLOAD_ROWS_PER_FILE = 7;
+  const uploadChunkCount = Math.max(
+    1,
+    Math.ceil(exportParticipants.length / UPLOAD_ROWS_PER_FILE),
+  );
+  const formDedupe = makeDedupe();
+  const pdfDedupe = makeDedupe();
 
-    // ② per-participant forms
-    const formNames = new Map<string, number>();
-    const dedupe = (name: string): string => {
-      const c = formNames.get(name) ?? 0;
-      formNames.set(name, c + 1);
-      if (c === 0) return name;
-      const dot = name.lastIndexOf(".");
-      return dot > 0
-        ? `${name.slice(0, dot)} (${c + 1})${name.slice(dot)}`
-        : `${name} (${c + 1})`;
-    };
+  if (includeAttachments) {
+    // ① upload form(s) — one per chunk of 7 participants.
+    const uploadBufs = await buildUploadFormWorkbooks(exportParticipants);
+    uploadBufs.forEach((buf, idx) => {
+      const name = uploadFormName(datestamp, idx, uploadBufs.length);
+      attachments.push({ filename: name, content: buf, contentType: XLSX_MIME });
+      attachmentNames.push(name);
+    });
+
+    // ② per-participant 실험참여자비 양식 (xlsx, signature embedded).
     for (const p of exportParticipants) {
       const buf = await buildIndividualFormWorkbook(p);
-      const name = dedupe(`실험참여자비 양식_${safeFilename(p.name)}.xlsx`);
-      attachments.push({
-        filename: name,
-        content: buf,
-        contentType:
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
+      const name = formDedupe(`실험참여자비 양식_${safeFilename(p.name)}.xlsx`);
+      attachments.push({ filename: name, content: buf, contentType: XLSX_MIME });
       attachmentNames.push(name);
     }
 
-    // ③ bankbooks (single nested zip — keeps the attachment count low for
-    // mail clients that throttle on >10 attachments)
+    // ③ per-participant 연구참여비 지급신청서 (PDF, no signature —
+    //    회차/날짜/이름/생년월일). Built from the same shared reqData
+    //    helper as the ZIP-download path so the two never drift. A single
+    //    fill failure degrades to skipping that one PDF rather than
+    //    aborting the whole dispatch.
+    for (let i = 0; i < exportParticipants.length; i++) {
+      const p = exportParticipants[i];
+      const r = rows[i];
+      try {
+        const pdfBuf = await generateResearchPaymentRequestPdf(
+          buildResearchPaymentRequestData(p, r),
+        );
+        const name = pdfDedupe(
+          `연구참여비_지급신청서_${safeFilename(p.name)}.pdf`,
+        );
+        attachments.push({
+          filename: name,
+          content: pdfBuf,
+          contentType: "application/pdf",
+        });
+        attachmentNames.push(name);
+      } catch (err) {
+        console.error(
+          `[PaymentClaimEmail] 지급신청서 PDF gen failed for ${p.bookingGroupId}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    // ④ bankbooks (single nested zip — keeps the attachment count low for
+    //    mail clients that throttle on >10 attachments).
     if (bankbookEntries.length > 0) {
       const bankbookZip = new JSZip();
       const bankbookNames = new Map<string, number>();
@@ -280,9 +415,7 @@ export async function buildPaymentClaimEmail(args: {
           compressionOptions: { level: 6 },
         }),
       );
-      const bbName = datestamp
-        ? `통장사본_${datestamp}.zip`
-        : `통장사본.zip`;
+      const bbName = datestamp ? `통장사본_${datestamp}.zip` : `통장사본.zip`;
       attachments.push({
         filename: bbName,
         content: bbBuf,
@@ -290,16 +423,38 @@ export async function buildPaymentClaimEmail(args: {
       });
       attachmentNames.push(bbName);
     }
+
+    // Size preflight (B11): refuse to send an over-cap message; the route
+    // turns this into a 413 with the per-file breakdown.
+    const totalBytes = attachments.reduce(
+      (a, at) => a + Buffer.byteLength(at.content),
+      0,
+    );
+    if (totalBytes > MAX_ATTACHMENT_BYTES) {
+      throw new PaymentEmailTooLargeError(
+        totalBytes,
+        attachments.map((at) => ({
+          filename: at.filename,
+          bytes: Buffer.byteLength(at.content),
+        })),
+      );
+    }
   } else {
     // Preview: surface the file names we WILL attach when confirmed,
-    // without paying the rebuild cost. Names match what the send path
-    // will produce.
-    const uploadName = datestamp
-      ? `일회성경비지급자_업로드양식_작성_${datestamp}.xlsx`
-      : `일회성경비지급자_업로드양식_작성.xlsx`;
-    attachmentNames.push(uploadName);
+    // without paying the rebuild cost. Names + dedupe MUST match the send
+    // path exactly (same makeDedupe order, same chunk count).
+    for (let idx = 0; idx < uploadChunkCount; idx++) {
+      attachmentNames.push(uploadFormName(datestamp, idx, uploadChunkCount));
+    }
     for (const p of exportParticipants) {
-      attachmentNames.push(`실험참여자비 양식_${safeFilename(p.name)}.xlsx`);
+      attachmentNames.push(
+        formDedupe(`실험참여자비 양식_${safeFilename(p.name)}.xlsx`),
+      );
+    }
+    for (const p of exportParticipants) {
+      attachmentNames.push(
+        pdfDedupe(`연구참여비_지급신청서_${safeFilename(p.name)}.pdf`),
+      );
     }
     // hasBankbooks (from the row-level bankbook_path check) — preview
     // mode skips the storage download, so bankbookEntries is always empty
@@ -311,6 +466,15 @@ export async function buildPaymentClaimEmail(args: {
       );
     }
   }
+
+  const { html, text } = buildBody({
+    researcherName,
+    periodLabel,
+    count: exportParticipants.length,
+    totalKrw,
+    participantNames,
+    attachmentNames,
+  });
 
   return {
     to: recipientEmail,

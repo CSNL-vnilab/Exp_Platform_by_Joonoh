@@ -4,9 +4,18 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
 import { requireExperimentAccess } from "@/lib/auth/experiment-access";
-import { buildPaymentClaimEmail } from "@/lib/services/payment-claim-email";
+import {
+  buildPaymentClaimEmail,
+  PaymentEmailTooLargeError,
+} from "@/lib/services/payment-claim-email";
 import { sendEmail } from "@/lib/google/gmail";
 import { scrubPii } from "@/lib/observability/pii";
+
+// A send that acquired the lock but never completed leaves email_sending_at
+// stamped. After this window a fresh POST may steal the lock (covers a
+// crashed/timed-out prior send). Kept short — a real send finishes in
+// seconds.
+const SEND_LOCK_STALE_MS = 5 * 60 * 1000;
 
 // /api/experiments/:experimentId/payment-claim/:claimId/email
 //
@@ -77,6 +86,11 @@ const sendBodySchema = z.object({
   // Force flag — frontend must explicitly opt in. Belt-and-suspenders
   // against accidental single-button auto-sends.
   confirm: z.literal(true),
+  // Explicit re-send. Migration 00058 makes at-most-one successful
+  // dispatch the norm; a second send requires the researcher to opt in
+  // through a "재발송" confirm. When false (default) the atomic send-lock
+  // refuses if email_sent_at is already set.
+  resend: z.boolean().optional().default(false),
 });
 
 // Wraps the shared requireExperimentAccess helper with the extra
@@ -190,6 +204,24 @@ async function stampAttempt(
   if (error) {
     console.error(
       `[PaymentClaimEmail] failed to bump attempts on claim ${claimId}: ${error.message}`,
+    );
+  }
+}
+
+// Release the send lock (email_sending_at → null) after a failed send so a
+// retry can re-acquire it. Best-effort; a leftover lock self-clears after
+// SEND_LOCK_STALE_MS anyway.
+async function releaseSendLock(
+  admin: ReturnType<typeof createAdminClient>,
+  claimId: string,
+): Promise<void> {
+  const { error } = await admin
+    .from("payment_claims")
+    .update({ email_sending_at: null })
+    .eq("id", claimId);
+  if (error) {
+    console.error(
+      `[PaymentClaimEmail] failed to release send lock on claim ${claimId}: ${error.message}`,
     );
   }
 }
@@ -325,9 +357,53 @@ export async function POST(
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
+  // Atomic send lock (B3): claim the send in ONE UPDATE so two concurrent
+  // POSTs (double-click / retry race) can't both dispatch a PII-bearing
+  // email. Acquire only when the row isn't already sending (or its lock is
+  // stale) and — for a first send — hasn't already been sent. A resend
+  // ignores email_sent_at but still serialises through the lock.
+  const nowIso = new Date().toISOString();
+  const staleBefore = new Date(Date.now() - SEND_LOCK_STALE_MS).toISOString();
+  let lockQuery = auth.admin
+    .from("payment_claims")
+    .update({ email_sending_at: nowIso })
+    .eq("id", claimId)
+    .or(`email_sending_at.is.null,email_sending_at.lt.${staleBefore}`);
+  if (!body.resend) {
+    lockQuery = lockQuery.is("email_sent_at", null);
+  }
+  const { data: locked, error: lockErr } = await lockQuery
+    .select("id")
+    .maybeSingle();
+  if (lockErr) {
+    console.error(`[PaymentClaimEmail][POST] lock acquire error: ${lockErr.message}`);
+    await stampError(auth.admin, claimId, `lock: ${lockErr.message}`);
+    return NextResponse.json(
+      { error: "발송 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 500 },
+    );
+  }
+  if (!locked) {
+    // Another send holds the lock, or the claim was already sent and this
+    // wasn't an explicit resend.
+    console.warn(
+      `[PaymentClaimEmail][POST] send lock not acquired (resend=${body.resend}) — already sent or in progress`,
+    );
+    return NextResponse.json(
+      {
+        error: body.resend
+          ? "다른 발송이 진행 중입니다. 잠시 후 다시 시도해 주세요."
+          : "이미 발송된 청구입니다. 재발송하려면 재발송 확인이 필요합니다.",
+        alreadySent: !body.resend,
+      },
+      { status: 409 },
+    );
+  }
+
   // Build payload with attachments. This is the expensive call —
   // re-fetches rows + downloads bankbooks + decrypts RRN + rebuilds
-  // workbooks. Most likely failure source.
+  // workbooks. Most likely failure source. On any failure past this point
+  // we MUST release the send lock so a retry can proceed.
   let payload;
   try {
     payload = await buildPaymentClaimEmail({
@@ -344,6 +420,25 @@ export async function POST(
       `[PaymentClaimEmail][POST] payload built — ${payload.attachments.length} attachments, total ${payload.attachments.reduce((a, x) => a + x.content.length, 0)} bytes`,
     );
   } catch (err) {
+    await releaseSendLock(auth.admin, claimId);
+    // Over-size (B11): surface a 413 with the per-file breakdown so the UI
+    // can tell the researcher to download the ZIP and send manually.
+    if (err instanceof PaymentEmailTooLargeError) {
+      const mb = (err.totalBytes / (1024 * 1024)).toFixed(1);
+      const msg = `첨부 용량 초과 (${mb}MB) — 메일로 보내기엔 너무 큽니다. ZIP을 내려받아 직접 발송해 주세요.`;
+      console.error(`[PaymentClaimEmail][POST] attachments too large: ${err.totalBytes} bytes`);
+      await stampError(auth.admin, claimId, `too large: ${err.totalBytes} bytes`);
+      return NextResponse.json(
+        {
+          error: msg,
+          tooLarge: true,
+          totalBytes: err.totalBytes,
+          limitBytes: err.limitBytes,
+          attachments: err.attachments,
+        },
+        { status: 413 },
+      );
+    }
     const msg = err instanceof Error ? err.message : "Failed to build payload";
     console.error(`[PaymentClaimEmail][POST] buildPayload throw: ${msg}`, err);
     await stampError(auth.admin, claimId, `payload build: ${msg}`);
@@ -368,6 +463,7 @@ export async function POST(
     // but if nodemailer throws (e.g. transport init), it propagates.
     const msg = err instanceof Error ? err.message : "SMTP error";
     console.error(`[PaymentClaimEmail][POST] sendEmail throw: ${msg}`, err);
+    await releaseSendLock(auth.admin, claimId);
     await stampError(auth.admin, claimId, `smtp throw: ${msg}`);
     return NextResponse.json(
       { error: `이메일 전송 실패: ${msg}` },
@@ -378,6 +474,7 @@ export async function POST(
   if (!result.success) {
     const msg = result.error ?? "unknown";
     console.error(`[PaymentClaimEmail][POST] sendEmail !ok: ${msg}`);
+    await releaseSendLock(auth.admin, claimId);
     await stampError(auth.admin, claimId, `smtp: ${msg}`);
     return NextResponse.json(
       { error: `이메일 전송 실패: ${msg}` },
@@ -385,11 +482,13 @@ export async function POST(
     );
   }
 
-  // Success — stamp the audit columns and clear any stale error.
+  // Success — stamp the audit columns, clear the send lock + any stale
+  // error so the row records exactly one completed dispatch.
   const { error: updateErr } = await auth.admin
     .from("payment_claims")
     .update({
       email_sent_at: new Date().toISOString(),
+      email_sending_at: null,
       email_sent_to: payload.to,
       email_message_id: result.messageId ?? null,
       email_last_error: null,

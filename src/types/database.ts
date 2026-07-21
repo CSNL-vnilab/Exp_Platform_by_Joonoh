@@ -997,6 +997,8 @@ export interface Database {
           email_last_error: string | null;
           email_last_error_at: string | null;
           email_attempt_count: number;
+          // Migration 00078 — atomic send lock (in-progress dispatch).
+          email_sending_at: string | null;
         };
         Insert: {
           id?: string;
@@ -1014,6 +1016,7 @@ export interface Database {
           email_last_error?: string | null;
           email_last_error_at?: string | null;
           email_attempt_count?: number;
+          email_sending_at?: string | null;
         };
         // Claim rows are back-filled with final counts + file name after the
         // ZIP is built, plus email_sent_* once the 행정 dispatch fires.
@@ -1029,6 +1032,7 @@ export interface Database {
           email_last_error?: string | null;
           email_last_error_at?: string | null;
           email_attempt_count?: number;
+          email_sending_at?: string | null;
         };
         Relationships: [];
       };

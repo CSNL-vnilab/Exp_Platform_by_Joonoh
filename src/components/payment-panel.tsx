@@ -157,6 +157,10 @@ export function PaymentPanel({
     recipient: string;
     sending: boolean;
     lastError: EmailPreview["lastError"];
+    // True when the researcher opened the modal for an already-sent claim
+    // and confirmed 재발송 — the POST must set resend:true to pass the
+    // server's atomic send lock (which otherwise refuses a second send).
+    resend: boolean;
   } | null>(null);
 
   // Backfill payment_info rows for booking_groups that ended up without
@@ -366,10 +370,11 @@ export function PaymentPanel({
         toast(msg, "error");
         return;
       }
+      const isResend = Boolean(body.alreadySent);
       if (body.alreadySent) {
         if (
           !confirm(
-            `이미 ${new Date(body.alreadySent.sentAt).toLocaleString("ko-KR")}\n${body.alreadySent.sentTo} 로 발송된 청구입니다.\n\n다시 보낼까요?`,
+            `이미 ${new Date(body.alreadySent.sentAt).toLocaleString("ko-KR")}\n${body.alreadySent.sentTo} 로 발송된 청구입니다.\n\n동일한 PII 첨부가 다시 발송됩니다. 재발송할까요?`,
           )
         ) {
           return;
@@ -381,6 +386,7 @@ export function PaymentPanel({
         recipient: defaultAdminEmail || body.preview.to || "",
         sending: false,
         lastError: body.lastError,
+        resend: isResend,
       });
     } catch {
       toast("네트워크 오류가 발생했습니다.", "error");
@@ -407,11 +413,25 @@ export function PaymentPanel({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ recipientEmail: recipient, confirm: true }),
+          body: JSON.stringify({
+            recipientEmail: recipient,
+            confirm: true,
+            resend: emailModal.resend,
+          }),
         },
       );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
+        // 413 → attachments too big for email; steer to the ZIP path.
+        if (res.status === 413) {
+          const msg =
+            body?.error ??
+            "첨부 용량이 커서 메일로 보낼 수 없습니다. ZIP을 내려받아 직접 발송해 주세요.";
+          console.error("[payment-panel] attachments too large:", body);
+          toast(msg, "error");
+          setEmailModal({ ...emailModal, sending: false });
+          return;
+        }
         const msg = body?.error ?? `이메일 발송 실패 (HTTP ${res.status})`;
         console.error("[payment-panel] send failed:", msg, body);
         toast(msg, "error");
