@@ -127,6 +127,9 @@ export function PrecautionCheck({
             <p className="text-sm text-red-700">
               참여 조건을 충족하지 않아 실험에 참여하실 수 없습니다.
             </p>
+            <p className="mt-1.5 text-xs text-red-600">
+              답변을 다시 확인해 주세요. 착오라고 생각되시면 담당 연구원에게 문의해 주세요.
+            </p>
           </div>
         )}
 

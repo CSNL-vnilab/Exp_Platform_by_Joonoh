@@ -628,14 +628,14 @@ export function PaymentPanel({
                               type="button"
                               disabled={pendingAction}
                               onClick={() => saveEdit(r.bookingGroupId)}
-                              className="rounded border border-primary bg-primary px-1.5 py-0.5 text-2xs text-white disabled:opacity-50"
+                              className="rounded border border-primary bg-primary px-1.5 py-0.5 text-2xs text-white disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
                             >
                               저장
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditing(null)}
-                              className="text-2xs text-muted hover:text-foreground"
+                              className="text-2xs text-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
                             >
                               취소
                             </button>
@@ -711,7 +711,7 @@ export function PaymentPanel({
                                   `ind-${r.bookingGroupId}`,
                                 )
                               }
-                              className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted/30 disabled:opacity-50"
+                              className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted/30 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
                             >
                               개별
                             </button>
@@ -966,7 +966,7 @@ function DispatchCell({
           type="button"
           disabled={busy || !row.allBookingsCompleted}
           onClick={onResend}
-          className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
           title={
             row.allBookingsCompleted
               ? "재발송 (새 링크가 발급됩니다)"
@@ -1027,7 +1027,7 @@ function DispatchCell({
           type="button"
           disabled={busy}
           onClick={onResend}
-          className="rounded border border-warning-300 bg-warning-50 px-1.5 py-0.5 text-[10px] text-warning-800 hover:bg-warning-100 disabled:opacity-50"
+          className="rounded border border-warning-300 bg-warning-50 px-1.5 py-0.5 text-[10px] text-warning-800 hover:bg-warning-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
         >
           {busy ? "발송 중…" : "수동 발송"}
         </button>
@@ -1040,7 +1040,7 @@ function DispatchCell({
     return (
       <div className="flex items-center gap-2">
         <span
-          className="text-[11px] text-red-600"
+          className="text-[11px] text-danger-600"
           title={row.paymentLinkLastError}
         >
           발송 실패 ({row.paymentLinkAttempts}회)
@@ -1049,7 +1049,7 @@ function DispatchCell({
           type="button"
           disabled={busy}
           onClick={onResend}
-          className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] text-red-700 hover:bg-red-100 disabled:opacity-50"
+          className="rounded border border-danger-200 bg-danger-50 px-1.5 py-0.5 text-[10px] text-danger-700 hover:bg-danger-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
         >
           {busy ? "발송 중…" : "다시 시도"}
         </button>

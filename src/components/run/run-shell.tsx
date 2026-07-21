@@ -599,12 +599,12 @@ export function RunShell({
             </span>
           )}
           {blockCount !== null && (
-            <span className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-foreground">
+            <span className="rounded-full bg-neutral-100 px-2.5 py-1 font-medium text-foreground">
               {blocksSubmitted}/{blockCount} 블록 완료
             </span>
           )}
           {estMinutes !== null && (
-            <span className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-foreground">
+            <span className="rounded-full bg-neutral-100 px-2.5 py-1 font-medium text-foreground">
               예상 소요 {estMinutes}분
             </span>
           )}

@@ -47,10 +47,15 @@ function StepIndicator({ current }: { current: Step }) {
                 step === current
                   ? "bg-primary text-white"
                   : step < current
-                  ? "bg-green-500 text-white"
-                  : "bg-gray-100 text-muted"
+                  ? "bg-success-600 text-white"
+                  : "bg-neutral-100 text-muted"
               }`}
+              aria-current={step === current ? "step" : undefined}
             >
+              <span className="sr-only">
+                단계 {step} / {steps.length}: {STEP_LABELS[step]}
+                {step === current ? " (현재)" : ""}
+              </span>
               {step < current ? (
                 <svg
                   className="h-4 w-4"
@@ -80,7 +85,7 @@ function StepIndicator({ current }: { current: Step }) {
           {i < steps.length - 1 && (
             <div
               className={`mb-5 h-px w-10 sm:w-16 ${
-                step < current ? "bg-green-400" : "bg-gray-200"
+                step < current ? "bg-success-600" : "bg-neutral-200"
               }`}
             />
           )}

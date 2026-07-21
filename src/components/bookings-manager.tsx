@@ -751,13 +751,13 @@ function RunProgressCell({ row }: { row: BookingRowView }) {
         </span>
       )}
       {p.condition_assignment && (
-        <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
+        <span className="rounded-full bg-accent-100 px-1.5 py-0.5 text-[10px] font-medium text-accent-700">
           {p.condition_assignment}
         </span>
       )}
       {typeof p.attention_fail_count === "number" && p.attention_fail_count > 0 && (
         <span
-          className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
+          className="rounded-full bg-danger-100 px-1.5 py-0.5 text-[10px] font-medium text-danger-700"
           title="집중 실패"
         >
           ⚠ {p.attention_fail_count}

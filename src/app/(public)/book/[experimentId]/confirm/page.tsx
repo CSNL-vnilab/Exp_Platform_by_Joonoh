@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { categoryLabel, locationInfo } from "@/lib/experiments/categories";
 import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
 import { fromInternalEmail } from "@/lib/auth/username";
+import { BOOKING_EDIT_CUTOFF_HOURS } from "@/lib/utils/constants";
 
 type LocationRow = { name: string; address_lines: string[]; naver_url: string | null };
 
@@ -136,6 +137,14 @@ export default async function ConfirmPage({ params, searchParams }: PageProps) {
           )}
         </div>
       )}
+
+      <div className="rounded-xl border border-border bg-white p-5">
+        <h2 className="mb-2 text-base font-semibold text-foreground">🗓 시간 변경이 필요하신가요?</h2>
+        <p className="text-sm text-muted">
+          발송된 확정 이메일에는 예약을 변경하거나 취소할 수 있는 링크가 담겨 있습니다.
+          세션 시작 {BOOKING_EDIT_CUTOFF_HOURS}시간 전까지 이용하실 수 있으니, 확정 이메일을 삭제하지 말고 보관해 주세요.
+        </p>
+      </div>
 
       {researcher && (
         <div className="rounded-xl border border-border bg-white p-5">

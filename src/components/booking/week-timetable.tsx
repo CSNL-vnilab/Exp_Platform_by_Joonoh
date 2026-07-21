@@ -308,6 +308,8 @@ export function WeekTimetable({
     return (
       <p className="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted">
         이 실험의 예약 가능한 시간이 아직 없습니다.
+        <br />
+        잠시 후 다시 시도하시거나 담당 연구원에게 문의해 주세요.
       </p>
     );
   }
@@ -325,7 +327,7 @@ export function WeekTimetable({
           <LegendSwatch className="bg-green-100 border-green-300" label="예약 가능" />
           <LegendSwatch className="bg-primary border-primary text-white" label="내가 선택" />
           <LegendSwatch className="bg-red-100 border-red-300 text-red-700" label="불가" />
-          <LegendSwatch className="bg-gray-100 border-gray-300 text-muted" label="마감" />
+          <LegendSwatch className="bg-neutral-100 border-neutral-300 text-muted" label="마감" />
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -347,6 +349,14 @@ export function WeekTimetable({
           )}
         </div>
       </div>
+
+      <p className="text-[11px] text-muted">모든 시간은 한국 시간(KST) 기준입니다.</p>
+
+      {weeks.length > 1 && (
+        <p className="text-center text-[11px] text-muted sm:hidden">
+          ← 좌우로 밀어 다른 주를 확인하세요 →
+        </p>
+      )}
 
       <div className="relative overflow-x-auto rounded-lg border border-border bg-white">
         {/* Right-edge gradient hints horizontal scroll on narrow screens */}
@@ -383,7 +393,7 @@ export function WeekTimetable({
                   return (
                     <div
                       key={`date-${day.dateKey}`}
-                      className={`flex h-8 items-center justify-center border-r border-border px-1 text-xs font-semibold last:border-r-0 ${outOfRange ? "bg-gray-50 text-muted/40" : "text-foreground"}`}
+                      className={`flex h-8 items-center justify-center border-r border-border px-1 text-xs font-semibold last:border-r-0 ${outOfRange ? "bg-neutral-50 text-muted/40" : "text-foreground"}`}
                     >
                       {day.dateLabel}
                     </div>
@@ -406,7 +416,7 @@ export function WeekTimetable({
                   return (
                     <div
                       key={`wd-${day.dateKey}`}
-                      className={`flex h-6 items-center justify-center border-r border-border px-1 text-[11px] last:border-r-0 ${outOfRange ? "bg-gray-50" : ""} ${weekdayColor}`}
+                      className={`flex h-6 items-center justify-center border-r border-border px-1 text-[11px] last:border-r-0 ${outOfRange ? "bg-neutral-50" : ""} ${weekdayColor}`}
                     >
                       {day.weekdayLabel}
                     </div>
@@ -423,7 +433,7 @@ export function WeekTimetable({
                       return (
                         <div
                           key={`${day.dateKey}-${t}`}
-                          className="h-10 border-r border-border bg-gray-50 last:border-r-0"
+                          className="h-10 border-r border-border bg-neutral-50 last:border-r-0"
                         />
                       );
                     }
@@ -453,7 +463,7 @@ export function WeekTimetable({
                       cls = "bg-red-100 text-red-700 cursor-not-allowed";
                       cellLabel = "✕";
                     } else {
-                      cls = "bg-gray-200 text-gray-600 cursor-not-allowed";
+                      cls = "bg-neutral-200 text-neutral-600 cursor-not-allowed";
                     }
 
                     const title = isSelected

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v4";
@@ -58,9 +58,42 @@ export function ParticipantForm({ onSubmit, initialData }: ParticipantFormProps)
 
   const [yymmdd, setYymmdd] = useState(() => isoDateToYymmdd(initialData?.birthdate));
   const [birthError, setBirthError] = useState<string | null>(null);
+  const [phone, setPhone] = useState(initialData?.phone ?? "");
 
   // Register birthdate as a controlled value synced from yymmdd.
   register("birthdate");
+
+  // Live-format the phone as the user types (ported from PaymentInfoForm).
+  // Keep react-hook-form's registered value in sync via setValue; the
+  // submit-time phoneRegex validation is unchanged.
+  const handlePhoneChange = useCallback(
+    (raw: string) => {
+      const digits = raw.replace(/\D/g, "").slice(0, 11);
+      let formatted: string;
+      if (digits.length < 4) {
+        formatted = digits;
+      } else if (digits.startsWith("02")) {
+        // Seoul landline: 2-3/4-4 split.
+        if (digits.length <= 5) {
+          formatted = `${digits.slice(0, 2)}-${digits.slice(2)}`;
+        } else if (digits.length <= 9) {
+          formatted = `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
+        } else {
+          formatted = `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6)}`;
+        }
+      } else if (digits.length <= 7) {
+        // 010 / 011 / 031 / etc.
+        formatted = `${digits.slice(0, 3)}-${digits.slice(3)}`;
+      } else if (digits.length <= 10) {
+        formatted = `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+      } else {
+        formatted = `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+      }
+      setPhone(formatted);
+      setValue("phone", formatted);
+    },
+    [setValue]
+  );
 
   // Auto-focus first error field on validation failure.
   useEffect(() => {
@@ -110,8 +143,12 @@ export function ParticipantForm({ onSubmit, initialData }: ParticipantFormProps)
         placeholder="010-1234-5678"
         type="tel"
         inputMode="tel"
+        maxLength={13}
+        autoComplete="tel"
         error={errors.phone?.message}
         {...register("phone")}
+        value={phone}
+        onChange={(e) => handlePhoneChange(e.target.value)}
       />
 
       <Input
