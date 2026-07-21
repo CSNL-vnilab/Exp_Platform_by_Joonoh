@@ -289,6 +289,24 @@ export async function PUT(
       }
     }
 
+    // A cancellation frees a recruitment seat. If the experiment had been
+    // AUTO-closed on full (recruitment_target / auto_lock), reopen it so the
+    // next participant isn't rejected with EXPERIMENT_NOT_FOUND. The RPC only
+    // reopens system-auto-closed, still-in-window, now-undersubscribed
+    // experiments — never a manual completion. (00084 bug #2 fix.)
+    if (status === "cancelled") {
+      try {
+        await admin.rpc("reopen_experiment_if_undersubscribed", {
+          p_experiment_id: booking.experiment_id,
+        });
+      } catch (err) {
+        console.warn(
+          "[BookingPUT] reopen_experiment_if_undersubscribed failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     return NextResponse.json({
       booking: updated,
       calendar_sync_warning: calendarSyncWarning,

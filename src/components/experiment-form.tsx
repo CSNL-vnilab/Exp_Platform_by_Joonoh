@@ -693,6 +693,17 @@ export function ExperimentForm({
       }
       if (Object.keys(metaErrors).length > 0) {
         setErrors(metaErrors);
+        // Surface the failure — otherwise this return is a silent dead-button:
+        // the offending inputs (code_repo_url / data_path) live on step 6 and
+        // their inline errors only render when that step is mounted, so a user
+        // clicking "수정 완료" from a later step (e.g. step 7 리마인더 일정) sees
+        // nothing happen. Toast the first metaError and jump to the hosting step
+        // via the same navigateToStep + stepForErrorKey mechanism the rest of
+        // the wizard uses, so the inline red error becomes visible. (This guard
+        // runs BEFORE setSubmitting(true), so no spinner reset is needed.)
+        const firstKey = Object.keys(metaErrors)[0];
+        toast(metaErrors[firstKey], "error");
+        navigateToStep(stepForErrorKey(firstKey));
         return;
       }
     }

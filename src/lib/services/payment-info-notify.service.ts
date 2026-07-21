@@ -30,7 +30,7 @@ import { sendEmail as defaultSendEmail } from "@/lib/google/gmail";
 import { issuePaymentToken } from "@/lib/payments/token";
 import { buildPaymentInfoEmail } from "@/lib/services/payment-info-email-template";
 import { bytesFromSupabase, decryptToken, encryptToken } from "@/lib/crypto/payment-info";
-import { getAppOrigin } from "@/lib/http/origin";
+import { getAppOriginOrNull } from "@/lib/http/origin";
 import { scrubPii } from "@/lib/observability/pii";
 import { isTerminalNonPayable } from "@/lib/bookings/status";
 
@@ -125,6 +125,15 @@ export const NOTIFY_OUTCOME = {
    * hidden-couplings.md #25).
    */
   ALL_CANCELLED: "all_cancelled",
+  /**
+   * App origin env (NEXT_PUBLIC_APP_URL / VERCEL_URL) is unset, so we
+   * cannot build an absolute payment-info link — a relative URL is dead
+   * in an email client. We skip the send WITHOUT stamping sent_at or
+   * rotating/consuming the one-time token, release the lock, and let a
+   * later run (with the env set) re-dispatch. Mirrors the null-origin
+   * skip in booking-status-notify / reminder services.
+   */
+  ORIGIN_UNSET: "origin_unset",
 } as const;
 
 export type NotifyOutcome =
@@ -654,6 +663,22 @@ async function notifyPaymentInfoIfReadyImpl(
     await releaseLock();
     return { outcome: NOTIFY_OUTCOME.AMOUNT_ZERO, bookingGroupId, detail: "amount zeroed after lock acquire" };
   }
+  // App-origin guard — BEFORE token rotation. The payment-info email's
+  // only CTA is the link; with no absolute origin we'd ship a relative
+  // "/payment-info/{token}" URL (dead in a mail client). Bail here rather
+  // than at build time so we never rotate/consume the one-time token or
+  // stamp sent_at for an email we couldn't actually deliver — a later run
+  // with the env set re-dispatches cleanly. Every other notify service
+  // (booking-status-notify, reminder) skips on a null origin the same way.
+  const origin = getAppOriginOrNull();
+  if (origin == null) {
+    await releaseLock();
+    return {
+      outcome: NOTIFY_OUTCOME.ORIGIN_UNSET,
+      bookingGroupId,
+      detail: "app origin env unset; skipping send + token rotation",
+    };
+  }
   // 4) Token strategy (P0 #6):
   //
   //   a) If the participant has ALREADY opened the link
@@ -767,10 +792,11 @@ async function notifyPaymentInfoIfReadyImpl(
     }
   }
 
-  // 6) Build URL.
-  const origin = getAppOrigin();
+  // 6) Build URL. `origin` was resolved + null-guarded above (before token
+  // rotation), so it is always an absolute origin here — never a relative
+  // fallback.
   const path = `/payment-info/${encodeURIComponent(tokenString)}`;
-  const paymentUrl = origin ? `${origin}${path}` : path;
+  const paymentUrl = `${origin}${path}`;
 
   // 7) Render + send.
   const built = buildPaymentInfoEmail({

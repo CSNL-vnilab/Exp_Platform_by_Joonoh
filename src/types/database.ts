@@ -307,6 +307,7 @@ export interface Database {
           session_duration_minutes: number;
           max_participants_per_slot: number;
           recruitment_target: number | null;
+          recruitment_auto_closed: boolean;
           slot_increment_minutes: number | null;
           is_project: boolean;
           participation_fee: number;
@@ -359,6 +360,7 @@ export interface Database {
           session_duration_minutes: number;
           max_participants_per_slot?: number;
           recruitment_target?: number | null;
+          recruitment_auto_closed?: boolean;
           slot_increment_minutes?: number | null;
           is_project?: boolean;
           participation_fee?: number;
@@ -411,6 +413,7 @@ export interface Database {
           session_duration_minutes?: number;
           max_participants_per_slot?: number;
           recruitment_target?: number | null;
+          recruitment_auto_closed?: boolean;
           slot_increment_minutes?: number | null;
           is_project?: boolean;
           participation_fee?: number;
@@ -1434,6 +1437,12 @@ export interface Database {
           p_new_end: string;
           p_new_event_id?: string | null;
         };
+        Returns: Json;
+      };
+      // Migration 00084 — reopen an auto-closed, now-undersubscribed experiment
+      // after a cancellation frees a recruitment seat.
+      reopen_experiment_if_undersubscribed: {
+        Args: { p_experiment_id: string };
         Returns: Json;
       };
       rpc_ingest_block: {

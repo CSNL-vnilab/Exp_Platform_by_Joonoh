@@ -20,6 +20,15 @@ export function formatDateKR(date: Date | string): string {
   return format(kst, "yyyy년 M월 d일");
 }
 
+// Compact month/day for subject lines / badges: "03/15" (KST).
+// Used to distinguish otherwise-identical email subjects so Gmail does
+// not thread + collapse repeated per-session sends.
+export function formatMonthDayKR(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const kst = toKST(d);
+  return format(kst, "MM/dd");
+}
+
 // Format time for Korean display: 14:00
 export function formatTimeKR(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;

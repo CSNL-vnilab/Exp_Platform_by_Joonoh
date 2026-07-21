@@ -9,7 +9,7 @@
 //   - no_show:  사실 통보. "기록되었습니다", "다시 참여 가능 여부는 담당자
 //               에게 문의" 정도. 비난 X.
 
-import { formatDateKR, formatTimeKR } from "@/lib/utils/date";
+import { formatDateKR, formatTimeKR, formatMonthDayKR } from "@/lib/utils/date";
 import { escapeHtml } from "@/lib/utils/validation";
 import { BRAND_NAME, brandContactEmailOrNull } from "@/lib/branding";
 import { wrapEmailHtml } from "@/lib/services/email-shell";
@@ -61,6 +61,16 @@ export interface BuiltStatusEmail {
 
 function whenLine(b: BookingStatusEmailRow): string {
   return `${formatDateKR(b.slot_start)} · ${formatTimeKR(b.slot_start)} – ${formatTimeKR(b.slot_end)}`;
+}
+
+// Distinguishing subject suffix so two cancels / no-shows of the SAME
+// experiment don't Gmail-thread + collapse into one another. Appends the
+// session slot date (KST, "(MM/DD)") plus the 회차 for multi-session
+// bookings — e.g. " (03/15 · 2회차)" or " (03/15)".
+function subjectSlotSuffix(b: BookingStatusEmailRow): string {
+  const parts = [formatMonthDayKR(b.slot_start)];
+  if (b.session_number > 1) parts.push(`${b.session_number}회차`);
+  return ` (${parts.join(" · ")})`;
 }
 
 function researcherBlock(r: BookingStatusEmailResearcher | null): string {
@@ -128,7 +138,10 @@ export function buildCancellationEmail(input: BookingStatusEmailInput): BuiltSta
   const sessionSuffix =
     input.booking.session_number > 1 ? ` (${input.booking.session_number}회차)` : "";
 
-  const subject = `[${BRAND_NAME}] ${input.experiment.title}${sessionSuffix} 예약이 취소되었습니다`;
+  // Subject carries the slot date (+회차) so repeated cancels of the same
+  // experiment don't Gmail-thread + collapse. sessionSuffix stays for the
+  // body; subjectSlotSuffix supersedes it in the subject (date-inclusive).
+  const subject = `[${BRAND_NAME}] ${input.experiment.title} 예약이 취소되었습니다${subjectSlotSuffix(input.booking)}`;
 
   // P0-Ι: <html><head> shell with color-scheme: light only
   const html = wrapEmailHtml(
@@ -184,7 +197,9 @@ export function buildNoShowEmail(input: BookingStatusEmailInput): BuiltStatusEma
   const sessionSuffix =
     input.booking.session_number > 1 ? ` (${input.booking.session_number}회차)` : "";
 
-  const subject = `[${BRAND_NAME}] ${input.experiment.title}${sessionSuffix} 결석이 기록되었습니다`;
+  // See buildCancellationEmail: date-inclusive suffix prevents Gmail from
+  // collapsing repeated no-show notices for the same experiment.
+  const subject = `[${BRAND_NAME}] ${input.experiment.title} 결석이 기록되었습니다${subjectSlotSuffix(input.booking)}`;
 
   // P0-Ι: <html><head> shell with color-scheme: light only
   const html = wrapEmailHtml(

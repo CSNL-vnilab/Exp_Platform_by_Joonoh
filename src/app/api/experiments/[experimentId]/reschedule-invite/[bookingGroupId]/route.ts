@@ -159,10 +159,18 @@ export async function GET(
       message: null,
     });
 
-    const cc =
+    // Dedup: don't Cc the researcher their own copy when the invite
+    // recipient IS the researcher (case-insensitive). Otherwise the
+    // preview would show cc==to, matching the actual send guard below.
+    const researcherCc =
       resolved.researcher?.contact_email ??
       resolved.researcher?.email ??
       null;
+    const cc =
+      researcherCc &&
+      researcherCc.toLowerCase() !== built.to.toLowerCase()
+        ? researcherCc
+        : null;
     return NextResponse.json({
       preview: { to: built.to, cc, subject: built.subject, html: built.html },
       participant: { name: resolved.participant.name },
@@ -224,6 +232,14 @@ export async function POST(
       resolved.researcher?.contact_email ??
       resolved.researcher?.email ??
       undefined;
+    // Dedup: only Cc the researcher when they aren't the recipient
+    // (case-insensitive) — otherwise the participant/researcher self-test
+    // gets Cc'd their own invite. Reply-To stays set regardless.
+    const cc =
+      researcherEmail &&
+      researcherEmail.toLowerCase() !== built.to.toLowerCase()
+        ? researcherEmail
+        : undefined;
 
     let result: Awaited<ReturnType<typeof sendEmail>>;
     try {
@@ -231,7 +247,7 @@ export async function POST(
         to: built.to,
         subject: built.subject,
         html: built.html,
-        cc: researcherEmail,
+        cc,
         replyTo: researcherEmail,
       });
     } catch (err) {

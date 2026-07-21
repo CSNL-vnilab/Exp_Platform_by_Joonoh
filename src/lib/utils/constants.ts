@@ -7,6 +7,11 @@ export const BOOKING_ERRORS = {
   SLOT_CONTENTION_RETRY: "다른 참여자가 동시에 예약 중입니다. 잠시 후 다시 시도해주세요.",
   WRONG_SESSION_COUNT: "필수 회차를 모두 선택해주세요.",
   PAST_SLOT: "이미 지난 시간대는 예약할 수 없습니다.",
+  // book_slot rejects a slot whose weekday is not in the experiment's
+  // allowed booking weekdays (validation-style → 400).
+  WEEKDAY_NOT_ALLOWED: "선택하신 요일은 예약할 수 없습니다.",
+  // Registration window for the experiment has closed (conflict-style → 409).
+  REGISTRATION_CLOSED: "예약 접수가 마감되었습니다.",
   // Participant whose current class for the experiment's lab is 'blacklist'.
   // Deliberately vague — we do not reveal the blacklist label to participants.
   PARTICIPANT_BLACKLISTED:

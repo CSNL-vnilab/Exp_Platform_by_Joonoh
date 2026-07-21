@@ -4,7 +4,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { bookingRequestSchema, normalizePhone } from "@/lib/utils/validation";
 import { BOOKING_ERRORS, BOOKING_RETRY } from "@/lib/utils/constants";
 import { runPostBookingPipeline } from "@/lib/services/booking.service";
-import { LIVE_STATUSES } from "@/lib/bookings/status";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -27,44 +26,15 @@ export async function POST(request: NextRequest) {
 
     const adminClient = createAdminClient();
 
-    // Online/hybrid experiment cross-study exclusion (phase 2 follow-up):
-    // refuse the booking if this participant has any prior bookings on
-    // experiments listed in online_runtime_config.exclude_experiment_ids.
-    // Offline experiments ignore this — they never populate the field.
-    {
-      const { data: exp } = await adminClient
-        .from("experiments")
-        .select("experiment_mode, online_runtime_config")
-        .eq("id", experiment_id)
-        .maybeSingle();
-      const cfg = exp?.online_runtime_config as
-        | { exclude_experiment_ids?: string[] }
-        | null;
-      const excludeIds = cfg?.exclude_experiment_ids ?? [];
-      if (
-        exp &&
-        exp.experiment_mode !== "offline" &&
-        excludeIds.length > 0
-      ) {
-        const { data: prior } = await adminClient
-          .from("bookings")
-          .select("id, participants!inner(phone, email)")
-          .in("experiment_id", excludeIds)
-          .in("status", [...LIVE_STATUSES])
-          .eq("participants.phone", phone)
-          .eq("participants.email", participant.email)
-          .limit(1);
-        if (prior && prior.length > 0) {
-          // Unified with the DB-layer EXPERIMENT_EXCLUDED message (D9,
-          // migration 00045). App-layer check stays as a fast-path /
-          // defense-in-depth ahead of the RPC.
-          return NextResponse.json(
-            { error: BOOKING_ERRORS.EXPERIMENT_EXCLUDED },
-            { status: 409 },
-          );
-        }
-      }
-    }
+    // Cross-study exclusion (online/hybrid, D9 / migration 00045) is enforced
+    // solely by the book_slot RPC, which resolves the participant by id and
+    // returns EXPERIMENT_EXCLUDED (mapped to a Korean message below). A former
+    // app-layer pre-check duplicated this via a phone+email lookup, but the
+    // email side compared the raw request value against stored (possibly
+    // mixed-case / whitespace-differing) emails — diverging from the RPC's
+    // id-based authority and letting the pre-check silently pass or fail on
+    // trivial formatting differences. Removed to keep a single source of
+    // truth; the RPC still enforces exclusion.
 
     let lastError: string | null = null;
 
@@ -139,7 +109,8 @@ export async function POST(request: NextRequest) {
           : result.error === "PARTICIPANT_BLACKLISTED"
           ? 403
           : result.error === "EXPERIMENT_EXCLUDED" ||
-            result.error === "RECRUITMENT_FULL"
+            result.error === "RECRUITMENT_FULL" ||
+            result.error === "REGISTRATION_CLOSED"
           ? 409
           : result.error === "DUPLICATE_PARTICIPATION" ||
             result.error === "SLOT_ALREADY_TAKEN" ||

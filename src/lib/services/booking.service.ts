@@ -907,7 +907,10 @@ export async function runReschedulePipeline(params: ReschedulePipelineParams) {
   });
 
   const ccList =
-    researcherEmail && researcherEmail !== participant.email ? [researcherEmail] : undefined;
+    researcherEmail &&
+    researcherEmail.toLowerCase() !== participant.email.toLowerCase()
+      ? [researcherEmail]
+      : undefined;
   // C-P1-4 Reply-To
   const emailResult = await sendEmail({
     to: built.to,

@@ -253,7 +253,10 @@ export function buildRescheduleRejectedEmail(
   const safeTitle = escapeHtml(input.experiment.title);
   const sessionSuffix = input.sessionNumber > 1 ? ` (${input.sessionNumber}회차)` : "";
 
-  const subject = `[${BRAND_NAME}] ${capTitle(input.experiment.title)} 일정 변경 요청 안내`;
+  // Include the 회차 suffix (matching the APPROVED subject) so a rejected
+  // notice for one session doesn't Gmail-thread + collapse with another
+  // session's of the same experiment.
+  const subject = `[${BRAND_NAME}] ${capTitle(input.experiment.title)}${sessionSuffix} 일정 변경 요청 안내`;
 
   const keptWhen = escapeHtml(whenLine(input.oldSlotStart, input.oldSlotEnd));
   const reason = (input.reason ?? "").trim();

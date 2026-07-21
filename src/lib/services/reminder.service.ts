@@ -317,7 +317,8 @@ export async function processReminders(): Promise<number> {
         await sendEmail({
           to: participant.email,
           cc:
-            researcherEmail && researcherEmail !== participant.email
+            researcherEmail &&
+            researcherEmail.toLowerCase() !== participant.email.toLowerCase()
               ? researcherEmail
               : undefined,
           subject,
