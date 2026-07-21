@@ -116,12 +116,15 @@ if [[ -d "$MIG_DIR" ]]; then
       | uniq -d
   )"
   OFFENDING=""
-  for p in $DUP_PREFIXES; do
+  # Split by line explicitly (while-read) so this works the same under bash
+  # and zsh — unquoted `for p in $DUP_PREFIXES` only word-splits under bash.
+  while IFS= read -r p; do
+    [[ -z "$p" ]] && continue
     case "$GRANDFATHERED" in
       *" $p "*) : ;;                 # known pre-existing pair — allow
       *) OFFENDING="$OFFENDING $p" ;;
     esac
-  done
+  done <<< "$DUP_PREFIXES"
   if [[ -n "${OFFENDING// /}" ]]; then
     cat >&2 <<EOF
 preflight: refusing — NEW duplicate migration number(s):$OFFENDING

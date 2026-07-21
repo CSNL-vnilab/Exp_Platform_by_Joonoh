@@ -2,7 +2,8 @@ import type { ParticipantClass } from "@/types/database";
 import { Badge } from "@/components/ui/badge";
 
 // Korean labels used across list badges, participant detail headers, and the
-// bookings manager row column. Kept in sync with lib/participants/classes.ts.
+// bookings manager row column. Kept in sync with the ParticipantClass enum
+// in src/types/database.ts.
 const LABELS: Record<ParticipantClass, string> = {
   newbie: "뉴비",
   royal: "로열",

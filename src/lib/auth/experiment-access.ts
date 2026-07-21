@@ -83,9 +83,9 @@ export interface ExperimentAccessOptions {
    * experiment).
    *
    * Use this for routes that should ONLY be touched by the
-   * experiment's creator — e.g. mutating researcher-owned analysis
-   * payloads (offline-code) where an admin reviewing the dashboard
-   * shouldn't accidentally overwrite the researcher's draft.
+   * experiment's creator — e.g. researcher-owned mutations where an admin
+   * reviewing the dashboard shouldn't accidentally overwrite the
+   * researcher's data.
    */
   ownerOnly?: boolean;
 }

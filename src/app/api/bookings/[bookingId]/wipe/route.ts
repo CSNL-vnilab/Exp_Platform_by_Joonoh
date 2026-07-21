@@ -157,17 +157,18 @@ export async function POST(
       );
     }
 
-    // Resolve experiment status + calendar id (requireBookingAccess doesn't
-    // surface these on its return shape).
+    // Resolve experiment status + calendar id + auto_lock (requireBookingAccess
+    // doesn't surface these on its return shape).
     const { data: expRow } = await admin
       .from("experiments")
-      .select("id, status, google_calendar_id")
+      .select("id, status, google_calendar_id, auto_lock")
       .eq("id", booking.experiment_id)
       .maybeSingle();
     const experiment = (expRow ?? null) as {
       id: string;
       status: string | null;
       google_calendar_id: string | null;
+      auto_lock: boolean | null;
     } | null;
 
     // ── GCal delete BEFORE row delete. deleteEvent swallows 404/410, so any
@@ -251,12 +252,20 @@ export async function POST(
     }
 
     // ── Reopen an auto-completed experiment so re-application is possible.
+    //    Gate on auto_lock=true: that flag is what auto-completes an
+    //    experiment when recruitment_target is hit, so status='completed'
+    //    + auto_lock=true means "recruitment-full auto-complete" — the case
+    //    reopen is meant to recover. A researcher who MANUALLY marked a study
+    //    completed (auto_lock=false) is left alone, so wiping a stray no-show
+    //    never silently re-opens their finished study's recruitment.
     let reopened = false;
-    if (reopen && experiment && experiment.status === "completed") {
+    const wasAutoCompleted =
+      experiment?.status === "completed" && experiment.auto_lock === true;
+    if (reopen && wasAutoCompleted) {
       const { error: reErr } = await admin
         .from("experiments")
         .update({ status: "active" })
-        .eq("id", experiment.id)
+        .eq("id", experiment!.id)
         .eq("status", "completed");
       if (reErr) {
         console.warn(

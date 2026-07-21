@@ -770,26 +770,25 @@ export async function fillResearchPaymentRequest(
     const s = data.sessions[i];
     const a = sample[i];
     if (s) {
-      // The two sample rows carry DISTINCT date literals ("05/02" /
-      // "05/07"), so the date replacement targets the right row. Anchor
-      // the duration + amount replacements on THIS row's freshly-written
-      // date cell (via replaceFirstWTAfter) so they can only touch cells
-      // that come after it in document order. Without this, a row-1
-      // amount that formats to the row-0 sample literal ("1.5", i.e.
-      // 15,000 KRW/session) would re-match and clobber row 0, and the
-      // duration "1" could match an unrelated earlier text node.
-      const newDate = formatDateMMDD(s.slot_start);
-      xml = replaceFirstWT(xml, a.dateAnchor, newDate);
+      // Anchor the duration + amount replacements on THIS row's ORIGINAL,
+      // still-unique date literal ("05/02" / "05/07") — and replace the date
+      // LAST. The template's sample dates are distinct per row, so
+      // replaceFirstWTAfter targets the correct row even when two real
+      // sessions fall on the SAME calendar day (anchoring on the freshly
+      // written date would collide in that case). This also stops a row-1
+      // amount that formats to "1.5" from clobbering row 0, and the duration
+      // "1" from matching an unrelated earlier text node.
       const hrsLabel = sessionDurationHoursLabel(s.slot_start, s.slot_end);
       if (hrsLabel !== "1") {
-        xml = replaceFirstWTAfter(xml, newDate, "1", hrsLabel);
+        xml = replaceFirstWTAfter(xml, a.dateAnchor, "1", hrsLabel);
       }
       xml = replaceFirstWTAfter(
         xml,
-        newDate,
+        a.dateAnchor,
         a.amountAnchor,
         formatManwon(rowAmounts[i] ?? 0),
       );
+      xml = replaceFirstWT(xml, a.dateAnchor, formatDateMMDD(s.slot_start));
       // Per-row 실험내용: the first row's anchor is the "Psychophysics"
       // sample, reused as anchor for the second row too.
       xml = replaceFirstWT(xml, "Psychophysics", data.experimentTitle);
