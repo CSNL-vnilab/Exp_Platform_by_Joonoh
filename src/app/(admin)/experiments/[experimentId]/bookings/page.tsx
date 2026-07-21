@@ -5,6 +5,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent } from "@/components/ui/card";
 import { BookingsManager, type BookingRowView } from "@/components/bookings-manager";
 import { PaymentPanel } from "@/components/payment-panel";
+import {
+  RescheduleRequestsPanel,
+  type RescheduleRequest,
+} from "@/components/reschedule-requests-panel";
+import { RescheduleInviteButton } from "@/components/reschedule-invite-button";
 import { recommendAmount } from "@/lib/payments/amount";
 import { isTerminalNonPayable } from "@/lib/bookings/status";
 import type { PaymentStatus } from "@/types/database";
@@ -34,7 +39,7 @@ export default async function BookingsPage({
   const { data: bookings } = await supabase
     .from("bookings")
     .select(
-      `id, slot_start, slot_end, session_number, status, created_at, subject_number, participant_id,
+      `id, slot_start, slot_end, session_number, status, created_at, subject_number, participant_id, booking_group_id,
        exclusion_flag, exclusion_reason, data_quality,
        participants (name, phone, email, gender, birthdate)`,
     )
@@ -42,7 +47,7 @@ export default async function BookingsPage({
     .order("slot_start", { ascending: true });
 
   const baseRows = (bookings ?? []) as unknown as Array<
-    BookingRowView & { participant_id: string }
+    BookingRowView & { participant_id: string; booking_group_id: string | null }
   >;
 
   // Join current class (scoped to this experiment's lab) + existence of
@@ -134,6 +139,27 @@ export default async function BookingsPage({
     }));
   }
 
+  // Distinct booking groups (participant name + group id) for the
+  // per-participant 재조정 안내 메일 buttons. The invite endpoint is
+  // group-scoped, so we collapse the flat bookings list to one entry per
+  // booking_group_id (first row's participant name wins — all rows in a
+  // group share a participant). Rows without a group id are skipped (the
+  // invite route addresses a group).
+  const inviteGroups: Array<{
+    bookingGroupId: string;
+    participantName: string;
+  }> = [];
+  const seenGroups = new Set<string>();
+  for (const r of baseRows) {
+    const gid = r.booking_group_id;
+    if (!gid || seenGroups.has(gid)) continue;
+    seenGroups.add(gid);
+    inviteGroups.push({
+      bookingGroupId: gid,
+      participantName: r.participants?.name ?? "-",
+    });
+  }
+
   return (
     <div>
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -149,6 +175,45 @@ export default async function BookingsPage({
           </h1>
         </div>
       </div>
+
+      {/* Pending reschedule-request approval queue — rendered ABOVE the
+          bookings table. Self-hides when there are no pending requests. */}
+      <div className="mb-6">
+        <PendingRescheduleSection experimentId={experimentId} />
+      </div>
+
+      {inviteGroups.length > 0 && (
+        <Card className="mb-6">
+          <CardContent className="space-y-3">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">
+                참여자별 재조정 안내 메일
+              </h2>
+              <p className="mt-0.5 text-sm text-muted">
+                참여자에게 일정 재조정용 재예약 링크를 메일로 보냅니다. 미리보기
+                후 발송됩니다.
+              </p>
+            </div>
+            <ul className="divide-y divide-border/60">
+              {inviteGroups.map((g) => (
+                <li
+                  key={g.bookingGroupId}
+                  className="flex items-center justify-between gap-3 py-2"
+                >
+                  <span className="text-sm font-medium text-foreground">
+                    {g.participantName}
+                  </span>
+                  <RescheduleInviteButton
+                    experimentId={experimentId}
+                    bookingGroupId={g.bookingGroupId}
+                    participantName={g.participantName}
+                  />
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {rows.length === 0 ? (
         <Card>
@@ -172,6 +237,105 @@ export default async function BookingsPage({
         <PaymentSection experimentId={experimentId} />
       </div>
     </div>
+  );
+}
+
+// Loads the experiment's pending reschedule requests (booking_reschedule_requests
+// has no session_number/participant name of its own, so we derive both from
+// the referenced booking + participant) and hands them to the client panel.
+// The panel self-hides when the list is empty.
+async function PendingRescheduleSection({
+  experimentId,
+}: {
+  experimentId: string;
+}) {
+  const admin = createAdminClient();
+
+  const { data: reqRows } = await admin
+    .from("booking_reschedule_requests")
+    .select(
+      "id, booking_id, participant_id, requested_slot_start, requested_slot_end, current_slot_start, current_slot_end, reason, requested_at",
+    )
+    .eq("experiment_id", experimentId)
+    .eq("status", "pending")
+    .order("requested_at", { ascending: true });
+
+  const rawRequests = (reqRows ?? []) as Array<{
+    id: string;
+    booking_id: string;
+    participant_id: string | null;
+    requested_slot_start: string;
+    requested_slot_end: string;
+    current_slot_start: string | null;
+    current_slot_end: string | null;
+    reason: string | null;
+    requested_at: string;
+  }>;
+
+  if (rawRequests.length === 0) {
+    return <RescheduleRequestsPanel experimentId={experimentId} requests={[]} />;
+  }
+
+  // Derive 회차 (bookings.session_number) + participant name in two batched
+  // lookups keyed off the referenced booking/participant ids.
+  const bookingIds = Array.from(new Set(rawRequests.map((r) => r.booking_id)));
+  const participantIds = Array.from(
+    new Set(
+      rawRequests
+        .map((r) => r.participant_id)
+        .filter((id): id is string => id != null),
+    ),
+  );
+
+  const [bookingResult, participantResult] = await Promise.all([
+    admin
+      .from("bookings")
+      .select("id, session_number, participant_id")
+      .in("id", bookingIds),
+    participantIds.length > 0
+      ? admin.from("participants").select("id, name").in("id", participantIds)
+      : Promise.resolve<{ data: Array<{ id: string; name: string }> | null }>({
+          data: [],
+        }),
+  ]);
+
+  const sessionByBooking = new Map<string, number>();
+  const participantByBooking = new Map<string, string>();
+  for (const b of (bookingResult.data ?? []) as Array<{
+    id: string;
+    session_number: number;
+    participant_id: string;
+  }>) {
+    sessionByBooking.set(b.id, b.session_number);
+    participantByBooking.set(b.id, b.participant_id);
+  }
+  const nameByParticipant = new Map<string, string>();
+  for (const p of (participantResult.data ?? []) as Array<{
+    id: string;
+    name: string;
+  }>) {
+    nameByParticipant.set(p.id, p.name);
+  }
+
+  const requests: RescheduleRequest[] = rawRequests.map((r) => {
+    const participantId =
+      r.participant_id ?? participantByBooking.get(r.booking_id) ?? null;
+    return {
+      id: r.id,
+      participantName:
+        (participantId && nameByParticipant.get(participantId)) || "-",
+      sessionNumber: sessionByBooking.get(r.booking_id) ?? null,
+      currentSlotStart: r.current_slot_start,
+      currentSlotEnd: r.current_slot_end,
+      requestedSlotStart: r.requested_slot_start,
+      requestedSlotEnd: r.requested_slot_end,
+      reason: r.reason,
+      requestedAt: r.requested_at,
+    };
+  });
+
+  return (
+    <RescheduleRequestsPanel experimentId={experimentId} requests={requests} />
   );
 }
 

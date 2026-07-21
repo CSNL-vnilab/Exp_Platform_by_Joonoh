@@ -119,6 +119,7 @@ const STATUS_LABEL: Record<PaymentStatus, string> = {
   claimed: "지급 신청됨",
   paid: "지급 신청됨", // no UI path sets this; treated identically to claimed
   paid_offline: "지급 완료 (현장 지급)",
+  cancelled: "취소됨", // group fully cancelled/no-show — not payable
 };
 
 const STATUS_CLASS: Record<PaymentStatus, string> = {
@@ -127,6 +128,7 @@ const STATUS_CLASS: Record<PaymentStatus, string> = {
   claimed: "bg-success-50 text-success-800 border-success-200",
   paid: "bg-success-50 text-success-800 border-success-200",
   paid_offline: "bg-neutral-100 text-neutral-700 border-neutral-300",
+  cancelled: "bg-neutral-100 text-neutral-500 border-neutral-300",
 };
 
 export function PaymentPanel({

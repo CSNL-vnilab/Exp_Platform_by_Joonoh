@@ -548,6 +548,61 @@ export interface Database {
         };
         Relationships: [];
       };
+      // Migration 00083 — participant reschedule requests + experimenter approval.
+      booking_reschedule_requests: {
+        Row: {
+          id: string;
+          booking_id: string;
+          booking_group_id: string | null;
+          experiment_id: string;
+          participant_id: string | null;
+          requested_slot_start: string;
+          requested_slot_end: string;
+          current_slot_start: string | null;
+          current_slot_end: string | null;
+          current_status: string | null;
+          reason: string | null;
+          status: "pending" | "approved" | "rejected" | "cancelled";
+          requested_at: string;
+          decided_at: string | null;
+          decided_by: string | null;
+          rejected_reason: string | null;
+          request_email_sent_at: string | null;
+          decision_email_sent_at: string | null;
+          last_email_error: string | null;
+        };
+        Insert: {
+          id?: string;
+          booking_id: string;
+          booking_group_id?: string | null;
+          experiment_id: string;
+          participant_id?: string | null;
+          requested_slot_start: string;
+          requested_slot_end: string;
+          current_slot_start?: string | null;
+          current_slot_end?: string | null;
+          current_status?: string | null;
+          reason?: string | null;
+          status?: "pending" | "approved" | "rejected" | "cancelled";
+          requested_at?: string;
+          decided_at?: string | null;
+          decided_by?: string | null;
+          rejected_reason?: string | null;
+          request_email_sent_at?: string | null;
+          decision_email_sent_at?: string | null;
+          last_email_error?: string | null;
+        };
+        Update: {
+          status?: "pending" | "approved" | "rejected" | "cancelled";
+          decided_at?: string | null;
+          decided_by?: string | null;
+          rejected_reason?: string | null;
+          request_email_sent_at?: string | null;
+          decision_email_sent_at?: string | null;
+          last_email_error?: string | null;
+        };
+        Relationships: [];
+      };
       bookings: {
         Row: {
           id: string;
@@ -873,7 +928,7 @@ export interface Database {
           token_issued_at: string;
           token_expires_at: string;
           token_revoked_at: string | null;
-          status: "pending_participant" | "submitted_to_admin" | "claimed" | "paid" | "paid_offline";
+          status: "pending_participant" | "submitted_to_admin" | "claimed" | "paid" | "paid_offline" | "cancelled";
           submitted_at: string | null;
           claimed_at: string | null;
           claimed_by: string | null;
@@ -923,7 +978,7 @@ export interface Database {
           token_issued_at?: string;
           token_expires_at: string;
           token_revoked_at?: string | null;
-          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid" | "paid_offline";
+          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid" | "paid_offline" | "cancelled";
           submitted_at?: string | null;
           claimed_at?: string | null;
           claimed_by?: string | null;
@@ -967,7 +1022,7 @@ export interface Database {
           token_issued_at?: string;
           token_expires_at?: string;
           token_revoked_at?: string | null;
-          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid" | "paid_offline";
+          status?: "pending_participant" | "submitted_to_admin" | "claimed" | "paid" | "paid_offline" | "cancelled";
           submitted_at?: string | null;
           claimed_at?: string | null;
           claimed_by?: string | null;
@@ -1367,6 +1422,17 @@ export interface Database {
           p_booking_group_id: string;
           p_wiped_by: string;
           p_reason: string;
+        };
+        Returns: Json;
+      };
+      // Migration 00083 — revive-capable reschedule apply (confirmed/no_show/
+      // cancelled -> confirmed at new slot). Called on experimenter approval.
+      apply_reschedule_request: {
+        Args: {
+          p_booking_id: string;
+          p_new_start: string;
+          p_new_end: string;
+          p_new_event_id?: string | null;
         };
         Returns: Json;
       };

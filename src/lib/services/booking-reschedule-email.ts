@@ -228,6 +228,96 @@ export function buildRescheduleEmail(input: RescheduleEmailInput): BuiltReschedu
   return { to: input.participant.email, subject, html };
 }
 
+// ── reschedule REJECTED — participant notification ─────────────────────
+//
+// The experimenter reviewed a participant's reschedule request and did NOT
+// approve it, so the ORIGINAL schedule is kept. We inform the participant
+// gently, echo the (unchanged) slot so they know exactly what still stands,
+// and surface the optional rejection reason. Reuses the file's existing
+// helpers (whenLine, escapeHtml, researcherBlock, wrapEmailHtml, BRAND_NAME).
+
+export interface RescheduleRejectedInput {
+  participant: { name: string; email: string };
+  experiment: { title: string };
+  sessionNumber: number;
+  oldSlotStart: string; // the kept (original) time
+  oldSlotEnd: string;
+  reason?: string | null; // experimenter rejection reason
+  researcher: RescheduleEmailResearcher | null;
+}
+
+export function buildRescheduleRejectedEmail(
+  input: RescheduleRejectedInput,
+): BuiltRescheduleEmail {
+  const safeName = escapeHtml(input.participant.name || "참여자");
+  const safeTitle = escapeHtml(input.experiment.title);
+  const sessionSuffix = input.sessionNumber > 1 ? ` (${input.sessionNumber}회차)` : "";
+
+  const subject = `[${BRAND_NAME}] ${capTitle(input.experiment.title)} 일정 변경 요청 안내`;
+
+  const keptWhen = escapeHtml(whenLine(input.oldSlotStart, input.oldSlotEnd));
+  const reason = (input.reason ?? "").trim();
+
+  // P0-Ι: <html><head> shell with color-scheme: light only
+  const html = wrapEmailHtml(
+    `
+    <div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;padding:8px;color:#111827;line-height:1.6;">
+      <div style="padding:14px 18px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:18px;">
+        <p style="margin:0;font-size:15px;font-weight:600;color:#374151;">기존 일정이 유지됩니다</p>
+      </div>
+
+      <p style="margin:0 0 6px 0;">${safeName}님, 안녕하세요.</p>
+      <p style="margin:0 0 14px 0;word-break:keep-all;">
+        <b>${safeTitle}</b>${sessionSuffix} 실험에 대해 요청하신 일정 변경이 이번에는 반영되지 못했습니다.
+        기존에 예약하신 일정 그대로 진행될 예정이니 아래 일정을 확인해 주세요.
+      </p>
+
+      <table style="border-collapse:collapse;width:100%;margin:14px 0;font-size:15px;">
+        <tr>
+          <td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;width:120px;">실험명</td>
+          <td style="padding:10px 12px;border:1px solid #e5e7eb;word-break:keep-all;">${safeTitle}</td>
+        </tr>
+        ${
+          input.sessionNumber > 1
+            ? `<tr>
+                 <td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;">회차</td>
+                 <td style="padding:10px 12px;border:1px solid #e5e7eb;">${input.sessionNumber}회차</td>
+               </tr>`
+            : ""
+        }
+        <tr>
+          <td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;">유지되는 일정</td>
+          <td style="padding:10px 12px;border:1px solid #e5e7eb;font-weight:600;white-space:nowrap;">
+            ${keptWhen}
+          </td>
+        </tr>
+        ${
+          reason
+            ? `<tr>
+                 <td style="padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;">안내 사유</td>
+                 <td style="padding:10px 12px;border:1px solid #e5e7eb;word-break:keep-all;white-space:pre-wrap;">${escapeHtml(reason)}</td>
+               </tr>`
+            : ""
+        }
+      </table>
+
+      <p style="margin:16px 0 6px 0;font-size:13px;color:#374151;word-break:keep-all;">
+        일정 참여가 어려우시거나 조정이 필요하시면 담당 연구원에게 연락 부탁드립니다.
+      </p>
+
+      ${researcherBlock(input.researcher)}
+
+      <p style="margin:24px 0 0 0;padding-top:14px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;">
+        ${BRAND_NAME} — 본 메일은 일정 변경 요청 처리 결과로 발송되었습니다.
+      </p>
+    </div>
+    `,
+    { title: subject },
+  );
+
+  return { to: input.participant.email, subject, html };
+}
+
 // ── SMS body — short, before→after diff (P0 #4) ────────────────────────
 
 export function buildRescheduleSMS(input: RescheduleEmailInput): string {

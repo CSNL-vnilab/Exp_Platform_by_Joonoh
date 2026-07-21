@@ -51,10 +51,19 @@ function localInputToKstIso(value: string): string {
   return new Date(utcMs).toISOString();
 }
 
-function isEditable(row: FormRow, cutoffHours: number): boolean {
-  if (row.status !== "confirmed") return false;
-  const cutoff = new Date(row.slot_start).getTime() - cutoffHours * 60 * 60 * 1000;
-  return Date.now() < cutoff;
+// A participant may REQUEST a reschedule for a confirmed, no-showed, or
+// cancelled session. The request is deferred (applied only after the
+// experimenter approves), so there is NO old-slot cutoff here — a past or
+// missed session must still show the button. Only completed/running
+// sessions are non-requestable. The NEW picked time still has to be
+// ≥ cutoff in the future, but that is validated by the server on submit,
+// not by whether we show the button.
+function isEditable(row: FormRow): boolean {
+  return (
+    row.status === "confirmed" ||
+    row.status === "no_show" ||
+    row.status === "cancelled"
+  );
 }
 
 const weekdayLabelKR = ["일", "월", "화", "수", "목", "금", "토"];
@@ -69,9 +78,14 @@ export function BookingEditForm(props: Props) {
   const [list, setList] = useState<FormRow[]>(rows);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftStart, setDraftStart] = useState<string>("");
+  const [draftReason, setDraftReason] = useState<string>("");
   const [busy, setBusy] = useState<string | null>(null); // booking id currently submitting
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  // Booking ids whose reschedule REQUEST has been accepted this session.
+  // Editing is disabled for these until the page reloads (server has the
+  // pending request; a second submit would 409).
+  const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
 
   function statusLabel(s: FormRow["status"]): { text: string; color: string } {
     switch (s) {
@@ -91,6 +105,7 @@ export function BookingEditForm(props: Props) {
   function startEdit(row: FormRow) {
     setEditingId(row.id);
     setDraftStart(isoToLocalInput(row.slot_start));
+    setDraftReason("");
     setError(null);
     setInfo(null);
   }
@@ -98,6 +113,7 @@ export function BookingEditForm(props: Props) {
   function cancelEdit() {
     setEditingId(null);
     setDraftStart("");
+    setDraftReason("");
   }
 
   async function submitReschedule(row: FormRow) {
@@ -109,6 +125,8 @@ export function BookingEditForm(props: Props) {
     const endMs = new Date(startIso).getTime() + sessionDurationMinutes * 60 * 1000;
     const endIso = new Date(endMs).toISOString();
 
+    const reason = draftReason.trim();
+
     setBusy(row.id);
     setError(null);
     setInfo(null);
@@ -116,35 +134,36 @@ export function BookingEditForm(props: Props) {
       const res = await fetch(`/api/booking-edit/${token}/${row.id}/reschedule`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ slot_start: startIso, slot_end: endIso }),
+        body: JSON.stringify({
+          slot_start: startIso,
+          slot_end: endIso,
+          ...(reason ? { reason } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data?.error ?? "일정 변경에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+        // Includes the 409 "이미 처리 대기 중인 변경 요청이 있습니다" case,
+        // surfaced via data.error.
+        setError(data?.error ?? "일정 변경 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
         return;
       }
-      // Server returns the updated group so we can show renumbered sessions.
-      const updated: FormRow[] | undefined = data?.rows;
-      if (updated && Array.isArray(updated)) {
-        setList(updated);
-      } else {
-        // Fallback: local patch.
-        setList((prev) =>
-          prev.map((r) =>
-            r.id === row.id ? { ...r, slot_start: startIso, slot_end: endIso } : r,
-          ),
-        );
-      }
-      const warn: string | null = data?.calendar_sync_warning ?? null;
+      // The request is now DEFERRED: the server accepted a reschedule
+      // REQUEST (no immediate apply, no `rows` in the response). Show the
+      // returned message and lock this row from further edits until reload.
+      setRequestedIds((prev) => {
+        const next = new Set(prev);
+        next.add(row.id);
+        return next;
+      });
       setInfo(
-        warn
-          ? `${row.session_number}회차 일정이 변경되었습니다. 변경 안내 메일이 발송되었어요.\n⚠️ ${warn}`
-          : `${row.session_number}회차 일정이 변경되었습니다. 변경 안내 메일이 발송되었어요.`,
+        data?.message ??
+          "일정 변경 요청이 접수되었습니다. 실험자 승인 후 반영됩니다.",
       );
       setEditingId(null);
       setDraftStart("");
+      setDraftReason("");
     } catch {
-      setError("네트워크 오류로 일정 변경에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      setError("네트워크 오류로 일정 변경 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setBusy(null);
     }
@@ -200,10 +219,18 @@ export function BookingEditForm(props: Props) {
 
       <ul className="space-y-3">
         {list.map((row) => {
-          const editable = isEditable(row, editCutoffHours);
+          const editable = isEditable(row);
           const isEditing = editingId === row.id;
           const isBusy = busy === row.id;
+          const requested = requestedIds.has(row.id);
           const status = statusLabel(row.status);
+          // Missed / cancelled sessions are re-BOOK requests; confirmed
+          // sessions are advance-notice change requests.
+          const isRebook =
+            row.status === "no_show" || row.status === "cancelled";
+          const requestLabel = isRebook
+            ? "새 일정으로 재예약 요청"
+            : "일정 변경 요청";
           return (
             <li
               key={row.id}
@@ -224,7 +251,13 @@ export function BookingEditForm(props: Props) {
                   </p>
                 </div>
 
-                {editable && !isEditing && (
+                {requested && (
+                  <span className="shrink-0 self-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-2xs font-medium text-amber-800">
+                    요청 접수됨 (승인 대기)
+                  </span>
+                )}
+
+                {editable && !isEditing && !requested && (
                   <div className="flex shrink-0 gap-2">
                     <button
                       type="button"
@@ -232,30 +265,26 @@ export function BookingEditForm(props: Props) {
                       disabled={isBusy}
                       className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
-                      일정 변경
+                      {requestLabel}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => submitCancel(row)}
-                      disabled={isBusy}
-                      className="rounded border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-                    >
-                      {isBusy ? "취소 중..." : "참여 취소"}
-                    </button>
+                    {row.status === "confirmed" && (
+                      <button
+                        type="button"
+                        onClick={() => submitCancel(row)}
+                        disabled={isBusy}
+                        className="rounded border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        {isBusy ? "취소 중..." : "참여 취소"}
+                      </button>
+                    )}
                   </div>
-                )}
-
-                {!editable && row.status === "confirmed" && (
-                  <span className="shrink-0 text-xs text-gray-500">
-                    시작 {editCutoffHours}시간 이내 — 변경 불가
-                  </span>
                 )}
               </div>
 
               {isEditing && (
                 <div className="mt-3 border-t pt-3">
                   <label className="block text-xs font-medium text-gray-700">
-                    새 시작 시간 (KST)
+                    희망 시작 시간 (KST)
                   </label>
                   <input
                     type="datetime-local"
@@ -266,8 +295,27 @@ export function BookingEditForm(props: Props) {
                   />
                   <p className="mt-1 text-2xs text-gray-500">
                     실험 운영 요일: {allowedWeekdaysLabel} · 회차 길이{" "}
-                    {sessionDurationMinutes}분 (종료 시간은 자동 계산됩니다)
+                    {sessionDurationMinutes}분 (종료 시간은 자동 계산됩니다) ·
+                    지금부터 {editCutoffHours}시간 이후의 시간을 선택해 주세요
                   </p>
+
+                  <label className="mt-3 block text-xs font-medium text-gray-700">
+                    사유 (선택)
+                  </label>
+                  <input
+                    type="text"
+                    value={draftReason}
+                    onChange={(e) => setDraftReason(e.target.value)}
+                    disabled={isBusy}
+                    maxLength={500}
+                    placeholder="예: 개인 사정으로 참여가 어려워 일정을 옮기고 싶습니다"
+                    className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <p className="mt-1 text-2xs text-gray-500">
+                    변경은 실험자 승인 후 반영되며, 확정되면 안내 메일이
+                    발송됩니다.
+                  </p>
+
                   <div className="mt-3 flex gap-2">
                     <button
                       type="button"
@@ -275,7 +323,7 @@ export function BookingEditForm(props: Props) {
                       disabled={isBusy || !draftStart}
                       className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                     >
-                      {isBusy ? "변경 중..." : "변경 저장"}
+                      {isBusy ? "요청 중..." : "요청 보내기"}
                     </button>
                     <button
                       type="button"

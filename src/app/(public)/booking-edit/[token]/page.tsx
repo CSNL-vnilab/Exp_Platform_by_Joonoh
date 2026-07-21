@@ -186,9 +186,9 @@ export default async function BookingEditPage({ params }: PageProps) {
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-gray-700">
           {participantName}님, <b>{experimentTitle}</b> 실험 예약 정보입니다.
-          아래에서 회차별로 일정을 변경하거나 참여를 취소하실 수 있습니다.
-          각 회차는 시간 순서대로 표시되며, 일정을 바꾸시면 자동으로
-          재정렬됩니다.
+          아래에서 회차별로 일정 변경을 요청하거나 참여를 취소하실 수 있습니다.
+          일정 변경은 실험자 승인 후 반영되며, 확정되면 안내 메일이
+          발송됩니다.
         </p>
       </header>
 
@@ -204,16 +204,22 @@ export default async function BookingEditPage({ params }: PageProps) {
         <p className="font-semibold text-gray-900">참고 사항</p>
         <ul className="mt-2 list-disc pl-5 text-[13px]">
           <li>
-            일정 변경 / 취소는 각 회차 시작 <b>{editCutoffHours}시간 전</b>까지
-            가능합니다. 그 이후에는 담당 연구원에게 직접 연락해 주세요.
+            일정 변경은 <b>요청 → 실험자 승인 → 확정 메일</b> 순서로
+            진행됩니다. 요청하신 시간은 실험자가 승인해야 실제 예약에
+            반영됩니다.
           </li>
           <li>
-            새로 선택하신 시간이 이미 다른 참여자의 예약과 겹치거나 실험
-            운영일이 아닌 경우 변경이 거부됩니다.
+            이미 지난 회차나 <b>불참 · 취소</b>된 회차도 새 일정으로 재조정을
+            요청하실 수 있습니다. 다만 새로 선택하시는 시간은 지금부터{" "}
+            <b>{editCutoffHours}시간 이후</b>여야 합니다.
           </li>
           <li>
-            변경 / 취소 시 참여자와 담당 연구원 양쪽 모두에게 안내 메일이
-            자동으로 전송됩니다.
+            선택하신 시간이 다른 참여자의 예약과 겹치거나 실험 운영일이 아닌
+            경우 요청이 거부될 수 있습니다.
+          </li>
+          <li>
+            참여 취소는 즉시 처리되며, 요청 접수 및 승인 결과는 안내 메일로
+            전달됩니다.
           </li>
         </ul>
       </aside>
