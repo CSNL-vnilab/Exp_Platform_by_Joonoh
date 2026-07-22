@@ -535,6 +535,13 @@ export function BookingsManager({
                                   onDone={() => router.refresh()}
                                 />
                               )}
+                              {(b.status === "completed" ||
+                                b.status === "no_show") && (
+                                <CancelBookingButton
+                                  bookingId={b.id}
+                                  onDone={() => router.refresh()}
+                                />
+                              )}
                               {(b.status === "confirmed" ||
                                 b.status === "running" ||
                                 b.status === "no_show") && (
@@ -648,6 +655,13 @@ export function BookingsManager({
                       </Button>
                       {(b.status === "confirmed" || b.status === "running") && (
                         <MarkNoShowButton
+                          bookingId={b.id}
+                          onDone={() => router.refresh()}
+                        />
+                      )}
+                      {(b.status === "completed" ||
+                        b.status === "no_show") && (
+                        <CancelBookingButton
                           bookingId={b.id}
                           onDone={() => router.refresh()}
                         />
@@ -894,6 +908,50 @@ function MarkNoShowButton({
   return (
     <Button size="sm" variant="secondary" onClick={run} loading={busy}>
       불참 처리
+    </Button>
+  );
+}
+
+// 취소로 변경 — flip a completed/no_show booking back to cancelled. The
+// backend now allows completed/no_show → cancelled (2026-07): a session that
+// the server auto-completed but was actually cancelled can be corrected any
+// time. On cancel the calendar event is deleted immediately, settlement is
+// recomputed, and a recruitment-auto-closed experiment reopens for re-booking.
+function CancelBookingButton({
+  bookingId,
+  onDone,
+}: {
+  bookingId: string;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    if (
+      !window.confirm(
+        "이 회차를 '취소'로 되돌립니다.\n캘린더 일정이 삭제되고 정산이 재산정됩니다. 계속할까요?",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/bookings/${bookingId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        alert(body.error || "처리 실패");
+        return;
+      }
+      onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Button size="sm" variant="secondary" onClick={run} loading={busy}>
+      취소로 변경
     </Button>
   );
 }
