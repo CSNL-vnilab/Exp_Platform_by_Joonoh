@@ -1445,6 +1445,12 @@ export interface Database {
         Args: { p_experiment_id: string };
         Returns: Json;
       };
+      // Migration 00085 — cancel ALL of an experiment's bookings + reopen it
+      // (재실험 준비). Returns cancelled_count + google_event_ids to delete.
+      cancel_experiment_and_reopen: {
+        Args: { p_experiment_id: string };
+        Returns: Json;
+      };
       rpc_ingest_block: {
         Args: {
           p_booking_id: string;

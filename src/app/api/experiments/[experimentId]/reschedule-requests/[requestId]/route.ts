@@ -7,8 +7,12 @@ import {
   runReschedulePipeline,
   renumberSessionsInGroup,
 } from "@/lib/services/booking.service";
-import { invalidateCalendarCache } from "@/lib/google/freebusy-cache";
-import { deleteEvent } from "@/lib/google/calendar";
+import {
+  invalidateCalendarCache,
+  excludeBookingOrphans,
+} from "@/lib/google/freebusy-cache";
+import { deleteEvent, getFreeBusy } from "@/lib/google/calendar";
+import { intervalsOverlap } from "@/lib/utils/date";
 import { buildRescheduleRejectedEmail } from "@/lib/services/booking-reschedule-email";
 import { sendEmail } from "@/lib/google/gmail";
 import type { createAdminClient } from "@/lib/supabase/admin";
@@ -282,6 +286,49 @@ export async function POST(
     const calendarId =
       (exp?.google_calendar_id || process.env.GOOGLE_CALENDAR_ID || "").trim() ||
       null;
+
+    // 3.5. GCal busy overlap check for the REQUESTED slot (best-effort). An
+    //   approved reschedule must never land on top of an existing calendar
+    //   event. Mirrors the researcher PATCH reschedule (bookings/[bookingId]):
+    //   skip any busy interval that coincides with THIS booking's own current
+    //   event (within 60s of the fresh slot_start/slot_end) — the participant
+    //   may be moving within a window near their own event, and re-approving
+    //   the same slot must not self-conflict. A fetch FAILURE is treated as
+    //   best-effort (log + proceed) so a transient Google outage never blocks
+    //   an otherwise-valid approval.
+    const newEnd = new Date(req.requested_slot_end);
+    if (calendarId) {
+      try {
+        const busy = await excludeBookingOrphans(
+          await getFreeBusy(calendarId, newStart, newEnd),
+        );
+        const conflict = busy.some((b) => {
+          if (
+            Math.abs(b.start.getTime() - new Date(booking.slot_start).getTime()) <
+              60_000 &&
+            Math.abs(b.end.getTime() - new Date(booking.slot_end).getTime()) <
+              60_000
+          ) {
+            return false;
+          }
+          return intervalsOverlap({ start: newStart, end: newEnd }, b);
+        });
+        if (conflict) {
+          return NextResponse.json(
+            {
+              error:
+                "요청하신 시간이 캘린더의 기존 일정과 겹칩니다. 다른 시간으로 다시 요청받거나 반려해 주세요.",
+            },
+            { status: 409 },
+          );
+        }
+      } catch (err) {
+        console.error(
+          "[RescheduleApproval approve] freebusy pre-check failed (best-effort, proceeding):",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     // 4. Pre-create the new GCal event so the DB update lands the id atomically.
     let newEventId: string | null = null;

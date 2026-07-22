@@ -120,6 +120,9 @@ export function ExperimentDetail({
   // --- 완전 삭제 ---
   const [deleting, setDeleting] = useState(false);
 
+  // --- 실험 전체 취소 & 재실험 준비 ---
+  const [reopening, setReopening] = useState(false);
+
   // --- 수동 블록 modal state ---
   const [blockModalOpen, setBlockModalOpen] = useState(false);
   const [blocks, setBlocks] = useState<ManualBlock[]>([]);
@@ -282,6 +285,36 @@ export function ExperimentDetail({
       const j = await res.json().catch(() => ({}));
       toast(j.error ?? "삭제 중 오류가 발생했습니다.", "error");
     }
+  }
+
+  // 실험 전체 취소 & 재실험 준비: cancel every booking (completed included),
+  // reopen for re-booking, delete freed calendar events.
+  async function handleCancelAndReopen() {
+    const confirmed = window.confirm(
+      "이 실험의 모든 예약(완료 포함)을 취소하고 실험을 다시 엽니다. 참여자는 다시 예약할 수 있게 되며, 캘린더 일정도 삭제됩니다. 되돌릴 수 없습니다. 계속할까요?",
+    );
+    if (!confirmed) return;
+
+    setReopening(true);
+    const res = await fetch(
+      `/api/experiments/${experiment.id}/cancel-and-reopen`,
+      { method: "POST" },
+    );
+    setReopening(false);
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast(j.error ?? "실험 취소 처리 중 오류가 발생했습니다.", "error");
+      return;
+    }
+
+    const j = await res.json().catch(() => ({}));
+    const cancelledCount = j.cancelledCount ?? 0;
+    toast(
+      `${cancelledCount}건의 예약을 취소하고 실험을 다시 열었습니다.`,
+      "success",
+    );
+    router.refresh();
   }
 
   // Task 2: 수동 블록 fetch
@@ -508,8 +541,17 @@ export function ExperimentDetail({
             </Button>
           )}
 
-          {/* 위험(danger): 비가역 삭제 — 구분선 + 간격으로 격리 */}
+          {/* 위험(danger): 비가역 액션 — 구분선 + 간격으로 격리 */}
           <span aria-hidden className="mx-1 hidden h-6 w-px bg-border sm:block" />
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={reopening}
+            disabled={reopening}
+            onClick={handleCancelAndReopen}
+          >
+            실험 전체 취소 &amp; 재실험 준비
+          </Button>
           <Button
             variant="danger"
             size="sm"

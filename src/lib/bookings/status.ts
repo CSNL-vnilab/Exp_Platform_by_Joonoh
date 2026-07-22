@@ -70,8 +70,12 @@ export const VALID_TRANSITIONS: Record<BookingStatus, readonly BookingStatus[]> 
   confirmed: ["cancelled", "completed", "no_show", "running"],
   running: ["cancelled", "completed", "no_show"],
   cancelled: [],
-  completed: [],
-  no_show: [],
+  // 완료·불참을 취소로 되돌릴 수 있다 (2026-07 user directive). 실험이 실제로는
+  // 취소됐는데 서버가 자동으로 완료 처리한 경우 등, 연구원이 언제든 정정할 수
+  // 있어야 함. 취소로 되돌리면 캘린더 일정이 즉시 삭제되고 정산이 재산정되며,
+  // 정원 자동마감된 실험은 재오픈되어 재예약이 가능해진다.
+  completed: ["cancelled"],
+  no_show: ["cancelled"],
 };
 
 /** 살아있는/참석 세션인가 (LIVE_STATUSES 멤버십). */
