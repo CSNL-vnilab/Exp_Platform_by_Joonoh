@@ -107,7 +107,7 @@ export default async function BookingEditPage({ params }: PageProps) {
   const { data: bookings } = await supabase
     .from("bookings")
     .select(
-      "id, slot_start, slot_end, session_number, status, experiment_id, participant_id, participants(name, email), experiments(title, session_duration_minutes, max_participants_per_slot, weekdays, experiment_mode)",
+      "id, slot_start, slot_end, session_number, status, experiment_id, participant_id, participants(name, email), experiments(title, session_duration_minutes, max_participants_per_slot, weekdays, experiment_mode, start_date, end_date)",
     )
     .eq("booking_group_id", verified.bookingGroupId)
     .order("session_number", { ascending: true });
@@ -131,6 +131,8 @@ export default async function BookingEditPage({ params }: PageProps) {
       max_participants_per_slot: number;
       weekdays: number[];
       experiment_mode: "offline" | "online" | "hybrid";
+      start_date: string;
+      end_date: string;
     } | null;
   };
 
@@ -150,8 +152,9 @@ export default async function BookingEditPage({ params }: PageProps) {
 
   const participantName = first.participants.name;
   const experimentTitle = first.experiments.title;
-  const sessionDuration = first.experiments.session_duration_minutes;
-  const weekdays = first.experiments.weekdays;
+  const experimentId = first.experiment_id;
+  const startDate = first.experiments.start_date;
+  const endDate = first.experiments.end_date;
 
   // Shared with the API gates and the edit-link emails — one constant so the
   // displayed and enforced cutoffs never drift.
@@ -185,8 +188,9 @@ export default async function BookingEditPage({ params }: PageProps) {
       <BookingEditForm
         token={token}
         rows={formRows}
-        sessionDurationMinutes={sessionDuration}
-        weekdays={weekdays}
+        experimentId={experimentId}
+        startDate={startDate}
+        endDate={endDate}
         editCutoffHours={editCutoffHours}
       />
 

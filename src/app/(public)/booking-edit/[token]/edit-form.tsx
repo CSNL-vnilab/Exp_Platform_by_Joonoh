@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import {
+  WeekTimetable,
+  type SerializedSlot,
+} from "@/components/booking/week-timetable";
 
 interface FormRow {
   id: string;
@@ -15,40 +19,10 @@ interface FormRow {
 interface Props {
   token: string;
   rows: FormRow[];
-  sessionDurationMinutes: number;
-  weekdays: number[]; // 0..6 (Sun..Sat), KST
+  experimentId: string;
+  startDate: string; // YYYY-MM-DD (KST)
+  endDate: string; // YYYY-MM-DD (KST)
   editCutoffHours: number;
-}
-
-// Pads a 2-digit zero-prefixed number.
-function pad2(n: number): string {
-  return n < 10 ? `0${n}` : String(n);
-}
-
-// Renders an ISO timestamp as the value `<input type="datetime-local">`
-// expects: `YYYY-MM-DDTHH:mm` in the user's LOCAL timezone (the browser
-// interprets datetime-local as local time, not UTC). We display values
-// in KST since the lab operates there; users in other zones will see
-// times that "look wrong" but the booking pipeline normalizes.
-function isoToLocalInput(iso: string): string {
-  const d = new Date(iso);
-  // Render in KST regardless of the user's locale — the picker should
-  // mirror what the original booking page used. KST = UTC+9.
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  return `${kst.getUTCFullYear()}-${pad2(kst.getUTCMonth() + 1)}-${pad2(kst.getUTCDate())}T${pad2(kst.getUTCHours())}:${pad2(kst.getUTCMinutes())}`;
-}
-
-// Converts the datetime-local input value (which the browser treats as
-// local time in the user's TZ — we assume KST per the booking flow) into
-// a UTC ISO string for the API.
-function localInputToKstIso(value: string): string {
-  // value shape: "YYYY-MM-DDTHH:mm"
-  const [datePart, timePart] = value.split("T");
-  const [y, m, d] = datePart.split("-").map(Number);
-  const [hh, mm] = timePart.split(":").map(Number);
-  // Treat as KST → UTC.
-  const utcMs = Date.UTC(y, m - 1, d, hh - 9, mm, 0);
-  return new Date(utcMs).toISOString();
 }
 
 // A participant may REQUEST a reschedule for a confirmed, no-showed, or
@@ -66,18 +40,33 @@ function isEditable(row: FormRow): boolean {
   );
 }
 
-const weekdayLabelKR = ["일", "월", "화", "수", "목", "금", "토"];
+// Renders a picked slot as "8/5 (화) 14:00–15:00" in KST for the confirm line.
+const slotDateFmt = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul",
+  month: "numeric",
+  day: "numeric",
+  weekday: "short",
+});
+const slotTimeFmt = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+function formatSlotLabel(slot: SerializedSlot): string {
+  const d = slotDateFmt.format(new Date(slot.slot_start));
+  const t1 = slotTimeFmt.format(new Date(slot.slot_start));
+  const t2 = slotTimeFmt.format(new Date(slot.slot_end));
+  return `${d} ${t1}–${t2}`;
+}
 
 export function BookingEditForm(props: Props) {
-  const { token, rows, sessionDurationMinutes, weekdays, editCutoffHours } =
+  const { token, rows, experimentId, startDate, endDate, editCutoffHours } =
     props;
-  const allowedWeekdaysLabel = weekdays
-    .map((w) => weekdayLabelKR[w])
-    .join(", ");
 
   const [list, setList] = useState<FormRow[]>(rows);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draftStart, setDraftStart] = useState<string>("");
+  const [draftSlot, setDraftSlot] = useState<SerializedSlot | null>(null);
   const [draftReason, setDraftReason] = useState<string>("");
   const [busy, setBusy] = useState<string | null>(null); // booking id currently submitting
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +93,7 @@ export function BookingEditForm(props: Props) {
 
   function startEdit(row: FormRow) {
     setEditingId(row.id);
-    setDraftStart(isoToLocalInput(row.slot_start));
+    setDraftSlot(null);
     setDraftReason("");
     setError(null);
     setInfo(null);
@@ -112,18 +101,17 @@ export function BookingEditForm(props: Props) {
 
   function cancelEdit() {
     setEditingId(null);
-    setDraftStart("");
+    setDraftSlot(null);
     setDraftReason("");
   }
 
   async function submitReschedule(row: FormRow) {
-    if (!draftStart) {
-      setError("새 시작 시간을 선택해 주세요.");
+    if (!draftSlot) {
+      setError("새 시간을 선택해 주세요.");
       return;
     }
-    const startIso = localInputToKstIso(draftStart);
-    const endMs = new Date(startIso).getTime() + sessionDurationMinutes * 60 * 1000;
-    const endIso = new Date(endMs).toISOString();
+    const startIso = draftSlot.slot_start;
+    const endIso = draftSlot.slot_end;
 
     const reason = draftReason.trim();
 
@@ -160,7 +148,7 @@ export function BookingEditForm(props: Props) {
           "일정 변경 요청이 접수되었습니다. 실험자 승인 후 반영됩니다.",
       );
       setEditingId(null);
-      setDraftStart("");
+      setDraftSlot(null);
       setDraftReason("");
     } catch {
       setError("네트워크 오류로 일정 변경 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
@@ -283,21 +271,41 @@ export function BookingEditForm(props: Props) {
 
               {isEditing && (
                 <div className="mt-3 border-t pt-3">
-                  <label className="block text-xs font-medium text-neutral-700">
-                    희망 시작 시간 (KST)
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={draftStart}
-                    onChange={(e) => setDraftStart(e.target.value)}
-                    disabled={isBusy}
-                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                  <p className="mt-1 text-2xs text-neutral-500">
-                    실험 운영 요일: {allowedWeekdaysLabel} · 회차 길이{" "}
-                    {sessionDurationMinutes}분 (종료 시간은 자동 계산됩니다) ·
-                    지금부터 {editCutoffHours}시간 이후의 시간을 선택해 주세요
+                  <p className="text-xs font-medium text-neutral-700">
+                    새 시간 선택
                   </p>
+                  <p className="mt-0.5 text-2xs text-neutral-500">
+                    아래 <b className="text-green-700">예약 가능</b>(초록)
+                    시간대만 선택할 수 있습니다. 지금부터 {editCutoffHours}시간
+                    이내이거나 이미 찬 시간은 표시되지 않거나 선택되지 않습니다.
+                  </p>
+
+                  <div className="mt-3">
+                    <WeekTimetable
+                      experimentId={experimentId}
+                      experiment={{ start_date: startDate, end_date: endDate }}
+                      slotsUrl={`/api/booking-edit/${token}/slots?exclude=${row.id}`}
+                      disableRealtime
+                      singleSelect
+                      selectedSlots={draftSlot ? [draftSlot] : []}
+                      onChange={(slots) => setDraftSlot(slots[0] ?? null)}
+                    />
+                  </div>
+
+                  <div className="mt-3 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
+                    {draftSlot ? (
+                      <span>
+                        선택한 새 시간:{" "}
+                        <b className="text-blue-700">
+                          {formatSlotLabel(draftSlot)}
+                        </b>
+                      </span>
+                    ) : (
+                      <span className="text-neutral-500">
+                        위 시간표에서 원하는 시간을 선택해 주세요.
+                      </span>
+                    )}
+                  </div>
 
                   <label className="mt-3 block text-xs font-medium text-neutral-700">
                     사유 (선택)
@@ -320,7 +328,7 @@ export function BookingEditForm(props: Props) {
                     <button
                       type="button"
                       onClick={() => submitReschedule(row)}
-                      disabled={isBusy || !draftStart}
+                      disabled={isBusy || !draftSlot}
                       className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                     >
                       {isBusy ? "요청 중..." : "요청 보내기"}

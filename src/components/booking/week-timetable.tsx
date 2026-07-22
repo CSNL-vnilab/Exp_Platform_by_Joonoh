@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/toast";
-import type { Experiment } from "@/types/database";
 
 export interface SerializedSlot {
   slot_start: string;
@@ -21,11 +20,41 @@ interface RangeSlot {
   capacity: number;
 }
 
+// Structural subset of the fields this grid reads off an experiment. Kept
+// narrow (not the full `Experiment`) so surfaces that don't have a full
+// experiment row — e.g. the token-gated booking-edit reschedule picker —
+// can drive the grid by passing just start/end. A full `Experiment`
+// satisfies this structurally, so the public booking flow is unaffected.
+interface TimetableExperiment {
+  start_date: string;
+  end_date: string;
+  session_type?: string | null;
+  required_sessions?: number | null;
+}
+
 interface WeekTimetableProps {
   experimentId: string;
-  experiment: Experiment;
+  experiment: TimetableExperiment;
   selectedSlots: SerializedSlot[];
   onChange: (slots: SerializedSlot[]) => void;
+  /**
+   * Override the slot-range fetch URL. Defaults to the public
+   * `/api/experiments/[id]/slots/range`. The booking-edit reschedule picker
+   * passes its token-scoped endpoint here.
+   */
+  slotsUrl?: string;
+  /**
+   * Skip the Supabase realtime subscription. The booking-edit surface is
+   * anon + cookie-gated and can't read `bookings` over realtime RLS, so the
+   * subscription would be a no-op that only risks errors. Defaults to false.
+   */
+  disableRealtime?: boolean;
+  /**
+   * Force single-slot selection regardless of `experiment.session_type`, and
+   * make a click on a new available slot REPLACE the current pick (natural
+   * for choosing one reschedule time). Defaults to false.
+   */
+  singleSelect?: boolean;
 }
 
 const KST = "Asia/Seoul";
@@ -114,6 +143,9 @@ export function WeekTimetable({
   experiment,
   selectedSlots,
   onChange,
+  slotsUrl,
+  disableRealtime = false,
+  singleSelect = false,
 }: WeekTimetableProps) {
   const { toast } = useToast();
   const [slots, setSlots] = useState<RangeSlot[]>([]);
@@ -125,9 +157,9 @@ export function WeekTimetable({
     selectedRef.current = selectedSlots;
   }, [selectedSlots]);
 
-  const requiredSessions =
-    experiment.session_type === "multi" ? experiment.required_sessions : 1;
-  const enforceUniqueDate = experiment.session_type === "multi";
+  const isMulti = !singleSelect && experiment.session_type === "multi";
+  const requiredSessions = isMulti ? experiment.required_sessions ?? 1 : 1;
+  const enforceUniqueDate = isMulti;
 
   const fetchRange = useCallback(async (opts: { force?: boolean } = {}) => {
     setLoading(true);
@@ -139,10 +171,11 @@ export function WeekTimetable({
       // long-running experiments. The server applies its own clamp +
       // default, so we omit from/to and let it pick max(today, start) ⇢
       // min(end, today+window).
-      const qs = opts.force ? "?fresh=1" : "";
-      const res = await fetch(
-        `/api/experiments/${experimentId}/slots/range${qs}`,
-      );
+      const base = slotsUrl ?? `/api/experiments/${experimentId}/slots/range`;
+      const url = opts.force
+        ? `${base}${base.includes("?") ? "&" : "?"}fresh=1`
+        : base;
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "슬롯 조회 실패");
@@ -158,15 +191,41 @@ export function WeekTimetable({
     } finally {
       setLoading(false);
     }
-  }, [experimentId]);
+  }, [experimentId, slotsUrl]);
 
   useEffect(() => {
     fetchRange();
   }, [fetchRange]);
 
-  // Live update: if another participant books/cancels, refresh and prune
-  // stale selections.
+  // Whenever the slot list changes (initial load, manual 새로고침, or a
+  // realtime refetch), prune any current selection whose slot is no longer
+  // available. Reading the FRESH `slots` state (not a subscription closure)
+  // fixes the stale-closure that let a just-taken slot survive, and it also
+  // covers the manual-refresh path on surfaces where realtime is disabled
+  // (the booking-edit reschedule picker). onChange/toast are intentionally
+  // omitted from deps — onChange is an inline callback on some callers and
+  // listing it would refetch/prune on every render.
   useEffect(() => {
+    if (slots.length === 0) return;
+    const available = new Set(
+      slots.filter((s) => s.status === "available").map((s) => s.slot_start),
+    );
+    const current = selectedRef.current;
+    const kept = current.filter((s) => available.has(s.slot_start));
+    if (kept.length < current.length) {
+      toast("선택하신 시간대가 방금 마감되었습니다. 다시 선택해 주세요.", "error");
+      onChange(kept);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots]);
+
+  // Live update: if another participant books/cancels, refetch (the prune
+  // effect above reconciles selections). Skipped when disableRealtime — the
+  // booking-edit surface is anon + cookie-gated and can't read `bookings`
+  // over realtime RLS, so the channel would never fire and only risks a
+  // subscription error.
+  useEffect(() => {
+    if (disableRealtime) return;
     const supabase = createClient();
     const channel = supabase
       .channel(`timetable-${experimentId}`)
@@ -179,20 +238,7 @@ export function WeekTimetable({
           filter: `experiment_id=eq.${experimentId}`,
         },
         () => {
-          fetchRange().then(() => {
-            // prune selections whose slot is no longer available
-            const available = new Set(
-              slots
-                .filter((s) => s.status === "available")
-                .map((s) => s.slot_start),
-            );
-            const current = selectedRef.current;
-            const pruned = current.filter((s) => available.has(s.slot_start));
-            if (pruned.length < current.length) {
-              toast("선택하신 시간대가 방금 예약되었습니다. 다시 선택해 주세요.", "error");
-              onChange(pruned);
-            }
-          });
+          void fetchRange();
         },
       )
       .subscribe();
@@ -200,8 +246,7 @@ export function WeekTimetable({
     return () => {
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [experimentId, fetchRange]);
+  }, [experimentId, fetchRange, disableRealtime]);
 
   // Build week blocks
   const { weeks, timeRows, timeEndByStart } = useMemo(() => {
@@ -273,6 +318,15 @@ export function WeekTimetable({
       return;
     }
 
+    // Single-select (reschedule picker): a click on a new available slot
+    // REPLACES the current pick rather than erroring on the cap.
+    if (singleSelect) {
+      onChange([
+        { slot_start: slot.slot_start, slot_end: slot.slot_end, session_number: 1 },
+      ]);
+      return;
+    }
+
     if (selectedSlots.length >= requiredSessions) {
       toast(`최대 ${requiredSessions}개까지만 선택할 수 있습니다.`, "error");
       return;
@@ -295,6 +349,11 @@ export function WeekTimetable({
       .map((s, i) => ({ ...s, session_number: i + 1 }));
     onChange(next);
   }
+
+  // Grey out days before today (KST) — the server never returns past-week
+  // slots, but a mid-week render still scaffolds the current week Mon→Sun, so
+  // yesterday's date would otherwise show a normal label with empty cells.
+  const todayKey = kstDateKey(new Date().toISOString());
 
   if (loading) {
     return (
@@ -327,7 +386,7 @@ export function WeekTimetable({
           <LegendSwatch className="bg-green-100 border-green-300" label="예약 가능" />
           <LegendSwatch className="bg-primary border-primary text-white" label="내가 선택" />
           <LegendSwatch className="bg-red-100 border-red-300 text-red-700" label="불가" />
-          <LegendSwatch className="bg-neutral-100 border-neutral-300 text-muted" label="마감" />
+          <LegendSwatch className="bg-neutral-200 border-neutral-300 text-muted" label="마감" />
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -342,7 +401,7 @@ export function WeekTimetable({
             </svg>
             새로고침
           </button>
-          {experiment.session_type === "multi" && (
+          {isMulti && (
             <div className="text-sm font-medium text-foreground">
               {selectedSlots.length} / {requiredSessions} 선택됨
             </div>
@@ -374,7 +433,7 @@ export function WeekTimetable({
               return (
                 <div
                   key={t}
-                  className="flex h-10 items-center justify-center border-b border-border px-2 text-[11px] tabular-nums text-muted"
+                  className="flex h-11 items-center justify-center border-b border-border px-2 text-[11px] tabular-nums text-muted sm:h-10"
                 >
                   {end ? `${t}~${end}` : t}
                 </div>
@@ -386,14 +445,16 @@ export function WeekTimetable({
           {weeks.map((week) => (
             <div key={week.weekKey} className="flex flex-col border-r border-border last:border-r-0">
               {/* Date row */}
-              <div className="grid grid-cols-7 border-b border-border bg-card">
+              <div className="grid grid-cols-7 bg-card">
                 {week.days.map((day) => {
                   const outOfRange =
-                    day.dateKey < experiment.start_date || day.dateKey > experiment.end_date;
+                    day.dateKey < experiment.start_date ||
+                    day.dateKey > experiment.end_date ||
+                    day.dateKey < todayKey;
                   return (
                     <div
                       key={`date-${day.dateKey}`}
-                      className={`flex h-8 items-center justify-center border-r border-border px-1 text-xs font-semibold last:border-r-0 ${outOfRange ? "bg-neutral-50 text-muted/40" : "text-foreground"}`}
+                      className={`flex h-8 items-center justify-center border-b border-r border-border px-1 text-xs font-semibold last:border-r-0 ${outOfRange ? "bg-neutral-50 text-muted/40" : "text-foreground"}`}
                     >
                       {day.dateLabel}
                     </div>
@@ -401,10 +462,12 @@ export function WeekTimetable({
                 })}
               </div>
               {/* Weekday row */}
-              <div className="grid grid-cols-7 border-b border-border bg-card">
+              <div className="grid grid-cols-7 bg-card">
                 {week.days.map((day) => {
                   const outOfRange =
-                    day.dateKey < experiment.start_date || day.dateKey > experiment.end_date;
+                    day.dateKey < experiment.start_date ||
+                    day.dateKey > experiment.end_date ||
+                    day.dateKey < todayKey;
                   const dow = kstDayOfWeek(`${day.dateKey}T09:00:00+09:00`);
                   const weekdayColor = outOfRange
                     ? "text-muted/40"
@@ -416,7 +479,7 @@ export function WeekTimetable({
                   return (
                     <div
                       key={`wd-${day.dateKey}`}
-                      className={`flex h-6 items-center justify-center border-r border-border px-1 text-[11px] last:border-r-0 ${outOfRange ? "bg-neutral-50" : ""} ${weekdayColor}`}
+                      className={`flex h-6 items-center justify-center border-b border-r border-border px-1 text-[11px] last:border-r-0 ${outOfRange ? "bg-neutral-50" : ""} ${weekdayColor}`}
                     >
                       {day.weekdayLabel}
                     </div>
@@ -424,16 +487,18 @@ export function WeekTimetable({
                 })}
               </div>
               {timeRows.map((t) => (
-                <div key={t} className="grid grid-cols-7 border-b border-border">
+                <div key={t} className="grid grid-cols-7">
                   {week.days.map((day) => {
                     const slot = day.slotsByTime.get(t);
                     const outOfRange =
-                      day.dateKey < experiment.start_date || day.dateKey > experiment.end_date;
+                      day.dateKey < experiment.start_date ||
+                      day.dateKey > experiment.end_date ||
+                      day.dateKey < todayKey;
                     if (!slot || outOfRange) {
                       return (
                         <div
                           key={`${day.dateKey}-${t}`}
-                          className="h-10 border-r border-border bg-neutral-50 last:border-r-0"
+                          className="h-11 border-b border-r border-border bg-neutral-50 last:border-r-0 sm:h-10"
                         />
                       );
                     }
@@ -445,7 +510,7 @@ export function WeekTimetable({
                       selectedDates.has(kstDateKey(slot.slot_start));
 
                     const base =
-                      "h-10 border-r border-border last:border-r-0 px-1 text-[11px] font-medium transition-colors cursor-pointer disabled:cursor-not-allowed";
+                      "flex h-11 items-center justify-center whitespace-nowrap border-b border-r border-border last:border-r-0 px-1 text-[11px] font-medium transition-colors cursor-pointer disabled:cursor-not-allowed sm:h-10";
 
                     let cls = "";
                     let cellLabel: string | null = null;

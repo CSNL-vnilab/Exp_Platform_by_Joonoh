@@ -198,13 +198,16 @@ export async function GET(
       "연동된 캘린더가 설정되지 않았습니다. 실험 설정에서 Google Calendar를 연결하세요.";
   }
 
-  // Merge in researcher-declared manual blocks for this experiment
+  // Merge in researcher-declared manual blocks for this experiment. Overlap
+  // semantics (not containment): a block that STARTS before the window or
+  // ENDS after it still overlaps slots inside the window — a straddling/
+  // overnight block would otherwise be dropped and its slots shown available.
   const { data: manualBlocks } = await supabase
     .from("experiment_manual_blocks")
     .select("block_start, block_end")
     .eq("experiment_id", experimentId)
-    .gte("block_start", rangeStartUTC)
-    .lte("block_end", rangeEndUTC);
+    .lt("block_start", rangeEndUTC)
+    .gt("block_end", rangeStartUTC);
   for (const b of manualBlocks ?? []) {
     busyIntervals.push({ start: new Date(b.block_start), end: new Date(b.block_end) });
   }
