@@ -123,9 +123,27 @@ VerifyCompletionModal(bookings-manager) + payment 이메일 모달이 `<dialog>`
 프리미티브(Esc·focus-in-top-layer·라벨드 close) 대신 수제 오버레이 재구현. 통일 시 폴리시 +
 모달 키보드/AT 동작 개선.
 
-### 7.3 모바일 슬롯 터치타겟 ≥44px — 효과 中, M
-week-timetable 슬롯 셀 h-10(40px)로 WCAG 2.5.8 권장(44px) 미만. 모바일 예약 정확도. 캘린더
-그리드 밀도에 영향 → 스코프 신중.
+### 7.3 모바일 슬롯 터치타겟 ≥44px — ✅ 2026-07-22 반영
+week-timetable 슬롯/시간셀을 `h-11 sm:h-10`(모바일 44px, 데스크톱 40px 밀도 유지)으로.
+공개 예약 + 재예약 그리드 공용.
+
+### 7.4 재예약 그리드 online/hybrid 모드 대응 — 효과 中, S/M
+booking-edit 재예약 피커(2026-07-22 추가)는 물리 시간 주간 그리드다. `experiment_mode`가
+online/pure-remote인 실험도 동일 그리드를 렌더 → 원격 세션인데 in-lab 슬롯을 고르는 셈.
+현재는 시간 기반이라 크래시/오작동은 아니고 기존 datetime-local 대비 회귀도 아니지만(둘 다
+시간 선택), 모드별 카피/캘린더 시맨틱을 다듬을 여지. page.tsx에서 `experiment_mode`를
+BookingEditForm에 넘겨 online은 모드 적합 안내로 분기. (리뷰 LOW)
+
+### 7.5 재예약 그리드 데스크톱 폭 — 효과 低, S
+단일 주차만 남는 재예약(카드 내부, ~608px 콘텐츠)에서 그리드가 intrinsic ~413px로 좌측
+정렬돼 우측 여백이 큼. `sm:justify-center`가 가장 단순하나 다주차 overflow 시 좌측이
+스크롤 불가로 잘릴 위험이 있어(justify-center + overflow) 공개 플로우 회귀 검증 후 진행.
+(리뷰 LOW — 미적)
+
+### 7.6 스크롤 힌트 일관성 — 효과 低, S
+week-timetable 모바일에서 "← 좌우로 밀어" 텍스트 힌트는 `weeks.length > 1`에만, 우측 그라디언트는
+항상 노출 → 단일 주차 모바일에서 둘이 불일치. 힌트 게이트를 그라디언트와 일치시키거나 단일
+주차 그라디언트-only를 의도로 문서화. (리뷰 LOW — 미적)
 
 ---
 
