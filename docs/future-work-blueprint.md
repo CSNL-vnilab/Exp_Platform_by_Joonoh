@@ -209,6 +209,47 @@ week-timetable 모바일에서 "← 좌우로 밀어" 텍스트 힌트는 `weeks
 
 ---
 
+## 11. 크로스스택 감사 2라운드 잔여 (2026-07-24, 후속 배포 대상 — 전부 코드레벨)
+
+> 온라인런타임·완료·이메일·익스포트 5차원 감사, 21건 확인. CRITICAL/HIGH 보안
+> 4건(`e454d65`)·폼 UX 3건(`e4256c5`) 배포됨. 아래는 후속 커밋 대상(전부 코드,
+> 마이그레이션 불필요 — needsProdApply 플래그는 에이전트 과다부여).
+
+### HIGH
+- **실험참여자비 개별양식 활용비 총액(L19)이 항상 ₩0** — `src/lib/payments/template-filler.ts`
+  L331 뒤에 총합 formula 캐시 갱신 추가: `xml = updateFormulaCacheValue(xml,"L19",data.amountKrw);`
+  + 영문측 `AE19 = amountKrw + 40`(Y19/Z19/AB19/AD19 템플릿 기본 10 미리셋 반영). K10/AD10 패턴과 동일.
+- **업로드양식 직접 다운로드가 8명+ 이면 500** — `payment-export/upload-form` route가
+  `buildUploadFormWorkbook`(단일) 사용. `buildUploadFormWorkbooks`(청킹)로 교체 + 다중 시 JSZip
+  (claim-bundle.ts 패턴). 8명 초과 실험 다운로드 불가.
+- **attention-check position이 블록수 하향 시 desync** — `experiment-form.tsx` 블록수 onChange에
+  `after_block:N >= newCount` 체크 클램프 추가. 스케줄 불가 위치가 조용히 남음.
+- **온라인/하이브리드 예약 재조정 시 run 토큰 재발급 안 됨** — `booking.service.ts`
+  runReschedulePipeline에서 mode!=='offline'이면 issueRunToken + experiment_run_progress upsert +
+  새 `/run/{id}?t=` URL을 buildRescheduleEmail에 스레드. 14일+ 이동 시 링크 죽음.
+- **run-token 폐기가 dead control** — token_revoked_at를 5곳이 read하나 non-null writer 부재
+  (reissue는 null만 씀). 오너/admin POST `.../revoke-token` 라우트 추가(reissue 게이트 미러).
+  탈취/오배포 run 링크를 죽일 수 없음. (블루프린트 §8 온라인 P2와 연결.)
+
+### MEDIUM
+- **reissue-token이 verify_attempts/verify_locked_until 미초기화** — 재발급해도 429 락 유지.
+  upsert에 `verify_attempts:0, verify_locked_until:null` 추가. (완료코드 리셋은 명시적 intent 뒤로.)
+- **예약확정 메일 제목에 회차/날짜 구분자 없음 → Gmail 스레딩 붕괴("...")** —
+  `booking-email-template.ts:273` 제목에 `(${formatMonthDayKR(rows[0].slot_start)})` 추가(형제 템플릿과 동일).
+- **재조정 요청/초대 메일 제목도 동일 스레딩 문제** — `booking-reschedule-request-email.ts:51` +
+  `reschedule-invite-email.ts`에 per-event 구분자 추가.
+- **지급신청서 docx: 정액 10,000원 + 비정수 시간(1.5h)일 때 '실험시간'↔'연구참여비' 셀 값 뒤바뀜** —
+  `template-filler.ts:782-790` amount replace를 duration보다 먼저(또는 '만' 유닛 노드 앵커).
+
+### LOW
+- multi session_type가 required_sessions=1 허용(cross-field refine 부재) — `validation.ts` + edit path.
+- promo BCC/audit가 이메일 미중복제거 → 중복 모집메일 + 카운트 이중. lowercased dedup.
+- reschedule-invite/request가 spoofable Host origin으로 링크 생성 → `getAppOriginOrNull()` 사용.
+- booking-edit 토큰 폐기 surface 부재(60일 유효) — group별 token_version 버저닝.
+- reissue-token이 run row 없을 때 fabricate → 사전존재 확인 후 없으면 404.
+
+---
+
 ## 우선순위 요약
 - **Quick wins (S, 저위험)**: 1.2 큐 알림 배선, 1.3 부분예약 정합성, 4.2 add-to-calendar.
 - **High-value (검증 필요)**: 1.1 Sentry, 2.1 상태감사, 3.1 waitlist, 3.2 노쇼정책,
