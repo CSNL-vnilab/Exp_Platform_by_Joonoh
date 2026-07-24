@@ -269,6 +269,23 @@ export async function PUT(
         );
       }
     }
+    // Collapse survivors to 1..N when a session is cancelled/no_showed from the
+    // admin UI (mirrors the participant cancel route + the reschedule-apply
+    // paths). Best-effort + idempotent — renumberSessionsInGroup only touches
+    // live rows and skips those already correctly numbered.
+    if (
+      (status === "cancelled" || status === "no_show") &&
+      booking.booking_group_id
+    ) {
+      try {
+        await renumberSessionsInGroup(booking.booking_group_id);
+      } catch (err) {
+        console.error(
+          "[BookingPUT] renumberSessionsInGroup failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
     if (paymentInfoGroupId) {
       try {
         const result = await notifyPaymentInfoIfReady(

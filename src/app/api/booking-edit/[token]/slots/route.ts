@@ -14,7 +14,6 @@ import {
   type BusyInterval,
 } from "@/lib/utils/slots";
 import { getCachedFreeBusy } from "@/lib/google/freebusy-cache";
-import { isValidUUID } from "@/lib/utils/validation";
 import { parseTimeOnDate } from "@/lib/utils/date";
 import { BOOKING_EDIT_CUTOFF_HOURS } from "@/lib/utils/constants";
 
@@ -162,25 +161,25 @@ export async function GET(
   const experimentId = group.experiment_id;
   const exp = group.experiments;
 
-  // 4. Optional self-exclusion: the booking being rescheduled. Validated to
-  //    belong to this group before use so a participant can't drop someone
-  //    else's booking from the capacity count.
-  const excludeParam = request.nextUrl.searchParams.get("exclude");
-  let excludeBookingId: string | null = null;
-  if (excludeParam && isValidUUID(excludeParam)) {
-    const { data: own } = await admin
-      .from("bookings")
-      .select("id, experiment_id")
-      .eq("id", excludeParam)
-      .eq("booking_group_id", verified.bookingGroupId)
-      .maybeSingle();
-    // Belongs to the group AND to this experiment before we let it drop a row
-    // from the experiment-scoped capacity count (makes the one-group-per-
-    // experiment invariant load-bearing-explicit rather than incidental).
-    if (own && (own as { experiment_id: string }).experiment_id === experimentId) {
-      excludeBookingId = excludeParam;
-    }
-  }
+  // 4. Self-exclusion of the participant's OWN group sessions. At
+  //    max_participants_per_slot=1, a participant rescheduling one session
+  //    would otherwise see every OTHER own confirmed session (and its
+  //    calendar event) as 마감/✕, leaving almost no green cells — so a
+  //    confirmed session looks un-reschedulable. Drop the whole group from
+  //    BOTH the capacity set and the calendar-busy set. This only widens the
+  //    ADVISORY picker; book_slot / apply_reschedule_request remain the
+  //    authoritative double-book gate. (The ?exclude= param is now a no-op.)
+  const { data: ownRows } = await admin
+    .from("bookings")
+    .select("id, google_event_id")
+    .eq("booking_group_id", verified.bookingGroupId)
+    .eq("experiment_id", experimentId);
+  const ownIds = new Set((ownRows ?? []).map((r) => (r as { id: string }).id));
+  const ownEventIds = new Set(
+    (ownRows ?? [])
+      .map((r) => (r as { google_event_id: string | null }).google_event_id)
+      .filter((x): x is string => !!x),
+  );
 
   // 5. Window: anchor at today (KST), never before start_date; default 60-day
   //    window, hard cap 90. Past weeks are never fetched.
@@ -237,19 +236,15 @@ export async function GET(
   const rangeStartUTC = parseTimeOnDate(clampedFrom, "00:00").toISOString();
   const rangeEndUTC = parseTimeOnDate(clampedTo, "23:59").toISOString();
 
-  // 6. Confirmed bookings for capacity — self-excluded so the participant's
-  //    own current slot doesn't count as taken.
-  let bookingsQuery = admin
+  // 6. Confirmed bookings for capacity — the participant's OWN group sessions
+  //    are dropped (see step 4) so they never block their own reschedule view.
+  const { data: bookings, error: bookingsError } = await admin
     .from("bookings")
-    .select("slot_start, slot_end")
+    .select("id, slot_start, slot_end")
     .eq("experiment_id", experimentId)
     .eq("status", "confirmed")
     .gte("slot_start", rangeStartUTC)
     .lte("slot_start", rangeEndUTC);
-  if (excludeBookingId) {
-    bookingsQuery = bookingsQuery.neq("id", excludeBookingId);
-  }
-  const { data: bookings, error: bookingsError } = await bookingsQuery;
 
   if (bookingsError) {
     return NextResponse.json(
@@ -258,10 +253,12 @@ export async function GET(
     );
   }
 
-  const bookedIntervals = (bookings ?? []).map((b) => ({
-    start: new Date(b.slot_start),
-    end: new Date(b.slot_end),
-  }));
+  const bookedIntervals = (bookings ?? [])
+    .filter((b) => !ownIds.has((b as { id: string }).id))
+    .map((b) => ({
+      start: new Date(b.slot_start),
+      end: new Date(b.slot_end),
+    }));
 
   // 7. Google Calendar free/busy (best-effort) + researcher manual blocks.
   let busyIntervals: BusyInterval[] = [];
@@ -285,6 +282,17 @@ export async function GET(
   } else {
     calendarWarning =
       "연동된 캘린더가 설정되지 않아 캘린더 겹침이 반영되지 않을 수 있습니다.";
+  }
+
+  // Drop the participant's OWN group calendar events from the busy set —
+  // excludeBookingOrphans keeps confirmed events as busy, so without this a
+  // participant's own sessions paint '✕' over the very cells they may want.
+  // (Events from the freebusy.query fallback carry id:null and are kept, the
+  // same pre-existing limitation as excludeBookingOrphans.)
+  if (ownEventIds.size > 0) {
+    busyIntervals = busyIntervals.filter(
+      (i) => !i.id || !ownEventIds.has(i.id),
+    );
   }
 
   // Overlap semantics (not containment): a block that STARTS before the

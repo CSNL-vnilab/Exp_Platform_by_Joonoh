@@ -6,6 +6,7 @@ import { notifyBookingStatusChange } from "@/lib/services/booking-status-notify.
 import { notifyPaymentInfoIfReady } from "@/lib/services/payment-info-notify.service";
 import { scrubPii } from "@/lib/observability/pii";
 import { requireBookingEditAccess } from "@/lib/booking-edit/access";
+import { renumberSessionsInGroup } from "@/lib/services/booking.service";
 import { BOOKING_EDIT_CUTOFF_HOURS } from "@/lib/utils/constants";
 
 // Participant-facing cancellation. Mirrors admin PUT
@@ -65,6 +66,21 @@ export async function POST(
       { error: "취소 처리 중 오류가 발생했습니다" },
       { status: 500 },
     );
+  }
+
+  // Collapse the surviving LIVE sessions to 1..N so a cancelled early session
+  // doesn't leave a gap (e.g. cancel 1&2 → old 3,4,5 become 1,2,3). Best-effort
+  // + idempotent; matches the reschedule-apply paths. Runs before the payment
+  // recompute below so it sees the corrected numbering.
+  if (booking.booking_group_id) {
+    try {
+      await renumberSessionsInGroup(booking.booking_group_id);
+    } catch (err) {
+      console.error(
+        "[ParticipantCancel] renumberSessionsInGroup failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   // Clean up GCal event (best-effort — never roll back the cancel for a

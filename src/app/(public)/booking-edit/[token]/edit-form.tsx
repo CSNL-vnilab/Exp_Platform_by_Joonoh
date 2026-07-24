@@ -66,8 +66,12 @@ export function BookingEditForm(props: Props) {
 
   const [list, setList] = useState<FormRow[]>(rows);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draftSlot, setDraftSlot] = useState<SerializedSlot | null>(null);
-  const [draftReason, setDraftReason] = useState<string>("");
+  // Per-ROW drafts (keyed by booking id) — NOT a single shared value.
+  // A single shared draft meant opening a second session's picker wiped the
+  // first session's in-progress pick (and left the submit button disabled).
+  // Keying by row.id lets each session hold its own new-time + reason.
+  const [draftByRow, setDraftByRow] = useState<Record<string, SerializedSlot | null>>({});
+  const [reasonByRow, setReasonByRow] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null); // booking id currently submitting
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -92,28 +96,32 @@ export function BookingEditForm(props: Props) {
   }
 
   function startEdit(row: FormRow) {
+    // Only switch which row's panel is open — never clear another row's
+    // in-progress pick. The row keeps whatever draft it already had.
     setEditingId(row.id);
-    setDraftSlot(null);
-    setDraftReason("");
     setError(null);
     setInfo(null);
   }
 
-  function cancelEdit() {
+  function cancelEdit(rowId?: string) {
     setEditingId(null);
-    setDraftSlot(null);
-    setDraftReason("");
+    // Abandon only THIS row's draft, leaving other rows' picks intact.
+    if (rowId) {
+      setDraftByRow((m) => ({ ...m, [rowId]: null }));
+      setReasonByRow((m) => ({ ...m, [rowId]: "" }));
+    }
   }
 
   async function submitReschedule(row: FormRow) {
-    if (!draftSlot) {
+    const draft = draftByRow[row.id];
+    if (!draft) {
       setError("새 시간을 선택해 주세요.");
       return;
     }
-    const startIso = draftSlot.slot_start;
-    const endIso = draftSlot.slot_end;
+    const startIso = draft.slot_start;
+    const endIso = draft.slot_end;
 
-    const reason = draftReason.trim();
+    const reason = (reasonByRow[row.id] ?? "").trim();
 
     setBusy(row.id);
     setError(null);
@@ -148,8 +156,8 @@ export function BookingEditForm(props: Props) {
           "일정 변경 요청이 접수되었습니다. 실험자 승인 후 반영됩니다.",
       );
       setEditingId(null);
-      setDraftSlot(null);
-      setDraftReason("");
+      setDraftByRow((m) => ({ ...m, [row.id]: null }));
+      setReasonByRow((m) => ({ ...m, [row.id]: "" }));
     } catch {
       setError("네트워크 오류로 일정 변경 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
@@ -287,17 +295,19 @@ export function BookingEditForm(props: Props) {
                       slotsUrl={`/api/booking-edit/${token}/slots?exclude=${row.id}`}
                       disableRealtime
                       singleSelect
-                      selectedSlots={draftSlot ? [draftSlot] : []}
-                      onChange={(slots) => setDraftSlot(slots[0] ?? null)}
+                      selectedSlots={draftByRow[row.id] ? [draftByRow[row.id]!] : []}
+                      onChange={(slots) =>
+                        setDraftByRow((m) => ({ ...m, [row.id]: slots[0] ?? null }))
+                      }
                     />
                   </div>
 
                   <div className="mt-3 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
-                    {draftSlot ? (
+                    {draftByRow[row.id] ? (
                       <span>
                         선택한 새 시간:{" "}
                         <b className="text-blue-700">
-                          {formatSlotLabel(draftSlot)}
+                          {formatSlotLabel(draftByRow[row.id]!)}
                         </b>
                       </span>
                     ) : (
@@ -312,8 +322,10 @@ export function BookingEditForm(props: Props) {
                   </label>
                   <input
                     type="text"
-                    value={draftReason}
-                    onChange={(e) => setDraftReason(e.target.value)}
+                    value={reasonByRow[row.id] ?? ""}
+                    onChange={(e) =>
+                      setReasonByRow((m) => ({ ...m, [row.id]: e.target.value }))
+                    }
                     disabled={isBusy}
                     maxLength={500}
                     placeholder="예: 개인 사정으로 참여가 어려워 일정을 옮기고 싶습니다"
@@ -328,14 +340,14 @@ export function BookingEditForm(props: Props) {
                     <button
                       type="button"
                       onClick={() => submitReschedule(row)}
-                      disabled={isBusy || !draftSlot}
+                      disabled={isBusy || !draftByRow[row.id]}
                       className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                     >
                       {isBusy ? "요청 중..." : "요청 보내기"}
                     </button>
                     <button
                       type="button"
-                      onClick={cancelEdit}
+                      onClick={() => cancelEdit(row.id)}
                       disabled={isBusy}
                       className="rounded border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
                     >
