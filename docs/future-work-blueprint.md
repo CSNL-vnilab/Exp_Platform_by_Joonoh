@@ -171,6 +171,44 @@ week-timetable 모바일에서 "← 좌우로 밀어" 텍스트 힌트는 `weeks
 
 ---
 
+## 10. 크로스스택 감사 잔여작업 (2026-07-24, 적용 게이트/스코프 부재로 보류)
+
+> 5차원 어드버서리얼 감사에서 확인·검증된 항목 중 이 세션에서 **적용 불가**했던 것.
+> 코드레벨 8건은 커밋 `7ddfae0`으로 배포됨. 아래는 (a) DB 마이그레이션(분류기가 prod
+> 적용 차단 — [[reference_prod_db_gate]]), (b) `.github/workflows` 변경(OAuth workflow
+> 스코프 부재로 push 거부), (c) 별도 검증이 필요한 저위험 항목.
+
+### 10.1 DB 마이그레이션 적용 필요 (author는 됐거나 아래 설계대로)
+- **00086 reschedule_reminders KST 수정** — 이미 작성·커밋(`c904bbc`). 적용:
+  `node scripts/apply-migration-mgmt.mjs supabase/migrations/00086_fix_reschedule_reminder_tz.sql`.
+- **book_slot 중복/정원 체크가 advisory lock 이전 실행 (레이스)** — `00084` book_slot의
+  DUPLICATE_PARTICIPATION SELECT(87-97)와 recruitment 사전체크(99-110)가
+  `pg_try_advisory_xact_lock`(121) **이전**에 있어 동시 이중제출이 정원을 초과하거나
+  같은 참여자를 이중예약할 수 있음. → 두 체크를 lock 획득 **직후**(slot-conflict 루프 옆)로
+  이동. 신규 마이그레이션으로 book_slot 재정의(신중 — 핵심 RPC, 적용 전 테스트 필수).
+- **apply_reschedule_request revive 시 recruitment 재체크 부재** — `00083` revive UPDATE(151)가
+  정원 자동마감을 재평가하지 않아, 취소로 마감 해제된 실험에 revive로 재진입 시 정원 초과
+  가능. → advisory lock 보유 중 book_slot의 close-check 재실행. (MEDIUM)
+- **promotion-notification 크론이 hard-bounce(5xx) 수신자에 30일 내내 30분마다 재발송** —
+  비일시적 실패도 tracking row에 error_message만 남겨 dedup가 영구실패를 구분 못 함. →
+  `class_promotion_notifications`에 `transient boolean DEFAULT false`(또는 attempts+ceiling)
+  추가 + 크론이 5xx는 non-transient로 표시해 이후 스킵. (HIGH, 마이그레이션+크론코드)
+
+### 10.2 GitHub Actions (workflow 스코프 필요 — GitHub UI나 workflow-scope 토큰으로 적용)
+- **메타데이터 weekly 크론 ↔ db-quality daily 크론 00:00 UTC 동시발화 → 중복발송**:
+  `.github/workflows/metadata-reminders-cron.yml`의 `cron: "0 0 * * 1"` → `"30 1 * * 1"`로
+  변경(daily 배치가 먼저 커밋되어 weekly dedup SELECT가 관측). 주석의 "Sunday 00:00 UTC"도
+  오기(정확히는 Monday 00:00 UTC = Monday 09:00 KST).
+
+### 10.3 저위험 코드 (후속 배포 가능)
+- **admin API 3곳이 비관리자에 307 HTML 리다이렉트(→/dashboard) 대신 JSON 403 반환 필요**:
+  `requireAdmin`(페이지용) → `requireAdminApi`로 교체 + 403 조기반환.
+- **preview-slots가 클라이언트 제공 google_calendar_id를 무검증 신뢰 → 임의 캘린더 free/busy
+  프로브**: 호출자가 접근 가능한 캘린더 allowlist(`calendarList.list`) 또는 소유 실험의
+  `experiments.google_calendar_id`로 제한.
+
+---
+
 ## 우선순위 요약
 - **Quick wins (S, 저위험)**: 1.2 큐 알림 배선, 1.3 부분예약 정합성, 4.2 add-to-calendar.
 - **High-value (검증 필요)**: 1.1 Sentry, 2.1 상태감사, 3.1 waitlist, 3.2 노쇼정책,
