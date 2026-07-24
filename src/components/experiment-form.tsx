@@ -677,6 +677,16 @@ export function ExperimentForm({
         const pathHint = first.path.length > 0 ? ` (${first.path.join(".")})` : "";
         toast(`${first.message}${pathHint}`, "error");
       }
+      // Jump to the step hosting the offending field so its inline error is
+      // visible — otherwise submitting from a LATER step (e.g. step 7 리마인더)
+      // with an error on an earlier field is a silent dead button. Re-open the
+      // advanced online-config <details> when the error lives there. (Mirrors
+      // the code_repo_url/data_path guard below, which already does this.)
+      const firstKey = Object.keys(fieldErrors)[0];
+      if (firstKey) {
+        if (firstKey.startsWith("online_runtime_config")) setAdvancedOpen(true);
+        navigateToStep(stepForErrorKey(firstKey));
+      }
       return;
     }
 
@@ -1264,8 +1274,11 @@ export function ExperimentForm({
                 label="세션 간 휴식 시간 (분)"
                 type="number"
                 min={0}
-                value={breakMinutes}
-                onChange={(e) => setBreakMinutes(Number(e.target.value))}
+                value={Number.isFinite(breakMinutes) ? breakMinutes : ""}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setBreakMinutes(raw === "" ? NaN : Number(raw));
+                }}
                 error={errors.break_between_slots_minutes}
               />
 
@@ -1295,8 +1308,14 @@ export function ExperimentForm({
                   label="한 시간대(슬롯)당 동시 참여 인원"
                   type="number"
                   min={1}
-                  value={maxParticipants}
-                  onChange={(e) => setMaxParticipants(Number(e.target.value))}
+                  // Let the field hold "" while retyping instead of snapping to
+                  // 0 (Number("")===0) which forces the input to "0" and traps
+                  // the researcher. NaN is rejected by validation on submit.
+                  value={Number.isFinite(maxParticipants) ? maxParticipants : ""}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setMaxParticipants(raw === "" ? NaN : Number(raw));
+                  }}
                   error={errors.max_participants_per_slot}
                 />
                 <p className="mt-1 text-xs text-muted">
@@ -1365,8 +1384,11 @@ export function ExperimentForm({
                 type="number"
                 min={0}
                 step={1000}
-                value={participationFee}
-                onChange={(e) => setParticipationFee(Number(e.target.value))}
+                value={Number.isFinite(participationFee) ? participationFee : ""}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setParticipationFee(raw === "" ? NaN : Number(raw));
+                }}
                 error={errors.participation_fee}
               />
 
