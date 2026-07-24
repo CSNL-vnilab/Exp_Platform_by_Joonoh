@@ -446,12 +446,22 @@ export async function POST(
   }
 
   // Send via Gmail SMTP. CC the researcher so they have a record of
-  // every dispatch in their own inbox.
+  // every dispatch in their own inbox — but this email carries PII
+  // (RRN / bank account / 통장사본), so the CC MUST pass the same
+  // recipient-domain allowlist the `to` field is validated against
+  // (schema .refine line 83). An off-allowlist researcher contact_email
+  // would otherwise leak PII to an external domain. Dedup against `to`.
+  const gatedCc =
+    payload.cc &&
+    isRecipientDomainAllowed(payload.cc) &&
+    payload.cc.toLowerCase() !== payload.to.toLowerCase()
+      ? payload.cc
+      : undefined;
   let result: Awaited<ReturnType<typeof sendEmail>>;
   try {
     result = await sendEmail({
       to: payload.to,
-      cc: payload.cc ?? undefined,
+      cc: gatedCc,
       subject: payload.subject,
       html: payload.html,
       text: payload.text,

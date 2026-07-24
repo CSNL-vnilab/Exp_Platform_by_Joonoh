@@ -42,10 +42,20 @@ const FIXED_COLS = [
 function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return "";
   const s = String(v);
-  if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
-    return '"' + s.replace(/"/g, '""') + '"';
+  // CSV/formula-injection guard: a participant-controlled trial value starting
+  // with = + - @ (or tab/CR) executes as a formula when the CSV is opened in
+  // Excel/Sheets. Prefix a single quote to neutralize, then apply normal
+  // quoting. One chokepoint covers header + every data cell.
+  const guarded = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  if (
+    guarded.includes(",") ||
+    guarded.includes('"') ||
+    guarded.includes("\n") ||
+    guarded.includes("\r")
+  ) {
+    return '"' + guarded.replace(/"/g, '""') + '"';
   }
-  return s;
+  return guarded;
 }
 
 // Render a trial-level cell value. Primitives pass through (String()); nested

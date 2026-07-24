@@ -455,8 +455,22 @@ export async function POST(
   // completion_code can collide (astronomically unlikely for UUIDs, but
   // non-trivial for alphanumeric:4). Retry up to 3x with fresh codes
   // before giving up and warning the participant.
+  //
+  // SECURITY: do NOT trust the client-supplied `is_last`. A participant
+  // holding their run token could POST a single empty block with
+  // is_last:true and mint a valid completion code (→ payout) for zero work.
+  // Gate on the SERVER-computed submitted-block count instead: when the
+  // experiment declares block_count, require the run to have reached it;
+  // otherwise fall back to is_last but still require ≥1 accepted block.
+  // (Making block_count required for online/hybrid is a follow-up — see
+  // future-work blueprint — that closes the no-block_count residual.)
+  const declaredBlockCount = exp.online_runtime_config?.block_count;
+  const isFinalBlock =
+    typeof declaredBlockCount === "number"
+      ? ingest.blocks_submitted >= declaredBlockCount
+      : parsed.data.is_last && ingest.blocks_submitted >= 1;
   let completionCode: string | null = null;
-  if (parsed.data.is_last) {
+  if (isFinalBlock) {
     const format = exp.online_runtime_config?.completion_token_format;
     let mintErr: { message?: string; code?: string } | null = null;
     for (let attempt = 0; attempt < 3 && !completionCode; attempt++) {

@@ -3,6 +3,8 @@ import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidUUID } from "@/lib/utils/validation";
 import { verifyRunToken, hashToken, TokenError } from "@/lib/experiments/run-token";
+import { sanitizeOnlineRuntimeConfig } from "@/lib/experiments/sanitize";
+import type { OnlineRuntimeConfig } from "@/types/database";
 
 // GET /api/experiments/:experimentId/data/:bookingId/session?t=<token>
 //
@@ -131,7 +133,15 @@ export async function GET(
       id: exp.id,
       title: exp.title,
       mode: exp.experiment_mode,
-      runtime_config: exp.online_runtime_config ?? {},
+      // SANITIZE before returning to the token-holding participant — this
+      // endpoint mirrors the SSR run page, which strips attention_checks[].
+      // correct_answer / counterbalance_spec / exclude_experiment_ids. Without
+      // this the participant could read every attention-check answer and
+      // defeat the filter (the SSR path already sanitizes; this sibling didn't).
+      runtime_config:
+        sanitizeOnlineRuntimeConfig(
+          exp.online_runtime_config as OnlineRuntimeConfig | null,
+        ) ?? {},
       irb_document_url: exp.irb_document_url,
       data_consent_required: exp.data_consent_required,
     },
