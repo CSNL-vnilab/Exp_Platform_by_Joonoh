@@ -1,14 +1,24 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod/v4";
 import { normalizePhone } from "@/lib/utils/validation";
+import { rateLimit } from "@/lib/utils/rate-limit";
 import { verifyBookingEditTokenOrError } from "@/lib/booking-edit/access";
 import {
   issueVerifySession,
   BOOKING_EDIT_SESSION_COOKIE,
   BOOKING_EDIT_SESSION_TTL_MS,
 } from "@/lib/booking-edit/session";
+
+function clientIp(req: NextRequest): string {
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) return xff.split(",")[0].trim();
+  const xri = req.headers.get("x-real-ip");
+  if (xri) return xri.trim();
+  return "unknown";
+}
 
 // POST /api/booking-edit/[token]/verify
 //
@@ -43,6 +53,29 @@ export async function POST(
   const tokenResult = verifyBookingEditTokenOrError(token);
   if (tokenResult instanceof NextResponse) return tokenResult;
   const verifiedToken = tokenResult;
+
+  // Rate-limit the identity guess BEFORE touching the DB — an unauthenticated
+  // name+phone check is a brute-force target (the payment routes already gate
+  // this way). Per-IP (broad) + per-token (the group under attack).
+  const rl429 = () =>
+    new NextResponse(
+      JSON.stringify({ error: "요청이 많아 잠시 후 다시 시도해 주세요." }),
+      {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": "60" },
+      },
+    );
+  const ip = clientIp(request);
+  if (!rateLimit("booking-verify-ip", ip, { windowMs: 60_000, max: 10 }).allowed) {
+    return rl429();
+  }
+  const tokenKey = createHash("sha256").update(token).digest("hex").slice(0, 32);
+  if (
+    !rateLimit("booking-verify-token", tokenKey, { windowMs: 60_000, max: 5 })
+      .allowed
+  ) {
+    return rl429();
+  }
 
   const parsed = verifySchema.safeParse(
     await request.json().catch(() => null),
@@ -86,6 +119,16 @@ export async function POST(
 
   const storedName = normalizeName(row.participants.name);
   const storedPhone = normalizePhone(row.participants.phone);
+
+  // Reject any EMPTY normalized factor — a backfilled/phone-less participant
+  // (stored phone empty by policy) would otherwise pass with an empty phone
+  // input, collapsing the two-factor gate to name-only. Empty can never match.
+  if (!storedName || !storedPhone || !inName || !inPhone) {
+    return NextResponse.json(
+      { error: "본인 확인에 실패했습니다. 입력하신 정보를 확인해 주세요." },
+      { status: 401 },
+    );
+  }
 
   if (inName !== storedName || inPhone !== storedPhone) {
     return NextResponse.json(

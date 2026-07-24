@@ -406,7 +406,17 @@ export async function POST(
     if (wasRevive && payInfo && payInfo.status === "cancelled") {
       const { error: payErr } = await admin
         .from("participant_payment_info")
-        .update({ status: "pending_participant" })
+        // Also clear the send/idempotency stamps: the ALL_CANCELLED settlement
+        // had stamped payment_link_sent_at, which would later short-circuit the
+        // completion auto-dispatch (ALREADY_SENT) so the revived participant
+        // never gets the 정산 정보 email. Reset them so dispatch works without
+        // needing a manual force-resend.
+        .update({
+          status: "pending_participant",
+          payment_link_sent_at: null,
+          payment_link_attempts: 0,
+          payment_link_last_error: null,
+        })
         .eq("booking_group_id", booking.booking_group_id ?? "")
         .eq("status", "cancelled");
       if (payErr) {

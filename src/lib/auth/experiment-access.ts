@@ -136,9 +136,19 @@ export async function requireExperimentAccess(
 
   const { data: profile } = await admin
     .from("profiles")
-    .select("role")
+    .select("role, disabled")
     .eq("id", user.id)
     .maybeSingle();
+
+  // A disabled (offboarded/suspended) account loses ALL experiment access —
+  // even to experiments it owns. Checked before owner/admin so a disabled
+  // owner can't export PII or mutate payouts. (Central chokepoint; the two
+  // hand-rolled auth blocks in payment-export/amount routes mirror this.)
+  const disabled =
+    (profile as unknown as { disabled?: boolean } | null)?.disabled === true;
+  if (disabled) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const experimentRow = exp as unknown as {
     id: string;

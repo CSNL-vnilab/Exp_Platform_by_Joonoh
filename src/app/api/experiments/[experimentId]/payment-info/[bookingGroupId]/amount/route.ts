@@ -60,9 +60,13 @@ export async function PATCH(
   }
   const { data: profile } = await admin
     .from("profiles")
-    .select("role")
+    .select("role, disabled")
     .eq("id", user.id)
     .maybeSingle();
+  // A disabled account cannot mutate payout amounts, even for its own experiment.
+  if ((profile as { disabled?: boolean } | null)?.disabled) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const isOwner = experiment.created_by === user.id;
   const isAdmin = profile?.role === "admin";
   if (!isOwner && !isAdmin) {

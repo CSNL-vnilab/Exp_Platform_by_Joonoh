@@ -239,7 +239,13 @@ export async function GET(request: NextRequest) {
       // 2026-05-19 directive (previously admin-only).
       const phoneDigits = search.replace(/\D/g, "");
       if (phoneDigits.length >= 4) {
-        query = query.or(`name.ilike.%${search}%,phone.ilike.%${phoneDigits}%`);
+        // Escape PostgREST .or() reserved chars in the user-supplied name so a
+        // comma / parens can't inject extra filter terms (phoneDigits is
+        // already digits-only). Cap length as a mild DoS guard.
+        const safeName = search.replace(/[,()\\*]/g, " ").slice(0, 100);
+        query = query.or(
+          `name.ilike.%${safeName}%,phone.ilike.%${phoneDigits}%`,
+        );
       } else {
         query = query.ilike("name", `%${search}%`);
       }

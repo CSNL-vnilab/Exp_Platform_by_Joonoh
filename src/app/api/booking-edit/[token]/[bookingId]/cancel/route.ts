@@ -24,7 +24,7 @@ export async function POST(
   const { token, bookingId } = await params;
 
   const access = await requireBookingEditAccess(token, bookingId, {
-    extraBookingColumns: "status, google_event_id, slot_start",
+    extraBookingColumns: "status, google_event_id, slot_start, experiment_id",
     extraExperimentColumns: "google_calendar_id",
   });
   if (access instanceof NextResponse) return access;
@@ -35,6 +35,7 @@ export async function POST(
     status: string;
     google_event_id: string | null;
     slot_start: string;
+    experiment_id: string;
     experiments: { google_calendar_id: string | null } | null;
   };
 
@@ -65,6 +66,21 @@ export async function POST(
     return NextResponse.json(
       { error: "취소 처리 중 오류가 발생했습니다" },
       { status: 500 },
+    );
+  }
+
+  // A self-cancel frees a recruitment seat — reopen the experiment if it was
+  // AUTO-closed on full (else the next applicant hits EXPERIMENT_NOT_FOUND).
+  // Same guarded RPC the admin cancel path uses; it only reopens system-auto-
+  // closed, still-in-window, now-undersubscribed experiments. Best-effort.
+  try {
+    await admin.rpc("reopen_experiment_if_undersubscribed", {
+      p_experiment_id: booking.experiment_id,
+    });
+  } catch (err) {
+    console.warn(
+      "[ParticipantCancel] reopen_experiment_if_undersubscribed failed:",
+      err instanceof Error ? err.message : err,
     );
   }
 

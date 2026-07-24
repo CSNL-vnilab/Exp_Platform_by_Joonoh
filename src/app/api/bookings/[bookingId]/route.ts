@@ -397,6 +397,33 @@ export async function PATCH(
     );
   }
 
+  // Payment-progress guard — mirror the participant-request approval route
+  // (reschedule-requests/[requestId]): once settlement has advanced past
+  // pending, propagate_payment_period no-ops (NOT_PENDING), so moving the slot
+  // would silently desync the claim document's 활용일자 from the real dates.
+  if (booking.booking_group_id) {
+    const { data: payRaw } = await admin
+      .from("participant_payment_info")
+      .select("status")
+      .eq("booking_group_id", booking.booking_group_id)
+      .maybeSingle();
+    const payStatus = (payRaw as { status: string } | null)?.status;
+    if (
+      payStatus &&
+      ["claimed", "submitted_to_admin", "paid", "paid_offline"].includes(
+        payStatus,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "정산이 진행된 예약은 일정 변경이 불가합니다. 담당자에게 문의해 주세요.",
+        },
+        { status: 409 },
+      );
+    }
+  }
+
   const parsed = rescheduleSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(

@@ -49,9 +49,13 @@ export async function GET(
   }
   const { data: profile } = await admin
     .from("profiles")
-    .select("role")
+    .select("role, disabled")
     .eq("id", user.id)
     .maybeSingle();
+  // A disabled account loses access even to its own experiments' decrypted PII.
+  if ((profile as { disabled?: boolean } | null)?.disabled) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const isOwner = experiment.created_by === user.id;
   const isAdmin = profile?.role === "admin";
   if (!isOwner && !isAdmin) {
